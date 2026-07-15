@@ -18,6 +18,7 @@
 - **登录时自动启动**（系统登录项）
 - **可选 .mp4 → .m4v 附件名**（只改微信显示名，不改本地文件）
 - 可在设置中启停本地接口 `http://127.0.0.1:18790`（默认关闭，菜单栏发送不依赖它）
+- 设置页提供 GitHub 与邮件联系图标（`double_tea@foxmail.com`）
 
 ## 给朋友使用（推荐）
 
@@ -64,6 +65,9 @@ chmod +x scripts/*.sh
 | 本地接口 | 设置 → 启用本地接口 |
 
 限制：单文件最大 200 MB；发送间隔冷却 60 秒（排队自动等待）。
+
+微信 iLink 的主动发送还受会话窗口和消息额度限制。腾讯公开实现要求把用户入站消息中的 `context_token` 回传给后续发送，但没有公布正式有效期与额度数值；其公开仓库反馈中常见约 24–48 小时无入站消息后失效、同一上下文约 10 条主动回复。当前 WeClaw Send 不消费入站消息，也不自动刷新 `context_token`。若长时间未互动或连续发送较多后失败，请先在微信里给 ClawBot 发一条消息，再重试。参见腾讯仓库的 [会话限制反馈](https://github.com/Tencent/openclaw-weixin/issues/202) 与 [`ret=-2` 反馈](https://github.com/Tencent/openclaw-weixin/issues/225)。
+
 排障见 [docs/使用说明.md](docs/使用说明.md)。
 
 ## 可选：本地 HTTP 接口

@@ -75,6 +75,13 @@ precondition(file["file_name"] as? String == "0714_一饭封神_成片 v05.m4v")
 precondition(media["aes_key"] as? String == "MDAxMTIyMzM0NDU1NjY3Nzg4OTlhYWJiY2NkZGVlZmY=")
 precondition(message["context_token"] == nil)
 
+do {
+    try APIResponse(result: -2, errorMessage: nil).validateSendMessage()
+    preconditionFailure("ret=-2 must provide an actionable error")
+} catch let error as WeChatError {
+    precondition(error.localizedDescription.contains("ClawBot"))
+}
+
 let uploadURL = try WeChatService.uploadURL(
     from: GetUploadURLResponse(
         result: 0,

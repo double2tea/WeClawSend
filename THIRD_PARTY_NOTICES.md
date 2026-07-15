@@ -1,9 +1,22 @@
 # Third-Party Notices
 
+The following components are licensed under the MIT License.
+
+## Tencent openclaw-weixin
+
 The WeChat iLink protocol implementation was developed with reference to
 [`Tencent/openclaw-weixin`](https://github.com/Tencent/openclaw-weixin).
 
 Copyright (C) 2026 Tencent. All rights reserved.
+
+## GitHub Octicons
+
+The GitHub mark used in the settings footer is from
+[`primer/octicons`](https://github.com/primer/octicons).
+
+Copyright (c) 2026 GitHub Inc.
+
+## MIT License
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

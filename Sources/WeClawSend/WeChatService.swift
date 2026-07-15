@@ -53,7 +53,7 @@ actor WeChatService {
     private static let loginBaseURL = URL(string: "https://ilinkai.weixin.qq.com")!
     private static let cdnBaseURL = URL(string: "https://novac2c.cdn.weixin.qq.com/c2c")!
     private static let channelVersion = "2.4.6"
-    private static let botAgent = "WeClawSend/1.0.0"
+    private static let botAgent = "WeClawSend/1.1.0"
     private static let appClientVersion = "132102"
 
     private let store: WeChatCredentialStore
@@ -341,7 +341,7 @@ actor WeChatService {
             token: credentials.botToken,
             timeout: 15
         )
-        try sendResponse.validate(action: "微信发送失败")
+        try sendResponse.validateSendMessage()
         credentialsValidated = true
         await progress(
             WeChatSendProgress(
@@ -643,6 +643,15 @@ struct APIResponse: Decodable, Equatable, Sendable {
         guard result == nil || result == 0 else {
             throw WeChatError.api("\(action)：\(errorMessage ?? "ret=\(result!)")")
         }
+    }
+
+    func validateSendMessage() throws {
+        guard result != -2 else {
+            throw WeChatError.api(
+                "微信限制了本次发送，可能是会话过期或发送额度已用完。请先给 ClawBot 发一条消息，再重试。"
+            )
+        }
+        try validate(action: "微信发送失败")
     }
 }
 

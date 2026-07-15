@@ -111,6 +111,10 @@ Content-Type: application/json
 
 `queue_wait_ms` 仅表示请求到达后等待发送槽位的时间；不包含文件加密、CDN 上传和提交微信消息的耗时。
 
+### 微信会话限制
+
+腾讯公开实现会从 `getupdates` 的用户入站消息取得 `context_token`，并在后续 `sendmessage` 中原样回传。当前 WeClaw Send 只负责文件发送，不消费入站消息，也不自动刷新或持久化 `context_token`。微信没有公开正式有效期和主动发送额度；若返回 `ret=-2`，App 会提示用户先在微信里给 ClawBot 发一条消息，再重试。
+
 **错误：** JSON `{ "ok": false, "error": "..." }`
 
 | HTTP | 典型原因 |

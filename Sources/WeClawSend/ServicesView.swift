@@ -145,6 +145,19 @@ struct ServicesView: View {
                         .font(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
                 }
+
+                if model.weChatStatus.isOnline {
+                    Divider().opacity(0.35)
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "arrow.clockwise.circle")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Brand.warning)
+                        Text("长时间未互动或连续发送较多时，微信可能限制发送。请先给 ClawBot 发一条消息，再重试。")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
     }
@@ -246,6 +259,29 @@ struct ServicesView: View {
             Text("独立应用 · 无需其它后台")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
+            Link(destination: Brand.githubURL) {
+                Image(nsImage: Brand.githubMarkImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 13, height: 13)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.primary.opacity(0.05)))
+            }
+            .buttonStyle(.plain)
+            .help("在 GitHub 查看项目")
+            .accessibilityLabel("GitHub")
+
+            Link(destination: Brand.supportEmailURL) {
+                Image(systemName: "envelope")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.primary.opacity(0.05)))
+            }
+            .buttonStyle(.plain)
+            .help("发送邮件至 double_tea@foxmail.com")
+            .accessibilityLabel("邮件联系")
             Spacer()
             Button("退出") {
                 model.quit()
