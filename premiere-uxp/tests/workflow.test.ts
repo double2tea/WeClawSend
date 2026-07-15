@@ -16,12 +16,14 @@ describe("Premiere export workflow", () => {
     expect(() => buildOutputFileName("", "mp4")).toThrow("请输入输出文件名");
     expect(() => buildOutputFileName("目录/成片", "mp4")).toThrow("不能包含 /");
     expect(() => buildOutputFileName("成片", "")).toThrow("没有提供文件扩展名");
+    expect(() => buildOutputFileName("成片", "../../mp4")).toThrow("无效的文件扩展名");
   });
 
   it("joins macOS output paths", () => {
     expect(buildOutputPath("/Users/me/Movies", "成片.mp4")).toBe("/Users/me/Movies/成片.mp4");
     expect(buildOutputPath("/Users/me/Movies/", "成片.mp4")).toBe("/Users/me/Movies/成片.mp4");
     expect(() => buildOutputPath("", "成片.mp4")).toThrow("请选择输出位置");
+    expect(() => buildOutputPath("C:\\Exports", "成片.mp4")).toThrow("macOS 绝对路径");
   });
 
   it("encodes the WeClaw Send integration URL", () => {

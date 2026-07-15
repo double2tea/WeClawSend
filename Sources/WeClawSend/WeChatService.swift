@@ -6,6 +6,7 @@ enum WeChatError: LocalizedError {
     case http(Int, String)
     case api(String)
     case login(String)
+    case contextRefreshTimedOut
     case missingUploadURL
     case missingUploadResult
 
@@ -19,6 +20,8 @@ enum WeChatError: LocalizedError {
             "微信服务 HTTP \(status)：\(message)"
         case let .api(message), let .login(message):
             message
+        case .contextRefreshTimedOut:
+            "等待微信会话刷新超时，请重新发送文件并在提示后给 ClawBot 发一条消息"
         case .missingUploadURL:
             "微信服务未返回文件上传地址"
         case .missingUploadResult:
@@ -59,6 +62,7 @@ actor WeChatService {
 
     private let store: WeChatCredentialStore
     private let session: URLSession
+    private let contextRefreshTimeout: Duration
     private var credentials: WeChatCredentials?
     private var bootstrapTask: Task<Void, Never>?
     private var credentialsValidated = false
@@ -66,18 +70,25 @@ actor WeChatService {
     private var loginQRCode: String?
     private var loginPollingBaseURL = loginBaseURL
 
-    init(store: WeChatCredentialStore = WeChatCredentialStore(), session: URLSession = .shared) {
+    init(
+        store: WeChatCredentialStore = WeChatCredentialStore(),
+        session: URLSession = .shared,
+        contextRefreshTimeout: Duration = .seconds(300)
+    ) {
         self.store = store
         self.session = session
+        self.contextRefreshTimeout = contextRefreshTimeout
     }
 
     init(
         credentials: WeChatCredentials,
         session: URLSession,
-        store: WeChatCredentialStore = WeChatCredentialStore()
+        store: WeChatCredentialStore = WeChatCredentialStore(),
+        contextRefreshTimeout: Duration = .seconds(300)
     ) {
         self.store = store
         self.session = session
+        self.contextRefreshTimeout = contextRefreshTimeout
         self.credentials = credentials
     }
 
@@ -350,7 +361,6 @@ actor WeChatService {
             timeout: 15
         )
         if sendResponse.result == -2 {
-            let refreshStartedAt = Int64(Date().timeIntervalSince1970 * 1_000)
             await progress(
                 WeChatSendProgress(
                     stage: .waitingForContext,
@@ -359,10 +369,7 @@ actor WeChatService {
                     totalBytes: totalBytes
                 )
             )
-            let contextToken = try await waitForFreshContextToken(
-                credentials: credentials,
-                after: refreshStartedAt
-            )
+            let contextToken = try await waitForFreshContextToken(credentials: credentials)
             await progress(
                 WeChatSendProgress(
                     stage: .sending,
@@ -440,10 +447,24 @@ actor WeChatService {
         return parameter
     }
 
-    private func waitForFreshContextToken(
-        credentials: WeChatCredentials,
-        after timestampMilliseconds: Int64
-    ) async throws -> String {
+    private func waitForFreshContextToken(credentials: WeChatCredentials) async throws -> String {
+        try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask { [self] in
+                try await pollForFreshContextToken(credentials: credentials)
+            }
+            group.addTask { [contextRefreshTimeout] in
+                try await Task.sleep(for: contextRefreshTimeout)
+                throw WeChatError.contextRefreshTimedOut
+            }
+            defer { group.cancelAll() }
+            guard let contextToken = try await group.next() else {
+                throw WeChatError.invalidResponse
+            }
+            return contextToken
+        }
+    }
+
+    private func pollForFreshContextToken(credentials: WeChatCredentials) async throws -> String {
         let endpoint = try Self.endpoint(
             baseURL: credentials.baseURL,
             path: "ilink/bot/getupdates"
@@ -466,11 +487,17 @@ actor WeChatService {
             if let nextBuffer = response.buffer {
                 buffer = nextBuffer
             }
-            guard let message = response.messages?.first(where: {
-                $0.fromUserID == credentials.userID
-                    && ($0.createTimeMilliseconds ?? 0) >= timestampMilliseconds
-                    && !($0.contextToken ?? "").isEmpty
-            }), let contextToken = message.contextToken else {
+            let newestMessage = response.messages?.reduce(nil as InboundMessage?) { newest, message in
+                guard message.fromUserID == credentials.userID,
+                      let contextToken = message.contextToken,
+                      !contextToken.isEmpty,
+                      contextToken != credentials.contextToken else {
+                    return newest
+                }
+                guard let newest else { return message }
+                return message.isNewer(than: newest) ? message : newest
+            }
+            guard let contextToken = newestMessage?.contextToken else {
                 continue
             }
             let refreshed = credentials.refreshingContext(token: contextToken, buffer: buffer)
@@ -650,13 +677,25 @@ private struct GetUpdatesResponse: Decodable {
 
 private struct InboundMessage: Decodable {
     let fromUserID: String?
+    let sequence: Int64?
     let createTimeMilliseconds: Int64?
     let contextToken: String?
 
     enum CodingKeys: String, CodingKey {
         case fromUserID = "from_user_id"
+        case sequence = "seq"
         case createTimeMilliseconds = "create_time_ms"
         case contextToken = "context_token"
+    }
+
+    func isNewer(than other: Self) -> Bool {
+        if sequence != other.sequence {
+            return (sequence ?? .min) > (other.sequence ?? .min)
+        }
+        if createTimeMilliseconds != other.createTimeMilliseconds {
+            return (createTimeMilliseconds ?? .min) > (other.createTimeMilliseconds ?? .min)
+        }
+        return true
     }
 }
 

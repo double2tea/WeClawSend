@@ -140,6 +140,10 @@ precondition(pathOnlyIntegrationRequest.fileName == nil)
 let rejectedIntegrationURLs = [
     ("other://send?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
     ("weclaw-send://other?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
+    ("weclaw-send://send/unexpected?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
+    ("weclaw-send://send:1234?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
+    ("weclaw-send://user@send?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
+    ("weclaw-send://send?file_path=%2Ftmp%2Fa#fragment", "不支持的集成链接"),
     ("weclaw-send://send?file_path=%2Ftmp%2Fa&unknown=value", "未知参数"),
     ("weclaw-send://send?file_path=%2Ftmp%2Fa&token=legacy", "未知参数"),
     ("weclaw-send://send?file_path=%2Ftmp%2Fa&file_name=", "文件名不能为空"),
@@ -315,14 +319,14 @@ MockURLProtocol.handler = { request in
             precondition(body["get_updates_buf"] as? String == "old-buffer")
             return MockURLProtocol.response(
                 request,
-                body: #"{"ret":0,"get_updates_buf":"mid-buffer","msgs":[{"from_user_id":"user@im.wechat","create_time_ms":0,"context_token":"old-context"}]}"#
+                body: #"{"ret":0,"get_updates_buf":"mid-buffer","msgs":[{"seq":1,"from_user_id":"user@im.wechat","create_time_ms":0,"context_token":"stale-context"}]}"#
             )
         }
+        precondition(contextRefreshResult.updateCount == 2)
         precondition(body["get_updates_buf"] as? String == "mid-buffer")
-        let createTime = Int64(Date().timeIntervalSince1970 * 1_000) + 60_000
         return MockURLProtocol.response(
             request,
-            body: #"{"ret":0,"get_updates_buf":"new-buffer","msgs":[{"from_user_id":"user@im.wechat","create_time_ms":\#(createTime),"context_token":"fresh-context"}]}"#
+            body: #"{"ret":0,"get_updates_buf":"new-buffer","msgs":[{"seq":2,"from_user_id":"user@im.wechat","create_time_ms":0,"context_token":"older-context"},{"seq":3,"from_user_id":"user@im.wechat","create_time_ms":0,"context_token":"fresh-context"}]}"#
         )
     default:
         preconditionFailure("Unexpected context refresh request: \(request.url!.absoluteString)")
@@ -356,6 +360,57 @@ precondition(refreshedCredentials?.contextToken == "fresh-context")
 precondition(refreshedCredentials?.getUpdatesBuffer == "new-buffer")
 let contextStorePermissions = try FileManager.default.attributesOfItem(atPath: contextStoreURL.path)[.posixPermissions]
 precondition((contextStorePermissions as? NSNumber)?.intValue == 0o600)
+
+let timeoutResult = ContextRefreshResultBox()
+let timeoutStoreURL = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-context-timeout-\(UUID()).json")
+let timeoutStore = WeChatCredentialStore(credentialsFileOverride: timeoutStoreURL)
+defer { try? FileManager.default.removeItem(at: timeoutStoreURL) }
+
+MockURLProtocol.handler = { request in
+    switch request.url!.path {
+    case "/ilink/bot/getuploadurl":
+        return MockURLProtocol.response(
+            request,
+            body: #"{"ret":0,"upload_full_url":"https://mock.local/upload"}"#
+        )
+    case "/upload":
+        return MockURLProtocol.response(
+            request,
+            headers: ["x-encrypted-param": "timeout-download-reference"],
+            body: ""
+        )
+    case "/ilink/bot/sendmessage":
+        return MockURLProtocol.response(request, body: #"{"ret":-2}"#)
+    case "/ilink/bot/getupdates":
+        throw URLError(.timedOut)
+    default:
+        preconditionFailure("Unexpected context timeout request: \(request.url!.absoluteString)")
+    }
+}
+
+let contextTimeoutFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let service = WeChatService(
+            credentials: staleCredentials,
+            session: mockSession,
+            store: timeoutStore,
+            contextRefreshTimeout: .milliseconds(20)
+        )
+        try await service.sendFile(at: mockFile, fileName: mockFileName)
+    } catch {
+        timeoutResult.error = error
+    }
+    contextTimeoutFinished.signal()
+}
+precondition(contextTimeoutFinished.wait(timeout: .now() + 10) == .success)
+if let timeoutError = timeoutResult.error as? WeChatError,
+   case .contextRefreshTimedOut = timeoutError {
+    // Expected.
+} else {
+    preconditionFailure("context refresh must time out explicitly")
+}
 
 let pasteboard = NSPasteboard(name: .init("WeClawSendComponentChecks"))
 let fileURL = FileManager.default.temporaryDirectory

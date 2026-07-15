@@ -113,7 +113,7 @@ Content-Type: application/json
 
 ### 微信会话限制
 
-腾讯公开实现会从 `getupdates` 的用户入站消息取得 `context_token`，并在后续 `sendmessage` 中原样回传。微信没有公开正式有效期和主动发送额度。若返回 `ret=-2`，WeClaw Send 会按需长轮询 `getupdates`，提示用户给 ClawBot 发任意消息，保存新 `context_token` 后自动重试原文件；不会常驻消费入站消息。
+腾讯公开实现会从 `getupdates` 的用户入站消息取得 `context_token`，并在后续 `sendmessage` 中原样回传。微信没有公开正式有效期和主动发送额度。若返回 `ret=-2`，WeClaw Send 会按需长轮询 `getupdates`，提示用户给 ClawBot 发任意消息，保存新 `context_token` 后自动重试原文件；等待 5 分钟未收到消息会失败，不会常驻消费入站消息。
 
 刷新期间 `/send` 请求保持等待，直到收到新用户消息并完成自动重试；调用方不应在此期间重复提交同一文件。
 

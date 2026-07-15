@@ -4,7 +4,13 @@ enum IntegrationURL {
     static let scheme = "weclaw-send"
 
     static func sendRequest(from url: URL) throws -> SendRequest {
-        guard url.scheme == scheme, url.host == "send" else {
+        guard url.scheme == scheme,
+              url.host == "send",
+              url.user == nil,
+              url.password == nil,
+              url.port == nil,
+              url.path.isEmpty,
+              url.fragment == nil else {
             throw BackendError.rejected("不支持的集成链接")
         }
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
