@@ -39,6 +39,7 @@ enum WeChatSendStage: String, Codable, Sendable {
     case encrypting
     case uploading
     case sending
+    case waitingForContext
     case finished
 }
 
@@ -53,7 +54,7 @@ actor WeChatService {
     private static let loginBaseURL = URL(string: "https://ilinkai.weixin.qq.com")!
     private static let cdnBaseURL = URL(string: "https://novac2c.cdn.weixin.qq.com/c2c")!
     private static let channelVersion = "2.4.6"
-    private static let botAgent = "WeClawSend/1.1.0"
+    private static let botAgent = "WeClawSend/1.2.0"
     private static let appClientVersion = "132102"
 
     private let store: WeChatCredentialStore
@@ -70,8 +71,12 @@ actor WeChatService {
         self.session = session
     }
 
-    init(credentials: WeChatCredentials, session: URLSession) {
-        store = WeChatCredentialStore()
+    init(
+        credentials: WeChatCredentials,
+        session: URLSession,
+        store: WeChatCredentialStore = WeChatCredentialStore()
+    ) {
+        self.store = store
         self.session = session
         self.credentials = credentials
     }
@@ -307,40 +312,72 @@ actor WeChatService {
             )
         )
 
-        let messageRequest = SendMessageRequest(
-            message: WeChatMessage(
-                fromUserID: "",
-                toUserID: credentials.userID,
-                clientID: "weclaw-send:\(UUID().uuidString.lowercased())",
-                messageType: 2,
-                messageState: 2,
-                items: [
-                    MessageItem(
-                        type: 4,
-                        file: FileItem(
-                            media: CDNMedia(
-                                encryptedQueryParameter: encryptedParameter,
-                                aesKey: Data(aesKeyHex.utf8).base64EncodedString(),
-                                encryptionType: 1
-                            ),
-                            fileName: fileName,
-                            length: String(rawSize)
+        func messageRequest(contextToken: String?) -> SendMessageRequest {
+            SendMessageRequest(
+                message: WeChatMessage(
+                    fromUserID: "",
+                    toUserID: credentials.userID,
+                    clientID: "weclaw-send:\(UUID().uuidString.lowercased())",
+                    messageType: 2,
+                    messageState: 2,
+                    items: [
+                        MessageItem(
+                            type: 4,
+                            file: FileItem(
+                                media: CDNMedia(
+                                    encryptedQueryParameter: encryptedParameter,
+                                    aesKey: Data(aesKeyHex.utf8).base64EncodedString(),
+                                    encryptionType: 1
+                                ),
+                                fileName: fileName,
+                                length: String(rawSize)
+                            )
                         )
-                    )
-                ]
-            ),
-            baseInfo: Self.baseInfo
-        )
+                    ],
+                    contextToken: contextToken
+                ),
+                baseInfo: Self.baseInfo
+            )
+        }
         let sendEndpoint = try Self.endpoint(
             baseURL: credentials.baseURL,
             path: "ilink/bot/sendmessage"
         )
-        let sendResponse: APIResponse = try await post(
+        var sendResponse: APIResponse = try await post(
             sendEndpoint,
-            body: messageRequest,
+            body: messageRequest(contextToken: credentials.contextToken),
             token: credentials.botToken,
             timeout: 15
         )
+        if sendResponse.result == -2 {
+            let refreshStartedAt = Int64(Date().timeIntervalSince1970 * 1_000)
+            await progress(
+                WeChatSendProgress(
+                    stage: .waitingForContext,
+                    fraction: 0.95,
+                    sentBytes: totalBytes,
+                    totalBytes: totalBytes
+                )
+            )
+            let contextToken = try await waitForFreshContextToken(
+                credentials: credentials,
+                after: refreshStartedAt
+            )
+            await progress(
+                WeChatSendProgress(
+                    stage: .sending,
+                    fraction: 0.98,
+                    sentBytes: totalBytes,
+                    totalBytes: totalBytes
+                )
+            )
+            sendResponse = try await post(
+                sendEndpoint,
+                body: messageRequest(contextToken: contextToken),
+                token: credentials.botToken,
+                timeout: 15
+            )
+        }
         try sendResponse.validateSendMessage()
         credentialsValidated = true
         await progress(
@@ -401,6 +438,46 @@ actor WeChatService {
             throw WeChatError.missingUploadResult
         }
         return parameter
+    }
+
+    private func waitForFreshContextToken(
+        credentials: WeChatCredentials,
+        after timestampMilliseconds: Int64
+    ) async throws -> String {
+        let endpoint = try Self.endpoint(
+            baseURL: credentials.baseURL,
+            path: "ilink/bot/getupdates"
+        )
+        var buffer = credentials.getUpdatesBuffer ?? ""
+        while true {
+            try Task.checkCancellation()
+            let response: GetUpdatesResponse
+            do {
+                response = try await post(
+                    endpoint,
+                    body: GetUpdatesRequest(buffer: buffer, baseInfo: Self.baseInfo),
+                    token: credentials.botToken,
+                    timeout: 45
+                )
+            } catch let error as URLError where error.code == .timedOut {
+                continue
+            }
+            try response.validate()
+            if let nextBuffer = response.buffer {
+                buffer = nextBuffer
+            }
+            guard let message = response.messages?.first(where: {
+                $0.fromUserID == credentials.userID
+                    && ($0.createTimeMilliseconds ?? 0) >= timestampMilliseconds
+                    && !($0.contextToken ?? "").isEmpty
+            }), let contextToken = message.contextToken else {
+                continue
+            }
+            let refreshed = credentials.refreshingContext(token: contextToken, buffer: buffer)
+            try store.save(refreshed)
+            self.credentials = refreshed
+            return contextToken
+        }
     }
 
     private func post<Request: Encodable, Response: Decodable>(
@@ -538,6 +615,51 @@ private struct GetConfigRequest: Encodable {
     }
 }
 
+private struct GetUpdatesRequest: Encodable {
+    let buffer: String
+    let baseInfo: BaseInfo
+
+    enum CodingKeys: String, CodingKey {
+        case buffer = "get_updates_buf"
+        case baseInfo = "base_info"
+    }
+}
+
+private struct GetUpdatesResponse: Decodable {
+    let result: Int?
+    let errorCode: Int?
+    let errorMessage: String?
+    let messages: [InboundMessage]?
+    let buffer: String?
+
+    enum CodingKeys: String, CodingKey {
+        case result = "ret"
+        case errorCode = "errcode"
+        case errorMessage = "errmsg"
+        case messages = "msgs"
+        case buffer = "get_updates_buf"
+    }
+
+    func validate() throws {
+        guard (result == nil || result == 0), (errorCode == nil || errorCode == 0) else {
+            let detail = errorMessage ?? "ret=\(result ?? 0), errcode=\(errorCode ?? 0)"
+            throw WeChatError.api("刷新微信会话失败：\(detail)")
+        }
+    }
+}
+
+private struct InboundMessage: Decodable {
+    let fromUserID: String?
+    let createTimeMilliseconds: Int64?
+    let contextToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case fromUserID = "from_user_id"
+        case createTimeMilliseconds = "create_time_ms"
+        case contextToken = "context_token"
+    }
+}
+
 private struct QRCodeResponse: Decodable {
     let qrcode: String
     let qrcodeImageContent: String
@@ -672,6 +794,25 @@ struct WeChatMessage: Encodable, Equatable, Sendable {
     let messageType: Int
     let messageState: Int
     let items: [MessageItem]
+    let contextToken: String?
+
+    init(
+        fromUserID: String,
+        toUserID: String,
+        clientID: String,
+        messageType: Int,
+        messageState: Int,
+        items: [MessageItem],
+        contextToken: String? = nil
+    ) {
+        self.fromUserID = fromUserID
+        self.toUserID = toUserID
+        self.clientID = clientID
+        self.messageType = messageType
+        self.messageState = messageState
+        self.items = items
+        self.contextToken = contextToken
+    }
 
     enum CodingKeys: String, CodingKey {
         case fromUserID = "from_user_id"
@@ -680,6 +821,7 @@ struct WeChatMessage: Encodable, Equatable, Sendable {
         case messageType = "message_type"
         case messageState = "message_state"
         case items = "item_list"
+        case contextToken = "context_token"
     }
 }
 

@@ -18,7 +18,10 @@
 - **登录时自动启动**（系统登录项）
 - **可选 .mp4 → .m4v 附件名**（只改微信显示名，不改本地文件）
 - 可在设置中启停本地接口 `http://127.0.0.1:18790`（默认关闭，菜单栏发送不依赖它）
+- **DaVinci Resolve 后渲染脚本**：渲染成功后自动发送，可选 M4V 文件或 MP4 视频模式
+- **Premiere Pro 25.6+ UXP 面板**：可选在本次导出成功后自动发送
 - 设置页提供 GitHub 与邮件联系图标（`double_tea@foxmail.com`）
+- 微信会话受限时按需等待用户消息，自动刷新上下文并重试原文件
 
 ## 给朋友使用（推荐）
 
@@ -66,7 +69,7 @@ chmod +x scripts/*.sh
 
 限制：单文件最大 200 MB；发送间隔冷却 60 秒（排队自动等待）。
 
-微信 iLink 的主动发送还受会话窗口和消息额度限制。腾讯公开实现要求把用户入站消息中的 `context_token` 回传给后续发送，但没有公布正式有效期与额度数值；其公开仓库反馈中常见约 24–48 小时无入站消息后失效、同一上下文约 10 条主动回复。当前 WeClaw Send 不消费入站消息，也不自动刷新 `context_token`。若长时间未互动或连续发送较多后失败，请先在微信里给 ClawBot 发一条消息，再重试。参见腾讯仓库的 [会话限制反馈](https://github.com/Tencent/openclaw-weixin/issues/202) 与 [`ret=-2` 反馈](https://github.com/Tencent/openclaw-weixin/issues/225)。
+微信 iLink 的主动发送还受会话窗口和消息额度限制。腾讯公开实现要求把用户入站消息中的 `context_token` 回传给后续发送，但没有公布正式有效期与额度数值；其公开仓库反馈中常见约 24–48 小时无入站消息后失效、同一上下文约 10 条主动回复。若发送返回 `ret=-2`，App 会提示用户给 ClawBot 发任意消息，按需等待新的 `context_token`，保存后自动重试原文件；面板关闭时同时发送 macOS 通知。参见腾讯仓库的 [会话限制反馈](https://github.com/Tencent/openclaw-weixin/issues/202) 与 [`ret=-2` 反馈](https://github.com/Tencent/openclaw-weixin/issues/225)。
 
 排障见 [docs/使用说明.md](docs/使用说明.md)。
 
@@ -89,6 +92,26 @@ Content-Type: application/json
   "file_name": "中文文件名.m4v"
 }
 ```
+
+## DaVinci Resolve 插件
+
+后渲染脚本位于 [`davinci-resolve`](davinci-resolve)。安装后，在 Deliver 页选择需要的脚本；渲染成功时会把输出交给 WeClaw Send。
+
+```sh
+./scripts/install-davinci-plugin.sh
+```
+
+使用前需要在 WeClaw Send 设置中打开「启用本地接口」。两个发送模式、安装位置和日志说明见 [`davinci-resolve/README.md`](davinci-resolve/README.md)。
+
+## Premiere Pro 插件
+
+插件位于 [`premiere-uxp`](premiere-uxp)，要求 Premiere Pro 25.6+。自动发送默认关闭；关闭时插件只导出，不会调用 WeClaw Send。
+
+```sh
+./scripts/build-premiere-plugin.sh
+```
+
+构建产物为 `premiere-uxp/dist`。使用 UXP Developer Tool 2.2+ 加载其中的 `manifest.json`，详细步骤见 [`premiere-uxp/README.md`](premiere-uxp/README.md)。首次启用自动发送时，从 WeClaw Send 设置中复制 Premiere 连接码。插件通过已授权的 `weclaw-send://` 本机链接唤起应用，不要求开启本地 HTTP 接口。
 
 ## 品牌资源
 

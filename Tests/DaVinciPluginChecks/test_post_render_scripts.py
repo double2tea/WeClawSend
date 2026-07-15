@@ -1,0 +1,164 @@
+import importlib.util
+import json
+import os
+import stat
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+
+ROOT = Path(__file__).resolve().parents[2]
+DELIVER_DIR = ROOT / "davinci-resolve" / "Deliver"
+
+
+def load_script(module_name, file_name):
+    spec = importlib.util.spec_from_file_location(module_name, DELIVER_DIR / file_name)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("无法加载 {}".format(file_name))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+M4V = load_script("weclaw_davinci_m4v", "自动发送ClawBot_M4V文件.py")
+MP4 = load_script("weclaw_davinci_mp4", "自动发送ClawBot_MP4视频.py")
+
+
+class FakeResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def read(self):
+        return b'{"ok":true,"status":"sent"}'
+
+
+class PostCapture:
+    def __init__(self):
+        self.request = None
+        self.timeout = None
+
+    def __call__(self, request, timeout):
+        self.request = request
+        self.timeout = timeout
+        return FakeResponse()
+
+
+class PostRenderScriptTests(unittest.TestCase):
+    def test_completion_states(self):
+        for module in (M4V, MP4):
+            with self.subTest(mode=module.SEND_MODE):
+                self.assertTrue(module.completed("Complete", 100))
+                self.assertFalse(module.completed("Complete", 99))
+                self.assertTrue(module.failed("Cancelled"))
+
+    def test_send_claim_prevents_duplicates(self):
+        for module in (M4V, MP4):
+            with self.subTest(mode=module.SEND_MODE), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "output.mp4"
+                source.write_bytes(b"video")
+
+                with (
+                    mock.patch.object(module, "SEND_STATE_DIR", str(Path(directory) / "state")),
+                    mock.patch.object(module, "log"),
+                ):
+                    claim = module.claim_send(str(source))
+                    self.assertIsNotNone(claim)
+                    self.assertIsNone(module.claim_send(str(source)))
+                    module.complete_send_claim(claim)
+                    self.assertIsNone(module.claim_send(str(source)))
+
+    def test_send_claim_rejects_completion_race(self):
+        for module in (M4V, MP4):
+            with self.subTest(mode=module.SEND_MODE), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "output.mp4"
+                source.write_bytes(b"video")
+
+                with (
+                    mock.patch.object(module, "SEND_STATE_DIR", str(Path(directory) / "state")),
+                    mock.patch.object(module, "log"),
+                ):
+                    first_claim = module.claim_send(str(source))
+                    self.assertIsNotNone(first_claim)
+                    create_claim_lock = module.create_claim_lock
+
+                    def complete_then_create(lock_path, file_path):
+                        module.complete_send_claim(first_claim)
+                        create_claim_lock(lock_path, file_path)
+
+                    with mock.patch.object(
+                        module,
+                        "create_claim_lock",
+                        side_effect=complete_then_create,
+                    ):
+                        self.assertIsNone(module.claim_send(str(source)))
+
+                    lock_path, sent_path = first_claim
+                    self.assertFalse(Path(lock_path).exists())
+                    self.assertTrue(Path(sent_path).exists())
+
+    def test_m4v_script_copies_output_with_m4v_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "output.mp4"
+            source.write_bytes(b"video")
+
+            with (
+                mock.patch.object(M4V, "SEND_CACHE_DIR", str(Path(directory) / "cache")),
+                mock.patch.object(M4V, "log"),
+            ):
+                send_path, send_name = M4V.m4v_send_file(str(source))
+
+            self.assertEqual(send_name, "output.m4v")
+            self.assertEqual(Path(send_path).suffix, ".m4v")
+            self.assertEqual(Path(send_path).read_bytes(), b"video")
+
+    def test_mp4_script_rejects_non_mp4_output(self):
+        with self.assertRaisesRegex(RuntimeError, "只支持 .mp4"):
+            MP4.mp4_video_file("/tmp/output.mov")
+
+    def test_posts_current_weclaw_send_contract(self):
+        for module in (M4V, MP4):
+            with self.subTest(mode=module.SEND_MODE):
+                capture = PostCapture()
+                with (
+                    mock.patch.object(module.urllib.request, "urlopen", capture),
+                    mock.patch.object(module, "log"),
+                ):
+                    result = module.post_to_weclaw_send("/tmp/output.mp4", "output.mp4")
+
+                self.assertEqual(result["status"], "sent")
+                self.assertEqual(capture.timeout, 900)
+                self.assertEqual(capture.request.full_url, "http://127.0.0.1:18790/send")
+                self.assertEqual(
+                    json.loads(capture.request.data.decode("utf-8")),
+                    {"file_path": "/tmp/output.mp4", "file_name": "output.mp4"},
+                )
+
+    def test_installer_copies_both_scripts_with_expected_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            environment = os.environ.copy()
+            environment["HOME"] = directory
+            subprocess.run(
+                [str(ROOT / "scripts" / "install-davinci-plugin.sh")],
+                check=True,
+                capture_output=True,
+                env=environment,
+                text=True,
+            )
+            target = (
+                Path(directory)
+                / "Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Deliver"
+            )
+
+            for name in ("自动发送ClawBot_M4V文件.py", "自动发送ClawBot_MP4视频.py"):
+                installed = target / name
+                self.assertEqual(installed.read_bytes(), (DELIVER_DIR / name).read_bytes())
+                self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o644)
+
+
+if __name__ == "__main__":
+    unittest.main()

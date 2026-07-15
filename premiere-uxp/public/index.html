@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="./style.css" />
+    <script defer src="./main.js"></script>
+    <title>WeClaw Send</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">PREMIERE PRO</p>
+          <h1>WeClaw Send</h1>
+        </div>
+        <button id="refresh-sequence" class="icon-button" type="button" title="刷新序列">↻</button>
+      </header>
+
+      <section class="sequence-card">
+        <span>当前序列</span>
+        <strong id="sequence-name">正在读取…</strong>
+      </section>
+
+      <section class="form-section">
+        <label>Adobe 导出预设</label>
+        <button id="choose-preset" class="secondary-button" type="button">选择 .epr 预设</button>
+        <p id="preset-path" class="path">未选择</p>
+
+        <label>输出位置</label>
+        <button id="choose-folder" class="secondary-button" type="button">选择文件夹</button>
+        <p id="folder-path" class="path">未选择</p>
+
+        <label for="output-name">文件名（不含扩展名）</label>
+        <input id="output-name" type="text" autocomplete="off" />
+      </section>
+
+      <section class="send-option">
+        <div>
+          <strong>导出完成后自动发送</strong>
+          <span>关闭时只导出，不调用 WeClaw Send</span>
+        </div>
+        <label class="switch">
+          <input id="auto-send" type="checkbox" aria-label="导出完成后自动发送" />
+          <span aria-hidden="true"></span>
+        </label>
+      </section>
+
+      <section id="integration-code-section" class="integration-code" hidden>
+        <label for="integration-code">Premiere 连接码</label>
+        <input
+          id="integration-code"
+          type="password"
+          autocomplete="off"
+          placeholder="从 WeClaw Send 设置中复制"
+        />
+      </section>
+
+      <button id="export" class="primary-button" type="button">导出</button>
+      <p id="status" class="status" role="status">请选择导出预设和输出位置</p>
+    </main>
+  </body>
+</html>

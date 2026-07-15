@@ -41,8 +41,11 @@ final class AppModel: ObservableObject {
     @Published var isLoggingIn = false
     @Published var autoRenameMP4ToM4V = UserDefaults.standard.bool(forKey: AppSettings.autoRenameMP4Key)
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
+    @Published var premiereIntegrationCode = AppSettings.premiereIntegrationToken
     @Published var launchAtLoginEnabled = LaunchAtLogin.isEnabled
     @Published var launchAtLoginRequiresApproval = LaunchAtLogin.requiresApproval
+
+    var onContextRefreshRequired: (() -> Void)?
 
     private let runtime: AppRuntime
     private var activeSendCount = 0
@@ -52,6 +55,7 @@ final class AppModel: ObservableObject {
     private var loginTask: Task<Void, Never>?
     private let recentTransfersKey = "recentTransfers"
     private let legacyRecentTransferKey = "recentTransfer"
+    private var contextRefreshTransfers: Set<UUID> = []
 
     init() {
         var shouldPersistLegacyTransfers = false
@@ -102,6 +106,10 @@ final class AppModel: ObservableObject {
 
     var activeTransferCount: Int {
         recentTransfers.filter { $0.status == .queued || $0.status == .sending }.count
+    }
+
+    var hasPendingContextRefresh: Bool {
+        !contextRefreshTransfers.isEmpty
     }
 
     func setAutoRenameMP4ToM4V(_ enabled: Bool) {
@@ -179,18 +187,46 @@ final class AppModel: ObservableObject {
     }
 
     func send(urls: [URL]) {
-        let files = urls.filter { url in
+        let requests = urls.filter { url in
             (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
         }
-        guard !files.isEmpty else { return }
+        .map { url in
+            SendRequest(filePath: url.path, fileName: url.lastPathComponent)
+        }
+        guard !requests.isEmpty else { return }
 
         if !weChatStatus.isOnline {
             showsServices = true
             presentedError = "请先登录微信后再发送文件"
             return
         }
+        enqueue(requests)
+    }
 
-        for url in files {
+    func send(integrationURL: URL) {
+        do {
+            enqueue([
+                try IntegrationURL.sendRequest(
+                    from: integrationURL,
+                    authorizationToken: premiereIntegrationCode
+                )
+            ])
+        } catch {
+            presentedError = error.localizedDescription
+        }
+    }
+
+    func copyPremiereIntegrationCode() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(premiereIntegrationCode, forType: .string)
+    }
+
+    func regeneratePremiereIntegrationCode() {
+        premiereIntegrationCode = AppSettings.regeneratePremiereIntegrationToken()
+    }
+
+    private func enqueue(_ requests: [SendRequest]) {
+        for request in requests {
             activeSendCount += 1
             isSending = true
             Task { [weak self] in
@@ -200,12 +236,7 @@ final class AppModel: ObservableObject {
                     isSending = activeSendCount > 0
                 }
                 do {
-                    _ = try await runtime.coordinator.send(
-                        SendRequest(
-                            filePath: url.path,
-                            fileName: url.lastPathComponent
-                        )
-                    )
+                    _ = try await runtime.coordinator.send(request)
                 } catch {
                     presentedError = error.localizedDescription
                 }
@@ -282,9 +313,21 @@ final class AppModel: ObservableObject {
                     insertTransfer(record)
                 case let .updated(record):
                     updateTransfer(record)
-                case let .completed(record), let .failed(record):
+                    if record.stage == .waitingForContext,
+                       contextRefreshTransfers.insert(record.id).inserted {
+                        presentedError = "微信会话需要刷新。请在微信里给 ClawBot 发送任意消息，App 收到后会自动继续发送。"
+                        onContextRefreshRequired?()
+                    }
+                case let .completed(record):
                     insertTransfer(record)
                     persistTransfers()
+                    if contextRefreshTransfers.remove(record.id) != nil {
+                        presentedError = "微信会话已刷新，文件已自动重新发送。"
+                    }
+                case let .failed(record):
+                    insertTransfer(record)
+                    persistTransfers()
+                    contextRefreshTransfers.remove(record.id)
                 }
             }
         }

@@ -158,14 +158,14 @@
     <div class="detail"><h3>安装与首次打开</h3><ol><li>打开 DMG，或解压 ZIP。</li><li>把 App 拖入“应用程序”。</li><li>打开一次，看到拦截提示后关闭提示框。</li><li>打开“系统设置 → 隐私与安全性”。</li><li>找到 WeClaw Send，点“仍要打开”，再确认“打开”。</li></ol></div>
     <div class="detail"><h3>微信登录</h3><ol><li>点击菜单栏纸飞机。</li><li>打开设置，点“扫码登录”。</li><li>用手机微信扫码并确认。</li><li>若手机显示配对码，按提示输入。</li><li>看到“已登录”后返回发送页。</li></ol></div>
     <div class="detail"><h3>发送文件</h3><ul><li>把文件直接拖到菜单栏纸飞机。</li><li>或打开面板，拖到发送区域。</li><li>也可以点击“选择文件”。</li><li>最近传输会显示准备、加密、上传和完成状态。</li></ul></div>
-    <div class="detail"><h3>设置与限制</h3><ul><li>单文件最大约 200 MB。</li><li>连续发送间隔约 60 秒，会自动排队。</li><li>长时间未互动或连续发送较多后若失败，请先给 ClawBot 发一条消息，再重试。</li><li>本地接口默认关闭；仅脚本自动化需要开启。</li><li>换电脑后需要重新扫码登录。</li><li>登录信息保存在当前用户的 Application Support，文件权限为 <code>0600</code>。</li></ul></div>
+    <div class="detail"><h3>设置与限制</h3><ul><li>单文件最大约 200 MB。</li><li>连续发送间隔约 60 秒，会自动排队。</li><li>会话受限时 App 会提示你给 ClawBot 发一条消息，收到后自动重试原文件。</li><li>本地接口默认关闭；仅脚本自动化需要开启。</li><li>换电脑后需要重新扫码登录。</li><li>登录信息保存在当前用户的 Application Support，文件权限为 <code>0600</code>。</li></ul></div>
   </section>
 
   <h2>常见问题</h2>
   <section class="detail-grid">
     <div class="detail"><h3>打开后没有窗口</h3><p>这是菜单栏应用，不会固定显示在 Dock。请查看屏幕右上角 Wi‑Fi、电池附近的纸飞机图标。</p></div>
     <div class="detail"><h3>提示 App 已损坏</h3><p>删除当前 App，重新打开原始 DMG 或解压原始 ZIP，然后拖入“应用程序”并按首次打开步骤批准。不要使用来源不明的终端命令。</p></div>
-    <div class="detail"><h3>发送失败</h3><p>确认设置页显示微信已登录、网络可访问微信服务、文件没有超过 200 MB。若长时间未互动或连续发送较多，请先在微信里给 ClawBot 发一条消息，再重试；必要时重新扫码。</p></div>
+    <div class="detail"><h3>发送失败</h3><p>确认设置页显示微信已登录、网络可访问微信服务、文件没有超过 200 MB。若 App 提示刷新会话，请给 ClawBot 发任意消息，App 收到后会自动重试；必要时重新扫码。</p></div>
     <div class="detail"><h3>脚本连接被拒绝</h3><p>本地接口默认关闭。需要自动化时，在设置中打开“启用本地接口”，地址为 <code>127.0.0.1:18790</code>。</p></div>
   </section>
 

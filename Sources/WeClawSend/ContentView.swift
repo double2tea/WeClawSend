@@ -251,9 +251,15 @@ struct ContentView: View {
                 }
 
                 if transfer.status == .sending {
-                    ProgressView(value: transfer.progress ?? 0)
-                        .progressViewStyle(.linear)
-                        .tint(Brand.accent)
+                    if transfer.stage == .waitingForContext {
+                        ProgressView()
+                            .progressViewStyle(.linear)
+                            .tint(Brand.warning)
+                    } else {
+                        ProgressView(value: transfer.progress ?? 0)
+                            .progressViewStyle(.linear)
+                            .tint(Brand.accent)
+                    }
                     Text(progressDetail(transfer))
                         .font(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
@@ -287,7 +293,10 @@ struct ContentView: View {
     private func transferStatusText(_ transfer: TransferRecord) -> String {
         switch transfer.status {
         case .queued: "排队"
-        case .sending: "\(Int((transfer.progress ?? 0) * 100))%"
+        case .sending:
+            transfer.stage == .waitingForContext
+                ? "等待刷新"
+                : "\(Int((transfer.progress ?? 0) * 100))%"
         case .sent: "完成"
         case .failed: "失败"
         }
@@ -309,6 +318,7 @@ struct ContentView: View {
         case .encrypting: stage = "加密"
         case .uploading: stage = "上传"
         case .sending: stage = "提交"
+        case .waitingForContext: stage = "请给 ClawBot 发一条消息，收到后自动继续"
         case .finished: stage = "完成"
         case nil: stage = "发送中"
         }

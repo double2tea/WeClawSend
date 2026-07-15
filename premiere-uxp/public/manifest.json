@@ -1,0 +1,42 @@
+{
+  "id": "com.chacha.WeClawSend.Premiere",
+  "name": "WeClaw Send",
+  "version": "1.0.0",
+  "main": "index.html",
+  "host": {
+    "app": "premierepro",
+    "minVersion": "25.6.0"
+  },
+  "manifestVersion": 5,
+  "requiredPermissions": {
+    "localFileSystem": "request",
+    "launchProcess": {
+      "schemes": ["weclaw-send"]
+    }
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "weclawSend",
+      "label": {
+        "default": "WeClaw Send"
+      },
+      "minimumSize": {
+        "width": 300,
+        "height": 420
+      },
+      "maximumSize": {
+        "width": 1200,
+        "height": 1200
+      },
+      "preferredDockedSize": {
+        "width": 340,
+        "height": 520
+      },
+      "preferredFloatingSize": {
+        "width": 360,
+        "height": 540
+      }
+    }
+  ]
+}

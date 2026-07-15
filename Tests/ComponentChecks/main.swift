@@ -125,6 +125,58 @@ precondition(!AppSettings.localAPIEnabled)
 UserDefaults.standard.set(true, forKey: AppSettings.localAPIEnabledKey)
 precondition(AppSettings.localAPIEnabled)
 
+let previousPremiereToken = UserDefaults.standard.string(forKey: AppSettings.premiereIntegrationTokenKey)
+defer {
+    if let previousPremiereToken {
+        UserDefaults.standard.set(previousPremiereToken, forKey: AppSettings.premiereIntegrationTokenKey)
+    } else {
+        UserDefaults.standard.removeObject(forKey: AppSettings.premiereIntegrationTokenKey)
+    }
+}
+UserDefaults.standard.removeObject(forKey: AppSettings.premiereIntegrationTokenKey)
+let generatedPremiereToken = AppSettings.premiereIntegrationToken
+precondition(generatedPremiereToken.count == 32)
+precondition(AppSettings.premiereIntegrationToken == generatedPremiereToken)
+precondition(AppSettings.regeneratePremiereIntegrationToken() != generatedPremiereToken)
+
+let integrationURL = URL(
+    string: "weclaw-send://send?file_path=%2Ftmp%2F%E6%88%90%E7%89%87%20v1.mp4&file_name=%E6%88%90%E7%89%87%20v1.mp4&token=test-token"
+)!
+let integrationRequest = try IntegrationURL.sendRequest(
+    from: integrationURL,
+    authorizationToken: "test-token"
+)
+precondition(integrationRequest.filePath == "/tmp/成片 v1.mp4")
+precondition(integrationRequest.fileName == "成片 v1.mp4")
+
+let pathOnlyIntegrationRequest = try IntegrationURL.sendRequest(
+    from: URL(string: "weclaw-send://send?file_path=%2Ftmp%2Fa&token=test-token")!,
+    authorizationToken: "test-token"
+)
+precondition(pathOnlyIntegrationRequest.fileName == nil)
+
+let rejectedIntegrationURLs = [
+    ("other://send?file_path=%2Ftmp%2Fa&token=test-token", "不支持的集成链接"),
+    ("weclaw-send://other?file_path=%2Ftmp%2Fa&token=test-token", "不支持的集成链接"),
+    ("weclaw-send://send?file_path=%2Ftmp%2Fa&token=test-token&unknown=value", "未知参数"),
+    ("weclaw-send://send?file_path=%2Ftmp%2Fa&file_name=&token=test-token", "文件名不能为空"),
+    ("weclaw-send://send?file_path=%2Ftmp%2Fa&file_path=%2Ftmp%2Fb&token=test-token", "重复参数"),
+    ("weclaw-send://send?file_path=relative.mp4&token=test-token", "必须是绝对路径"),
+    ("weclaw-send://send?token=test-token", "缺少文件路径"),
+    ("weclaw-send://send?file_path=%2Ftmp%2Fa&token=wrong-token", "未授权")
+]
+for (urlString, expectedMessage) in rejectedIntegrationURLs {
+    do {
+        _ = try IntegrationURL.sendRequest(
+            from: URL(string: urlString)!,
+            authorizationToken: "test-token"
+        )
+        preconditionFailure("invalid integration URL must be rejected: \(urlString)")
+    } catch let error as BackendError {
+        precondition(error.localizedDescription.contains(expectedMessage))
+    }
+}
+
 precondition(LaunchAtLogin.transition(for: .notFound, enabled: true) == .register)
 precondition(LaunchAtLogin.transition(for: .notRegistered, enabled: true) == .register)
 precondition(LaunchAtLogin.transition(for: .enabled, enabled: true) == .none)
@@ -145,6 +197,12 @@ let mockCredentials = WeChatCredentials(
     baseURL: URL(string: "https://mock.local")!,
     userID: "user@im.wechat"
 )
+let legacyCredentials = try JSONDecoder().decode(
+    WeChatCredentials.self,
+    from: Data(#"{"botToken":"token","botID":"bot","baseURL":"https:\/\/mock.local","userID":"user"}"#.utf8)
+)
+precondition(legacyCredentials.contextToken == nil)
+precondition(legacyCredentials.getUpdatesBuffer == nil)
 let mockFileName = "0714_一饭封神_成片 v05.m4v"
 let mockFile = FileManager.default.temporaryDirectory.appending(path: mockFileName)
 try Data("integration-file".utf8).write(to: mockFile)
@@ -234,6 +292,92 @@ precondition(integrationResult.progress.contains { $0.stage == .uploading })
 precondition(integrationResult.progress.last?.stage == .finished)
 precondition(integrationResult.progress.last?.fraction == 1)
 
+let contextRefreshResult = ContextRefreshResultBox()
+let contextStoreURL = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-context-\(UUID()).json")
+let contextStore = WeChatCredentialStore(credentialsFileOverride: contextStoreURL)
+defer { try? FileManager.default.removeItem(at: contextStoreURL) }
+let staleCredentials = WeChatCredentials(
+    botToken: "secret-token",
+    botID: "bot@im.bot",
+    baseURL: URL(string: "https://mock.local")!,
+    userID: "user@im.wechat",
+    contextToken: "stale-context",
+    getUpdatesBuffer: "old-buffer"
+)
+
+MockURLProtocol.handler = { request in
+    switch request.url!.path {
+    case "/ilink/bot/getuploadurl":
+        return MockURLProtocol.response(
+            request,
+            body: #"{"ret":0,"upload_full_url":"https://mock.local/upload"}"#
+        )
+    case "/upload":
+        return MockURLProtocol.response(
+            request,
+            headers: ["x-encrypted-param": "refresh-download-reference"],
+            body: ""
+        )
+    case "/ilink/bot/sendmessage":
+        contextRefreshResult.sendCount += 1
+        let body = try JSONSerialization.jsonObject(with: requestBody(request)) as! [String: Any]
+        let message = body["msg"] as! [String: Any]
+        if contextRefreshResult.sendCount == 1 {
+            precondition(message["context_token"] as? String == "stale-context")
+            return MockURLProtocol.response(request, body: #"{"ret":-2}"#)
+        }
+        precondition(message["context_token"] as? String == "fresh-context")
+        return MockURLProtocol.response(request, body: #"{"ret":0}"#)
+    case "/ilink/bot/getupdates":
+        let body = try JSONSerialization.jsonObject(with: requestBody(request)) as! [String: Any]
+        contextRefreshResult.updateCount += 1
+        if contextRefreshResult.updateCount == 1 {
+            precondition(body["get_updates_buf"] as? String == "old-buffer")
+            return MockURLProtocol.response(
+                request,
+                body: #"{"ret":0,"get_updates_buf":"mid-buffer","msgs":[{"from_user_id":"user@im.wechat","create_time_ms":0,"context_token":"old-context"}]}"#
+            )
+        }
+        precondition(body["get_updates_buf"] as? String == "mid-buffer")
+        let createTime = Int64(Date().timeIntervalSince1970 * 1_000) + 60_000
+        return MockURLProtocol.response(
+            request,
+            body: #"{"ret":0,"get_updates_buf":"new-buffer","msgs":[{"from_user_id":"user@im.wechat","create_time_ms":\#(createTime),"context_token":"fresh-context"}]}"#
+        )
+    default:
+        preconditionFailure("Unexpected context refresh request: \(request.url!.absoluteString)")
+    }
+}
+
+let contextRefreshFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let service = WeChatService(
+            credentials: staleCredentials,
+            session: mockSession,
+            store: contextStore
+        )
+        try await service.sendFile(at: mockFile, fileName: mockFileName) { progress in
+            contextRefreshResult.progress.append(progress)
+        }
+    } catch {
+        contextRefreshResult.error = error
+    }
+    contextRefreshFinished.signal()
+}
+precondition(contextRefreshFinished.wait(timeout: .now() + 10) == .success)
+if let error = contextRefreshResult.error { throw error }
+precondition(contextRefreshResult.sendCount == 2)
+precondition(contextRefreshResult.updateCount == 2)
+precondition(contextRefreshResult.progress.contains { $0.stage == .waitingForContext })
+precondition(contextRefreshResult.progress.last?.stage == .finished)
+let refreshedCredentials = try contextStore.load()
+precondition(refreshedCredentials?.contextToken == "fresh-context")
+precondition(refreshedCredentials?.getUpdatesBuffer == "new-buffer")
+let contextStorePermissions = try FileManager.default.attributesOfItem(atPath: contextStoreURL.path)[.posixPermissions]
+precondition((contextStorePermissions as? NSNumber)?.intValue == 0o600)
+
 let pasteboard = NSPasteboard(name: .init("WeClawSendComponentChecks"))
 let fileURL = FileManager.default.temporaryDirectory
     .appending(path: "WeClawSend-中文文件-\(UUID()).m4v")
@@ -274,6 +418,13 @@ private extension String {
 final class ResultBox: @unchecked Sendable {
     var error: Error?
     var aesKeyHex: String?
+    var progress: [WeChatSendProgress] = []
+}
+
+final class ContextRefreshResultBox: @unchecked Sendable {
+    var error: Error?
+    var sendCount = 0
+    var updateCount = 0
     var progress: [WeChatSendProgress] = []
 }
 

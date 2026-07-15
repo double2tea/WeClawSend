@@ -1,16 +1,27 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import UserNotifications
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNUserNotificationCenterDelegate {
     private let model = AppModel()
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
     private var openPanel: NSOpenPanel?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        UNUserNotificationCenter.current().delegate = self
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         guard let button = statusItem.button else { return }
@@ -49,6 +60,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         )
         popover.delegate = self
         self.statusItem = statusItem
+        model.onContextRefreshRequired = { [weak self] in
+            guard let self, !popover.isShown else { return }
+            deliverContextRefreshNotification()
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        NSAppleEventManager.shared().removeEventHandler(
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
     }
 
     func popoverWillShow(_ notification: Notification) {
@@ -72,6 +101,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func showPopover() {
         guard !popover.isShown, let button = statusItem?.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func deliverContextRefreshNotification() {
+        let center = UNUserNotificationCenter.current()
+        Task { [weak self] in
+            do {
+                let granted = try await center.requestAuthorization(options: [.alert, .sound])
+                guard granted else { return }
+                guard let self, model.hasPendingContextRefresh, !popover.isShown else { return }
+                let content = UNMutableNotificationContent()
+                content.title = Brand.name
+                content.body = "请在微信里给 ClawBot 发送任意消息；收到后 App 会自动继续发送文件。"
+                content.sound = .default
+                try await center.add(
+                    UNNotificationRequest(
+                        identifier: "weclaw-send-context-refresh",
+                        content: content,
+                        trigger: nil
+                    )
+                )
+            } catch {
+                await MainActor.run {
+                    self?.model.presentedError = "微信会话需要刷新，但系统通知发送失败：\(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    @objc
+    private func handleGetURLEvent(
+        _ event: NSAppleEventDescriptor,
+        withReplyEvent replyEvent: NSAppleEventDescriptor
+    ) {
+        guard let value = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: value) else {
+            model.presentedError = "无法读取 Premiere 发送请求"
+            showPopover()
+            return
+        }
+        model.send(integrationURL: url)
+        showPopover()
     }
 
     private func chooseFiles() {

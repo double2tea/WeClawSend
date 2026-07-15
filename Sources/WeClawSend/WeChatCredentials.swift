@@ -6,6 +6,35 @@ struct WeChatCredentials: Codable, Equatable, Sendable {
     let botID: String
     let baseURL: URL
     let userID: String
+    let contextToken: String?
+    let getUpdatesBuffer: String?
+
+    init(
+        botToken: String,
+        botID: String,
+        baseURL: URL,
+        userID: String,
+        contextToken: String? = nil,
+        getUpdatesBuffer: String? = nil
+    ) {
+        self.botToken = botToken
+        self.botID = botID
+        self.baseURL = baseURL
+        self.userID = userID
+        self.contextToken = contextToken
+        self.getUpdatesBuffer = getUpdatesBuffer
+    }
+
+    func refreshingContext(token: String, buffer: String?) -> Self {
+        Self(
+            botToken: botToken,
+            botID: botID,
+            baseURL: baseURL,
+            userID: userID,
+            contextToken: token,
+            getUpdatesBuffer: buffer
+        )
+    }
 
     func validated() throws -> Self {
         guard
@@ -42,10 +71,18 @@ enum CredentialsError: LocalizedError {
 struct WeChatCredentialStore: Sendable {
     private static let service = "com.chacha.WeClawSend.weixin"
     private static let account = "credentials"
+    private let credentialsFileOverride: URL?
+
+    init(credentialsFileOverride: URL? = nil) {
+        self.credentialsFileOverride = credentialsFileOverride
+    }
 
     func load() throws -> WeChatCredentials? {
         if let fileCredentials = try loadFromFile() {
             return fileCredentials
+        }
+        if credentialsFileOverride != nil {
+            return nil
         }
         // 一次性迁移：旧 Keychain（禁止 UI）→ 旧 WeClaw 文件
         if let keychainCredentials = loadFromKeychainNonInteractive() {
@@ -68,12 +105,17 @@ struct WeChatCredentialStore: Sendable {
     func save(_ credentials: WeChatCredentials) throws {
         try saveToFile(credentials)
         // 不再写入 Keychain，避免重装/重签后的 ACL 弹窗。
-        deleteKeychainItemQuietly()
+        if credentialsFileOverride == nil {
+            deleteKeychainItemQuietly()
+        }
     }
 
     // MARK: - Application Support file
 
     private var credentialsFileURL: URL {
+        if let credentialsFileOverride {
+            return credentialsFileOverride
+        }
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support")
         return root
