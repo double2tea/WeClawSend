@@ -67,7 +67,7 @@ chmod +x scripts/*.sh
 | mp4 改名 | 设置 → 发送时将 .mp4 显示为 .m4v |
 | 本地接口 | 设置 → 启用本地接口 |
 
-限制：单文件最大 200 MB；发送间隔冷却 60 秒（排队自动等待）。
+限制：单文件最大 200 MB；最多 3 个文件并行处理，微信消息提交保持串行且间隔 2 秒。
 
 微信 iLink 的主动发送还受会话窗口和消息额度限制。腾讯公开实现要求把用户入站消息中的 `context_token` 回传给后续发送，但没有公布正式有效期与额度数值；其公开仓库反馈中常见约 24–48 小时无入站消息后失效、同一上下文约 10 条主动回复。若发送返回 `ret=-2`，App 会提示用户给 ClawBot 发任意消息，按需等待新的 `context_token`，保存后自动重试原文件；面板关闭时同时发送 macOS 通知。等待 5 分钟仍未收到消息会明确失败，不会持续轮询。参见腾讯仓库的 [会话限制反馈](https://github.com/Tencent/openclaw-weixin/issues/202) 与 [`ret=-2` 反馈](https://github.com/Tencent/openclaw-weixin/issues/225)。
 

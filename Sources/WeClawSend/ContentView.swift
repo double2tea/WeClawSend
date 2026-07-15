@@ -75,13 +75,18 @@ struct ContentView: View {
     }
 
     private var headerStatusText: String {
-        if model.hasActiveTransfers { return "发送中" }
+        if model.sendingTransferCount > 0, model.queuedTransferCount > 0 {
+            return "发送 \(model.sendingTransferCount) · 排队 \(model.queuedTransferCount)"
+        }
+        if model.sendingTransferCount > 0 { return "发送中 \(model.sendingTransferCount)" }
+        if model.queuedTransferCount > 0 { return "排队 \(model.queuedTransferCount)" }
         if case .checking = model.weChatStatus { return "连接中" }
         return model.isReady ? "已登录" : "未登录"
     }
 
     private var headerStatusColor: Color {
-        if model.hasActiveTransfers { return Brand.accent }
+        if model.sendingTransferCount > 0 { return Brand.accent }
+        if model.queuedTransferCount > 0 { return Brand.warning }
         if case .checking = model.weChatStatus { return .secondary }
         return model.isReady ? Brand.success : Brand.danger
     }
@@ -161,7 +166,11 @@ struct ContentView: View {
     }
 
     private var dropZoneTitle: String {
-        if model.hasActiveTransfers { return "正在发送 \(model.activeTransferCount) 个文件" }
+        if model.sendingTransferCount > 0, model.queuedTransferCount > 0 {
+            return "\(model.sendingTransferCount) 个处理中，\(model.queuedTransferCount) 个排队"
+        }
+        if model.sendingTransferCount > 0 { return "正在处理 \(model.sendingTransferCount) 个文件" }
+        if model.queuedTransferCount > 0 { return "\(model.queuedTransferCount) 个文件排队中" }
         if case .checking = model.weChatStatus { return "正在连接微信" }
         return model.isReady ? "拖入或点击选择文件" : "请先登录微信"
     }
@@ -209,18 +218,13 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.bottom, 12)
         } else {
+            let transfers = model.displayedTransfers
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(model.recentTransfers.enumerated()), id: \.element.id) { index, transfer in
-                        Button {
-                            model.revealTransfer(transfer)
-                        } label: {
-                            transferRow(transfer)
-                        }
-                        .buttonStyle(.plain)
-                        .help(transfer.message ?? "在 Finder 中显示")
+                    ForEach(Array(transfers.enumerated()), id: \.element.id) { index, transfer in
+                        transferItem(transfer)
 
-                        if index < model.recentTransfers.count - 1 {
+                        if index < transfers.count - 1 {
                             Divider()
                                 .padding(.leading, 48)
                                 .opacity(0.4)
@@ -229,6 +233,40 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.bottom, 8)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func transferItem(_ transfer: TransferRecord) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                model.revealTransfer(transfer)
+            } label: {
+                transferRow(transfer)
+            }
+            .buttonStyle(.plain)
+            .help(displayedFailureMessage(transfer) ?? transfer.message ?? "在 Finder 中显示")
+
+            if transfer.status == .failed {
+                HStack {
+                    Spacer()
+                    Button {
+                        model.retry(transfer)
+                    } label: {
+                        Label(
+                            model.wasRetried(transfer) ? "已重新发送" : "重新发送",
+                            systemImage: "arrow.clockwise"
+                        )
+                    }
+                    .disabled(model.wasRetried(transfer))
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Brand.accent)
+                }
+                .padding(.top, -6)
+                .padding(.bottom, 8)
+                .padding(.trailing, 2)
             }
         }
     }
@@ -277,7 +315,7 @@ struct ContentView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
 
-                    if transfer.status == .failed, let message = transfer.message, !message.isEmpty {
+                    if let message = displayedFailureMessage(transfer) {
                         Text(message)
                             .font(.system(size: 10.5))
                             .foregroundStyle(Brand.danger)
@@ -290,13 +328,27 @@ struct ContentView: View {
         .contentShape(Rectangle())
     }
 
+    private func displayedFailureMessage(_ transfer: TransferRecord) -> String? {
+        guard transfer.status == .failed,
+              let message = transfer.message,
+              !message.isEmpty else {
+            return nil
+        }
+        if message == "已取消" || message.contains("Swift.CancellationError") {
+            return "发送已取消（请求中断）"
+        }
+        return message
+    }
+
     private func transferStatusText(_ transfer: TransferRecord) -> String {
         switch transfer.status {
         case .queued: "排队"
         case .sending:
-            transfer.stage == .waitingForContext
-                ? "等待刷新"
-                : "\(Int((transfer.progress ?? 0) * 100))%"
+            switch transfer.stage {
+            case .waitingToSend: "等待提交"
+            case .waitingForContext: "等待刷新"
+            default: "\(Int((transfer.progress ?? 0) * 100))%"
+            }
         case .sent: "完成"
         case .failed: "失败"
         }
@@ -317,6 +369,7 @@ struct ContentView: View {
         case .preparing: stage = "准备"
         case .encrypting: stage = "加密"
         case .uploading: stage = "上传"
+        case .waitingToSend: stage = "等待微信提交"
         case .sending: stage = "提交"
         case .waitingForContext: stage = "请给 ClawBot 发一条消息，收到后自动继续"
         case .finished: stage = "完成"
@@ -338,7 +391,7 @@ struct ContentView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
             } else {
-                Text(model.hasActiveTransfers ? "发送中" : "就绪")
+                Text(activitySummary)
                     .font(.system(size: 11.5))
                     .foregroundStyle(.tertiary)
             }
@@ -346,6 +399,15 @@ struct ContentView: View {
         }
         .padding(.horizontal, 20)
         .frame(height: 36)
+    }
+
+    private var activitySummary: String {
+        if model.sendingTransferCount > 0, model.queuedTransferCount > 0 {
+            return "\(model.sendingTransferCount) 处理中 · \(model.queuedTransferCount) 排队"
+        }
+        if model.sendingTransferCount > 0 { return "\(model.sendingTransferCount) 个处理中" }
+        if model.queuedTransferCount > 0 { return "\(model.queuedTransferCount) 个排队中" }
+        return "就绪"
     }
 }
 

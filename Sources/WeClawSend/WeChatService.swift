@@ -41,6 +41,7 @@ enum WeChatSendStage: String, Codable, Sendable {
     case preparing
     case encrypting
     case uploading
+    case waitingToSend
     case sending
     case waitingForContext
     case finished
@@ -54,6 +55,8 @@ struct WeChatSendProgress: Sendable {
 }
 
 actor WeChatService {
+    static let submissionIntervalMilliseconds: Int64 = 2_000
+
     private static let loginBaseURL = URL(string: "https://ilinkai.weixin.qq.com")!
     private static let cdnBaseURL = URL(string: "https://novac2c.cdn.weixin.qq.com/c2c")!
     private static let channelVersion = "2.4.6"
@@ -63,32 +66,39 @@ actor WeChatService {
     private let store: WeChatCredentialStore
     private let session: URLSession
     private let contextRefreshTimeout: Duration
+    private let submissionIntervalMilliseconds: Int64
     private var credentials: WeChatCredentials?
     private var bootstrapTask: Task<Void, Never>?
     private var credentialsValidated = false
     private var credentialLoadError: String?
     private var loginQRCode: String?
     private var loginPollingBaseURL = loginBaseURL
+    private var submissionSlotLocked = false
+    private var submissionWaiters: [SubmissionWaiter] = []
 
     init(
         store: WeChatCredentialStore = WeChatCredentialStore(),
         session: URLSession = .shared,
-        contextRefreshTimeout: Duration = .seconds(300)
+        contextRefreshTimeout: Duration = .seconds(300),
+        submissionIntervalMilliseconds: Int64 = WeChatService.submissionIntervalMilliseconds
     ) {
         self.store = store
         self.session = session
         self.contextRefreshTimeout = contextRefreshTimeout
+        self.submissionIntervalMilliseconds = submissionIntervalMilliseconds
     }
 
     init(
         credentials: WeChatCredentials,
         session: URLSession,
         store: WeChatCredentialStore = WeChatCredentialStore(),
-        contextRefreshTimeout: Duration = .seconds(300)
+        contextRefreshTimeout: Duration = .seconds(300),
+        submissionIntervalMilliseconds: Int64 = WeChatService.submissionIntervalMilliseconds
     ) {
         self.store = store
         self.session = session
         self.contextRefreshTimeout = contextRefreshTimeout
+        self.submissionIntervalMilliseconds = submissionIntervalMilliseconds
         self.credentials = credentials
     }
 
@@ -247,7 +257,6 @@ actor WeChatService {
         await bootstrapCredentials()
         guard let credentials else { throw WeChatError.notLoggedIn }
         try Task.checkCancellation()
-        credentialsValidated = false
         await progress(WeChatSendProgress(stage: .preparing, fraction: 0.02, sentBytes: 0, totalBytes: 0))
         let rawSize = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         let totalBytes = Int64(rawSize)
@@ -316,6 +325,24 @@ actor WeChatService {
 
         await progress(
             WeChatSendProgress(
+                stage: .waitingToSend,
+                fraction: 0.92,
+                sentBytes: totalBytes,
+                totalBytes: totalBytes
+            )
+        )
+        try await acquireSubmissionSlot()
+        defer { finishSubmissionSlot() }
+        guard let submissionCredentials = self.credentials,
+              submissionCredentials.botID == credentials.botID,
+              submissionCredentials.userID == credentials.userID,
+              submissionCredentials.botToken == credentials.botToken,
+              submissionCredentials.baseURL == credentials.baseURL else {
+            throw WeChatError.notLoggedIn
+        }
+
+        await progress(
+            WeChatSendProgress(
                 stage: .sending,
                 fraction: 0.95,
                 sentBytes: totalBytes,
@@ -327,7 +354,7 @@ actor WeChatService {
             SendMessageRequest(
                 message: WeChatMessage(
                     fromUserID: "",
-                    toUserID: credentials.userID,
+                    toUserID: submissionCredentials.userID,
                     clientID: "weclaw-send:\(UUID().uuidString.lowercased())",
                     messageType: 2,
                     messageState: 2,
@@ -351,13 +378,13 @@ actor WeChatService {
             )
         }
         let sendEndpoint = try Self.endpoint(
-            baseURL: credentials.baseURL,
+            baseURL: submissionCredentials.baseURL,
             path: "ilink/bot/sendmessage"
         )
         var sendResponse: APIResponse = try await post(
             sendEndpoint,
-            body: messageRequest(contextToken: credentials.contextToken),
-            token: credentials.botToken,
+            body: messageRequest(contextToken: submissionCredentials.contextToken),
+            token: submissionCredentials.botToken,
             timeout: 15
         )
         if sendResponse.result == -2 {
@@ -369,7 +396,7 @@ actor WeChatService {
                     totalBytes: totalBytes
                 )
             )
-            let contextToken = try await waitForFreshContextToken(credentials: credentials)
+            let contextToken = try await waitForFreshContextToken(credentials: submissionCredentials)
             await progress(
                 WeChatSendProgress(
                     stage: .sending,
@@ -381,7 +408,7 @@ actor WeChatService {
             sendResponse = try await post(
                 sendEndpoint,
                 body: messageRequest(contextToken: contextToken),
-                token: credentials.botToken,
+                token: submissionCredentials.botToken,
                 timeout: 15
             )
         }
@@ -395,6 +422,48 @@ actor WeChatService {
                 totalBytes: totalBytes
             )
         )
+    }
+
+    private func acquireSubmissionSlot() async throws {
+        try Task.checkCancellation()
+        if !submissionSlotLocked {
+            submissionSlotLocked = true
+            return
+        }
+
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                submissionWaiters.append(SubmissionWaiter(id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelSubmissionWaiter(id: id) }
+        }
+        if Task.isCancelled {
+            releaseSubmissionSlot()
+            throw CancellationError()
+        }
+    }
+
+    private func cancelSubmissionWaiter(id: UUID) {
+        guard let index = submissionWaiters.firstIndex(where: { $0.id == id }) else { return }
+        submissionWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+
+    private func finishSubmissionSlot() {
+        let interval = submissionIntervalMilliseconds
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(interval))
+            await self?.releaseSubmissionSlot()
+        }
+    }
+
+    private func releaseSubmissionSlot() {
+        if submissionWaiters.isEmpty {
+            submissionSlotLocked = false
+        } else {
+            submissionWaiters.removeFirst().continuation.resume()
+        }
     }
 
     private func upload(
@@ -594,6 +663,11 @@ actor WeChatService {
             ]
         )
     }
+}
+
+private struct SubmissionWaiter {
+    let id: UUID
+    let continuation: CheckedContinuation<Void, Error>
 }
 
 private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {

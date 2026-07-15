@@ -81,6 +81,8 @@ do {
 } catch let error as WeChatError {
     precondition(error.localizedDescription.contains("ClawBot"))
 }
+precondition(sendFailureMessage(CancellationError()) == "发送已取消")
+precondition(sendFailureMessage(URLError(.cancelled)) == "发送已取消")
 
 let uploadURL = try WeChatService.uploadURL(
     from: GetUploadURLResponse(
@@ -275,6 +277,98 @@ precondition(integrationResult.progress.contains { $0.stage == .uploading })
 precondition(integrationResult.progress.last?.stage == .finished)
 precondition(integrationResult.progress.last?.fraction == 1)
 
+let concurrencyResult = ResultBox()
+let requestConcurrency = RequestConcurrencyTracker()
+let transferConcurrency = TransferConcurrencyTracker()
+
+MockURLProtocol.handler = { request in
+    switch request.url!.path {
+    case "/ilink/bot/getuploadurl":
+        return MockURLProtocol.response(
+            request,
+            body: #"{"ret":0,"upload_full_url":"https://mock.local/upload"}"#
+        )
+    case "/upload":
+        requestConcurrency.beginUpload()
+        defer { requestConcurrency.endUpload() }
+        Thread.sleep(forTimeInterval: 0.15)
+        return MockURLProtocol.response(
+            request,
+            headers: ["x-encrypted-param": "concurrent-download-reference"],
+            body: ""
+        )
+    case "/ilink/bot/sendmessage":
+        requestConcurrency.beginSubmission()
+        defer { requestConcurrency.endSubmission() }
+        Thread.sleep(forTimeInterval: 0.02)
+        return MockURLProtocol.response(request, body: #"{"ret":0}"#)
+    default:
+        preconditionFailure("Unexpected concurrency request: \(request.url!.absoluteString)")
+    }
+}
+
+let concurrencyFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let service = WeChatService(
+            credentials: mockCredentials,
+            session: mockSession,
+            submissionIntervalMilliseconds: 50
+        )
+        let coordinator = SendCoordinator(weChat: service)
+        let eventTask = Task {
+            for await event in coordinator.events {
+                if await transferConcurrency.consume(event) { return }
+            }
+        }
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for index in 0..<4 {
+                    group.addTask {
+                        _ = try await coordinator.send(
+                            SendRequest(filePath: mockFile.path, fileName: "\(index)-\(mockFileName)")
+                        )
+                    }
+                }
+                try await group.waitForAll()
+            }
+            await eventTask.value
+        } catch {
+            eventTask.cancel()
+            await eventTask.value
+            throw error
+        }
+        concurrencyResult.maxActiveTransfers = await transferConcurrency.maximumActive()
+        concurrencyResult.maxQueuedTransfers = await transferConcurrency.maximumQueued()
+    } catch {
+        concurrencyResult.error = error
+    }
+    concurrencyFinished.signal()
+}
+precondition(concurrencyFinished.wait(timeout: .now() + 10) == .success)
+if let error = concurrencyResult.error { throw error }
+let requestConcurrencySnapshot = requestConcurrency.snapshot()
+precondition(
+    (1...SendCoordinator.maxConcurrentTransfers).contains(requestConcurrencySnapshot.maxUploads),
+    "upload concurrency exceeded limit: \(requestConcurrencySnapshot.maxUploads)"
+)
+precondition(
+    requestConcurrencySnapshot.maxSubmissions == 1,
+    "expected serialized submissions, got \(requestConcurrencySnapshot.maxSubmissions)"
+)
+precondition(
+    requestConcurrencySnapshot.submissionStarts.count == 4,
+    "expected 4 submissions, got \(requestConcurrencySnapshot.submissionStarts.count)"
+)
+for (previous, next) in zip(
+    requestConcurrencySnapshot.submissionStarts,
+    requestConcurrencySnapshot.submissionStarts.dropFirst()
+) {
+    precondition(previous.duration(to: next) >= .milliseconds(45))
+}
+precondition(concurrencyResult.maxActiveTransfers == SendCoordinator.maxConcurrentTransfers)
+precondition(concurrencyResult.maxQueuedTransfers > 0)
+
 let contextRefreshResult = ContextRefreshResultBox()
 let contextStoreURL = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-context-\(UUID()).json")
@@ -453,6 +547,8 @@ final class ResultBox: @unchecked Sendable {
     var error: Error?
     var aesKeyHex: String?
     var progress: [WeChatSendProgress] = []
+    var maxActiveTransfers = 0
+    var maxQueuedTransfers = 0
 }
 
 final class ContextRefreshResultBox: @unchecked Sendable {
@@ -460,6 +556,89 @@ final class ContextRefreshResultBox: @unchecked Sendable {
     var sendCount = 0
     var updateCount = 0
     var progress: [WeChatSendProgress] = []
+}
+
+final class RequestConcurrencyTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var activeUploads = 0
+    private var maxUploads = 0
+    private var activeSubmissions = 0
+    private var maxSubmissions = 0
+    private var submissionStarts: [ContinuousClock.Instant] = []
+
+    func beginUpload() {
+        lock.lock()
+        defer { lock.unlock() }
+        activeUploads += 1
+        maxUploads = max(maxUploads, activeUploads)
+    }
+
+    func endUpload() {
+        lock.lock()
+        defer { lock.unlock() }
+        activeUploads -= 1
+    }
+
+    func beginSubmission() {
+        lock.lock()
+        defer { lock.unlock() }
+        activeSubmissions += 1
+        maxSubmissions = max(maxSubmissions, activeSubmissions)
+        submissionStarts.append(ContinuousClock.now)
+    }
+
+    func endSubmission() {
+        lock.lock()
+        defer { lock.unlock() }
+        activeSubmissions -= 1
+    }
+
+    func snapshot() -> (
+        maxUploads: Int,
+        maxSubmissions: Int,
+        submissionStarts: [ContinuousClock.Instant]
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (maxUploads, maxSubmissions, submissionStarts)
+    }
+}
+
+actor TransferConcurrencyTracker {
+    private var queued: Set<UUID> = []
+    private var active: Set<UUID> = []
+    private var maxActive = 0
+    private var maxQueued = 0
+    private var terminalCount = 0
+
+    func consume(_ event: TransferEvent) -> Bool {
+        switch event {
+        case let .started(record):
+            precondition(record.status == .queued)
+            queued.insert(record.id)
+            maxQueued = max(maxQueued, queued.count)
+        case let .updated(record):
+            if record.status == .sending {
+                if active.insert(record.id).inserted {
+                    precondition(queued.remove(record.id) != nil)
+                    maxActive = max(maxActive, active.count)
+                }
+            }
+        case let .completed(record), let .failed(record):
+            queued.remove(record.id)
+            active.remove(record.id)
+            terminalCount += 1
+        }
+        return terminalCount == 4
+    }
+
+    func maximumActive() -> Int {
+        maxActive
+    }
+
+    func maximumQueued() -> Int {
+        maxQueued
+    }
 }
 
 final class MockURLProtocol: URLProtocol, @unchecked Sendable {

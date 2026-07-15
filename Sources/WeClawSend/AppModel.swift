@@ -30,7 +30,6 @@ final class AppModel: ObservableObject {
     @Published var bridgeStatus: ServiceStatus = .checking
     @Published var weChatStatus: ServiceStatus = .checking
     @Published var recentTransfers: [TransferRecord] = []
-    @Published var isSending = false
     @Published var isDropTargeted = false
     @Published var showsServices = false
     @Published var presentedError: String?
@@ -47,7 +46,6 @@ final class AppModel: ObservableObject {
     var onContextRefreshRequired: (() -> Void)?
 
     private let runtime: AppRuntime
-    private var activeSendCount = 0
     private var eventTask: Task<Void, Never>?
     private var serverStateTask: Task<Void, Never>?
     private var serviceMonitorTask: Task<Void, Never>?
@@ -55,6 +53,7 @@ final class AppModel: ObservableObject {
     private let recentTransfersKey = "recentTransfers"
     private let legacyRecentTransferKey = "recentTransfer"
     private var contextRefreshTransfers: Set<UUID> = []
+    private var retriedTransferIDs: Set<UUID> = []
 
     init() {
         var shouldPersistLegacyTransfers = false
@@ -103,8 +102,22 @@ final class AppModel: ObservableObject {
         recentTransfers.contains { $0.status == .queued || $0.status == .sending }
     }
 
-    var activeTransferCount: Int {
-        recentTransfers.filter { $0.status == .queued || $0.status == .sending }.count
+    var sendingTransferCount: Int {
+        recentTransfers.count { $0.status == .sending }
+    }
+
+    var queuedTransferCount: Int {
+        recentTransfers.count { $0.status == .queued }
+    }
+
+    var displayedTransfers: [TransferRecord] {
+        recentTransfers.sorted { lhs, rhs in
+            let lhsPriority = Self.displayPriority(lhs.status)
+            let rhsPriority = Self.displayPriority(rhs.status)
+            if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+            if lhs.isTerminal { return lhs.date > rhs.date }
+            return lhs.date < rhs.date
+        }
     }
 
     var hasPendingContextRefresh: Bool {
@@ -218,18 +231,12 @@ final class AppModel: ObservableObject {
 
     private func enqueue(_ requests: [SendRequest]) {
         for request in requests {
-            activeSendCount += 1
-            isSending = true
             Task { [weak self] in
                 guard let self else { return }
-                defer {
-                    activeSendCount = max(0, activeSendCount - 1)
-                    isSending = activeSendCount > 0
-                }
                 do {
                     _ = try await runtime.coordinator.send(request)
                 } catch {
-                    presentedError = error.localizedDescription
+                    presentedError = sendFailureMessage(error)
                 }
                 await refreshServices()
             }
@@ -285,8 +292,25 @@ final class AppModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([transfer.fileURL])
     }
 
+    func retry(_ transfer: TransferRecord) {
+        guard transfer.status == .failed else { return }
+        guard weChatStatus.isOnline else {
+            showsServices = true
+            presentedError = "请先登录微信后再重新发送"
+            return
+        }
+        guard retriedTransferIDs.insert(transfer.id).inserted else { return }
+        objectWillChange.send()
+        enqueue([SendRequest(filePath: transfer.path, fileName: transfer.fileName)])
+    }
+
+    func wasRetried(_ transfer: TransferRecord) -> Bool {
+        retriedTransferIDs.contains(transfer.id)
+    }
+
     func clearFinishedTransfers() {
         recentTransfers.removeAll(where: \.isTerminal)
+        retriedTransferIDs.removeAll()
         persistTransfers()
     }
 
@@ -350,9 +374,13 @@ final class AppModel: ObservableObject {
     private func insertTransfer(_ record: TransferRecord) {
         recentTransfers.removeAll { $0.id == record.id }
         recentTransfers.insert(record, at: 0)
-        if recentTransfers.count > Self.maxRecentTransfers {
-            recentTransfers.removeLast(recentTransfers.count - Self.maxRecentTransfers)
+        var terminalCount = 0
+        recentTransfers.removeAll { transfer in
+            guard transfer.isTerminal else { return false }
+            terminalCount += 1
+            return terminalCount > Self.maxRecentTransfers
         }
+        retriedTransferIDs.formIntersection(recentTransfers.map(\.id))
     }
 
     private func updateTransfer(_ record: TransferRecord) {
@@ -360,6 +388,15 @@ final class AppModel: ObservableObject {
             recentTransfers[index] = record
         } else {
             insertTransfer(record)
+        }
+    }
+
+    private static func displayPriority(_ status: TransferRecord.Status) -> Int {
+        switch status {
+        case .sending: 0
+        case .queued: 1
+        case .failed: 2
+        case .sent: 3
         }
     }
 

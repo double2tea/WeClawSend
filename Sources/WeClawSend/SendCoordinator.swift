@@ -11,6 +11,17 @@ enum BackendError: LocalizedError {
     }
 }
 
+func sendFailureMessage(_ error: any Error) -> String {
+    let nsError = error as NSError
+    if error is CancellationError
+        || nsError.domain == "Swift.CancellationError"
+        || (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled)
+    {
+        return "发送已取消"
+    }
+    return error.localizedDescription
+}
+
 struct SendRequest: Codable, Sendable {
     let filePath: String
     let fileName: String?
@@ -55,7 +66,8 @@ enum TransferEvent: Sendable {
 }
 
 actor SendCoordinator {
-    static let sendCooldownMilliseconds: Int64 = 60_000
+    static let maxConcurrentTransfers = 3
+    static let sendCooldownMilliseconds = WeChatService.submissionIntervalMilliseconds
     static let maxSendBytes: Int64 = 200 * 1024 * 1024
 
     nonisolated let events: AsyncStream<TransferEvent>
@@ -64,7 +76,7 @@ actor SendCoordinator {
     private let eventContinuation: AsyncStream<TransferEvent>.Continuation
     private var queueDepth = 0
     private var lastSendAt: Date?
-    private var sendSlotLocked = false
+    private var activeSendSlots = 0
     private var sendWaiters: [SendWaiter] = []
     private var activeRecords: [UUID: TransferRecord] = [:]
 
@@ -96,7 +108,7 @@ actor SendCoordinator {
             queueDepth -= 1
             var record = activeRecords.removeValue(forKey: validated.record.id) ?? validated.record
             record.status = .failed
-            record.message = error.localizedDescription
+            record.message = sendFailureMessage(error)
             eventContinuation.yield(.failed(record))
             throw error
         }
@@ -117,7 +129,7 @@ actor SendCoordinator {
         } catch {
             var record = activeRecords.removeValue(forKey: validated.record.id) ?? validated.record
             record.status = .failed
-            record.message = error.localizedDescription
+            record.message = sendFailureMessage(error)
             record.progress = record.progress ?? 0
             eventContinuation.yield(.failed(record))
             finishSendSlot(sentAt: nil)
@@ -127,12 +139,8 @@ actor SendCoordinator {
 
     private func acquireSendSlot() async throws {
         try Task.checkCancellation()
-        if !sendSlotLocked {
-            sendSlotLocked = true
-            if Task.isCancelled {
-                releaseSendSlot()
-                throw CancellationError()
-            }
+        if activeSendSlots < Self.maxConcurrentTransfers {
+            activeSendSlots += 1
             return
         }
 
@@ -160,15 +168,12 @@ actor SendCoordinator {
         if let sentAt {
             lastSendAt = sentAt
         }
-        Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(Self.sendCooldownMilliseconds))
-            await self?.releaseSendSlot()
-        }
+        releaseSendSlot()
     }
 
     private func releaseSendSlot() {
         if sendWaiters.isEmpty {
-            sendSlotLocked = false
+            activeSendSlots -= 1
         } else {
             sendWaiters.removeFirst().continuation.resume()
         }

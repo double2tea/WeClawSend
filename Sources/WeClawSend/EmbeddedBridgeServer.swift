@@ -15,6 +15,7 @@ struct HealthResponse: Encodable {
     let queueDepth: Int
     let weChatConnected: Bool
     let sendCooldownMilliseconds = SendCoordinator.sendCooldownMilliseconds
+    let maxConcurrentTransfers = SendCoordinator.maxConcurrentTransfers
     let maxSendBytes = SendCoordinator.maxSendBytes
     let lastSendAt: String?
 
@@ -25,6 +26,7 @@ struct HealthResponse: Encodable {
         case queueDepth = "queue_depth"
         case weChatConnected = "wechat_connected"
         case sendCooldownMilliseconds = "send_cooldown_ms"
+        case maxConcurrentTransfers = "max_concurrent_transfers"
         case maxSendBytes = "max_send_bytes"
         case lastSendAt = "last_send_at"
     }
