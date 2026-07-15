@@ -4,27 +4,12 @@ import ServiceManagement
 enum AppSettings {
     static let autoRenameMP4Key = "AutoRenameMP4ToM4V"
     static let localAPIEnabledKey = "LocalAPIEnabled"
-    static let premiereIntegrationTokenKey = "PremiereIntegrationToken"
     static let migrateLaunchAtLoginKey = "MigrateLaunchAtLogin"
     static let launchMigrationCompleteKey = "LaunchAtLoginMigrationComplete"
 
     static var localAPIEnabled: Bool {
         guard UserDefaults.standard.object(forKey: localAPIEnabledKey) != nil else { return false }
         return UserDefaults.standard.bool(forKey: localAPIEnabledKey)
-    }
-
-    static var premiereIntegrationToken: String {
-        if let token = UserDefaults.standard.string(forKey: premiereIntegrationTokenKey),
-           !token.isEmpty {
-            return token
-        }
-        return regeneratePremiereIntegrationToken()
-    }
-
-    static func regeneratePremiereIntegrationToken() -> String {
-        let token = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        UserDefaults.standard.set(token, forKey: premiereIntegrationTokenKey)
-        return token
     }
 
     static func outgoingFileName(_ fileName: String) -> String {

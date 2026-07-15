@@ -1,5 +1,4 @@
 export const AUTO_SEND_STORAGE_KEY = "autoSendAfterExport";
-export const INTEGRATION_CODE_STORAGE_KEY = "premiereIntegrationCode";
 
 export function buildOutputFileName(baseName: string, extension: string): string {
   const trimmedName = baseName.trim();
@@ -23,14 +22,11 @@ export function buildOutputPath(folderPath: string, fileName: string): string {
   return `${folderPath.endsWith("/") ? folderPath : `${folderPath}/`}${fileName}`;
 }
 
-export function buildSendURL(filePath: string, fileName: string, token: string): string {
+export function buildSendURL(filePath: string, fileName: string): string {
   if (!filePath.startsWith("/")) {
     throw new Error("发送文件必须使用绝对路径");
   }
-  if (token.length === 0) {
-    throw new Error("请输入 Premiere 连接码");
-  }
-  return `weclaw-send://send?file_path=${encodeURIComponent(filePath)}&file_name=${encodeURIComponent(fileName)}&token=${encodeURIComponent(token)}`;
+  return `weclaw-send://send?file_path=${encodeURIComponent(filePath)}&file_name=${encodeURIComponent(fileName)}`;
 }
 
 export function storedAutoSend(value: string | null): boolean {

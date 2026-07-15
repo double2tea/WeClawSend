@@ -12,7 +12,6 @@ struct ServicesView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     weChatSection
                     settingsSection
-                    premiereIntegrationSection
                     localAPISection
                 }
                 .padding(.horizontal, 12)
@@ -251,38 +250,6 @@ struct ServicesView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                     .padding(.top, 6)
-            }
-        }
-    }
-
-    private var premiereIntegrationSection: some View {
-        compactCard {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Premiere 插件")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("连接码仅用于授权本机自动发送")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 8)
-                    Button("换码") {
-                        model.regeneratePremiereIntegrationCode()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
-                    Button("复制") {
-                        model.copyPremiereIntegrationCode()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
-                }
-
-                Text(model.premiereIntegrationCode)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
             }
         }
     }

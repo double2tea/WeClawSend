@@ -41,7 +41,6 @@ final class AppModel: ObservableObject {
     @Published var isLoggingIn = false
     @Published var autoRenameMP4ToM4V = UserDefaults.standard.bool(forKey: AppSettings.autoRenameMP4Key)
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
-    @Published var premiereIntegrationCode = AppSettings.premiereIntegrationToken
     @Published var launchAtLoginEnabled = LaunchAtLogin.isEnabled
     @Published var launchAtLoginRequiresApproval = LaunchAtLogin.requiresApproval
 
@@ -205,24 +204,10 @@ final class AppModel: ObservableObject {
 
     func send(integrationURL: URL) {
         do {
-            enqueue([
-                try IntegrationURL.sendRequest(
-                    from: integrationURL,
-                    authorizationToken: premiereIntegrationCode
-                )
-            ])
+            enqueue([try IntegrationURL.sendRequest(from: integrationURL)])
         } catch {
             presentedError = error.localizedDescription
         }
-    }
-
-    func copyPremiereIntegrationCode() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(premiereIntegrationCode, forType: .string)
-    }
-
-    func regeneratePremiereIntegrationCode() {
-        premiereIntegrationCode = AppSettings.regeneratePremiereIntegrationToken()
     }
 
     private func enqueue(_ requests: [SendRequest]) {

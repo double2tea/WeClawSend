@@ -2,7 +2,6 @@ import type { premierepro, Sequence } from "@adobe/premierepro";
 
 import {
   AUTO_SEND_STORAGE_KEY,
-  INTEGRATION_CODE_STORAGE_KEY,
   buildOutputFileName,
   buildOutputPath,
   buildSendURL,
@@ -43,8 +42,6 @@ const presetPath = requiredElement<HTMLParagraphElement>("#preset-path");
 const folderPath = requiredElement<HTMLParagraphElement>("#folder-path");
 const outputName = requiredElement<HTMLInputElement>("#output-name");
 const autoSend = requiredElement<HTMLInputElement>("#auto-send");
-const integrationCodeSection = requiredElement<HTMLElement>("#integration-code-section");
-const integrationCode = requiredElement<HTMLInputElement>("#integration-code");
 const choosePreset = requiredElement<HTMLButtonElement>("#choose-preset");
 const chooseFolder = requiredElement<HTMLButtonElement>("#choose-folder");
 const refreshSequence = requiredElement<HTMLButtonElement>("#refresh-sequence");
@@ -56,17 +53,11 @@ let selectedFolder: NativeFolder | null = null;
 let exporting = false;
 
 autoSend.checked = storedAutoSend(localStorage.getItem(AUTO_SEND_STORAGE_KEY));
-integrationCode.value = localStorage.getItem(INTEGRATION_CODE_STORAGE_KEY) ?? "";
 updateExportButtonLabel();
-updateIntegrationCodeVisibility();
 
 autoSend.addEventListener("change", () => {
   localStorage.setItem(AUTO_SEND_STORAGE_KEY, String(autoSend.checked));
   updateExportButtonLabel();
-  updateIntegrationCodeVisibility();
-});
-integrationCode.addEventListener("change", () => {
-  localStorage.setItem(INTEGRATION_CODE_STORAGE_KEY, integrationCode.value.trim());
 });
 
 choosePreset.addEventListener("click", () => {
@@ -153,11 +144,6 @@ async function startExport(): Promise<void> {
   if (!selectedFolder) {
     throw new Error("请选择输出位置");
   }
-  const authorizationToken = integrationCode.value.trim();
-  if (autoSend.checked && authorizationToken.length === 0) {
-    throw new Error("请从 WeClaw Send 设置中复制 Premiere 连接码");
-  }
-
   exporting = true;
   setBusy(true);
   try {
@@ -194,7 +180,7 @@ async function startExport(): Promise<void> {
 
     setStatus("导出完成，正在提交给 WeClaw Send…", "neutral");
     const result = await uxp.shell.openExternal(
-      buildSendURL(outputPath, fileName, authorizationToken),
+      buildSendURL(outputPath, fileName),
       "允许 WeClaw Send 发送本次导出的文件"
     );
     if (result.length > 0) {
@@ -246,15 +232,10 @@ function setBusy(busy: boolean): void {
   refreshSequence.disabled = busy;
   outputName.disabled = busy;
   autoSend.disabled = busy;
-  integrationCode.disabled = busy;
 }
 
 function updateExportButtonLabel(): void {
   exportButton.textContent = autoSend.checked ? "导出并自动发送" : "导出";
-}
-
-function updateIntegrationCodeVisibility(): void {
-  integrationCodeSection.hidden = !autoSend.checked;
 }
 
 function setStatus(message: string, tone: "neutral" | "success" | "error"): void {

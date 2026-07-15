@@ -125,52 +125,31 @@ precondition(!AppSettings.localAPIEnabled)
 UserDefaults.standard.set(true, forKey: AppSettings.localAPIEnabledKey)
 precondition(AppSettings.localAPIEnabled)
 
-let previousPremiereToken = UserDefaults.standard.string(forKey: AppSettings.premiereIntegrationTokenKey)
-defer {
-    if let previousPremiereToken {
-        UserDefaults.standard.set(previousPremiereToken, forKey: AppSettings.premiereIntegrationTokenKey)
-    } else {
-        UserDefaults.standard.removeObject(forKey: AppSettings.premiereIntegrationTokenKey)
-    }
-}
-UserDefaults.standard.removeObject(forKey: AppSettings.premiereIntegrationTokenKey)
-let generatedPremiereToken = AppSettings.premiereIntegrationToken
-precondition(generatedPremiereToken.count == 32)
-precondition(AppSettings.premiereIntegrationToken == generatedPremiereToken)
-precondition(AppSettings.regeneratePremiereIntegrationToken() != generatedPremiereToken)
-
 let integrationURL = URL(
-    string: "weclaw-send://send?file_path=%2Ftmp%2F%E6%88%90%E7%89%87%20v1.mp4&file_name=%E6%88%90%E7%89%87%20v1.mp4&token=test-token"
+    string: "weclaw-send://send?file_path=%2Ftmp%2F%E6%88%90%E7%89%87%20v1.mp4&file_name=%E6%88%90%E7%89%87%20v1.mp4"
 )!
-let integrationRequest = try IntegrationURL.sendRequest(
-    from: integrationURL,
-    authorizationToken: "test-token"
-)
+let integrationRequest = try IntegrationURL.sendRequest(from: integrationURL)
 precondition(integrationRequest.filePath == "/tmp/成片 v1.mp4")
 precondition(integrationRequest.fileName == "成片 v1.mp4")
 
 let pathOnlyIntegrationRequest = try IntegrationURL.sendRequest(
-    from: URL(string: "weclaw-send://send?file_path=%2Ftmp%2Fa&token=test-token")!,
-    authorizationToken: "test-token"
+    from: URL(string: "weclaw-send://send?file_path=%2Ftmp%2Fa")!
 )
 precondition(pathOnlyIntegrationRequest.fileName == nil)
 
 let rejectedIntegrationURLs = [
-    ("other://send?file_path=%2Ftmp%2Fa&token=test-token", "不支持的集成链接"),
-    ("weclaw-send://other?file_path=%2Ftmp%2Fa&token=test-token", "不支持的集成链接"),
-    ("weclaw-send://send?file_path=%2Ftmp%2Fa&token=test-token&unknown=value", "未知参数"),
-    ("weclaw-send://send?file_path=%2Ftmp%2Fa&file_name=&token=test-token", "文件名不能为空"),
-    ("weclaw-send://send?file_path=%2Ftmp%2Fa&file_path=%2Ftmp%2Fb&token=test-token", "重复参数"),
-    ("weclaw-send://send?file_path=relative.mp4&token=test-token", "必须是绝对路径"),
-    ("weclaw-send://send?token=test-token", "缺少文件路径"),
-    ("weclaw-send://send?file_path=%2Ftmp%2Fa&token=wrong-token", "未授权")
+    ("other://send?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
+    ("weclaw-send://other?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
+    ("weclaw-send://send?file_path=%2Ftmp%2Fa&unknown=value", "未知参数"),
+    ("weclaw-send://send?file_path=%2Ftmp%2Fa&token=legacy", "未知参数"),
+    ("weclaw-send://send?file_path=%2Ftmp%2Fa&file_name=", "文件名不能为空"),
+    ("weclaw-send://send?file_path=%2Ftmp%2Fa&file_path=%2Ftmp%2Fb", "重复参数"),
+    ("weclaw-send://send?file_path=relative.mp4", "必须是绝对路径"),
+    ("weclaw-send://send", "缺少文件路径")
 ]
 for (urlString, expectedMessage) in rejectedIntegrationURLs {
     do {
-        _ = try IntegrationURL.sendRequest(
-            from: URL(string: urlString)!,
-            authorizationToken: "test-token"
-        )
+        _ = try IntegrationURL.sendRequest(from: URL(string: urlString)!)
         preconditionFailure("invalid integration URL must be rejected: \(urlString)")
     } catch let error as BackendError {
         precondition(error.localizedDescription.contains(expectedMessage))

@@ -111,7 +111,7 @@ Content-Type: application/json
 ./scripts/build-premiere-plugin.sh
 ```
 
-构建产物为 `premiere-uxp/dist`。使用 UXP Developer Tool 2.2+ 加载其中的 `manifest.json`，详细步骤见 [`premiere-uxp/README.md`](premiere-uxp/README.md)。首次启用自动发送时，从 WeClaw Send 设置中复制 Premiere 连接码。插件通过已授权的 `weclaw-send://` 本机链接唤起应用，不要求开启本地 HTTP 接口。
+构建产物为 `premiere-uxp/dist`。使用 UXP Developer Tool 2.2+ 加载其中的 `manifest.json`，详细步骤见 [`premiere-uxp/README.md`](premiere-uxp/README.md)。插件通过 `weclaw-send://` 本机链接唤起应用，不需要连接码，也不要求开启本地 HTTP 接口。
 
 ## 品牌资源
 

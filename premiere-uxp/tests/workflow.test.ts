@@ -25,13 +25,10 @@ describe("Premiere export workflow", () => {
   });
 
   it("encodes the WeClaw Send integration URL", () => {
-    expect(buildSendURL("/Users/me/成片 v06.mp4", "成片 v06.mp4", "abc 123")).toBe(
-      "weclaw-send://send?file_path=%2FUsers%2Fme%2F%E6%88%90%E7%89%87%20v06.mp4&file_name=%E6%88%90%E7%89%87%20v06.mp4&token=abc%20123"
+    expect(buildSendURL("/Users/me/成片 v06.mp4", "成片 v06.mp4")).toBe(
+      "weclaw-send://send?file_path=%2FUsers%2Fme%2F%E6%88%90%E7%89%87%20v06.mp4&file_name=%E6%88%90%E7%89%87%20v06.mp4"
     );
-    expect(() => buildSendURL("relative.mp4", "relative.mp4", "token")).toThrow("必须使用绝对路径");
-    expect(() => buildSendURL("/absolute.mp4", "absolute.mp4", "")).toThrow(
-      "请输入 Premiere 连接码"
-    );
+    expect(() => buildSendURL("relative.mp4", "relative.mp4")).toThrow("必须使用绝对路径");
   });
 
   it("keeps auto-send opt-in", () => {
