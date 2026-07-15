@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PLUGIN="$ROOT/premiere-uxp"
+PLUGIN="$ROOT/premiere-cep"
 
-(
-    cd "$PLUGIN"
-    npm ci
-    npm run lint
-    npm run type-check
-    npm run build
-)
+[[ -f "$PLUGIN/CSXS/manifest.xml" ]]
+[[ -f "$PLUGIN/index.html" ]]
+[[ -f "$PLUGIN/js/main.js" ]]
+[[ -f "$PLUGIN/jsx/host.jsx" ]]
+node --check "$PLUGIN/js/main.js"
+node --check "$PLUGIN/js/protocol.js"
+node --test "$PLUGIN/tests/protocol.test.js"
 
-print "$PLUGIN/dist"
+print "$PLUGIN"

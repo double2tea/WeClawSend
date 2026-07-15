@@ -215,20 +215,6 @@ final class AppModel: ObservableObject {
         enqueue(requests)
     }
 
-    func send(integrationURL: URL) {
-        do {
-            let request = try IntegrationURL.sendRequest(from: integrationURL)
-            guard weChatStatus.isOnline else {
-                showsServices = true
-                presentedError = "请先登录微信后再发送文件"
-                return
-            }
-            enqueue([request])
-        } catch {
-            presentedError = error.localizedDescription
-        }
-    }
-
     private func enqueue(_ requests: [SendRequest]) {
         for request in requests {
             Task { [weak self] in

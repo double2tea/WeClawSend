@@ -10,15 +10,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     private var statusItem: NSStatusItem?
     private var openPanel: NSOpenPanel?
 
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        NSAppleEventManager.shared().setEventHandler(
-            self,
-            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
-            forEventClass: AEEventClass(kInternetEventClass),
-            andEventID: AEEventID(kAEGetURL)
-        )
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         UNUserNotificationCenter.current().delegate = self
@@ -64,13 +55,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
             guard let self, !popover.isShown else { return }
             deliverContextRefreshNotification()
         }
-    }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        NSAppleEventManager.shared().removeEventHandler(
-            forEventClass: AEEventClass(kInternetEventClass),
-            andEventID: AEEventID(kAEGetURL)
-        )
     }
 
     nonisolated func userNotificationCenter(
@@ -127,21 +111,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
                 }
             }
         }
-    }
-
-    @objc
-    private func handleGetURLEvent(
-        _ event: NSAppleEventDescriptor,
-        withReplyEvent replyEvent: NSAppleEventDescriptor
-    ) {
-        guard let value = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
-              let url = URL(string: value) else {
-            model.presentedError = "无法读取 Premiere 发送请求"
-            showPopover()
-            return
-        }
-        model.send(integrationURL: url)
-        showPopover()
     }
 
     private func chooseFiles() {

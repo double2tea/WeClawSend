@@ -10,7 +10,6 @@ python3 -m unittest discover \
     -p 'test_*.py'
 
 "$ROOT/scripts/build-premiere-plugin.sh"
-npm --prefix "$ROOT/premiere-uxp" test
 
 swiftc \
     -framework AppKit \
@@ -21,7 +20,6 @@ swiftc \
     "$ROOT/Sources/WeClawSend/PasteboardURLs.swift" \
     "$ROOT/Sources/WeClawSend/AppSettings.swift" \
     "$ROOT/Sources/WeClawSend/TransferRecord.swift" \
-    "$ROOT/Sources/WeClawSend/IntegrationURL.swift" \
     "$ROOT/Sources/WeClawSend/WeChatCredentials.swift" \
     "$ROOT/Sources/WeClawSend/WeChatCrypto.swift" \
     "$ROOT/Sources/WeClawSend/WeChatService.swift" \

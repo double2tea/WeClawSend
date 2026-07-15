@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
 ZIP="$DIST/WeClaw-Send.zip"
 DMG="$DIST/WeClaw-Send.dmg"
-PREMIERE_ZIP="$DIST/WeClaw-Send-Premiere-UXP.zip"
+PREMIERE_ZIP="$DIST/WeClaw-Send-Premiere-CEP12.zip"
 DAVINCI_ZIP="$DIST/WeClaw-Send-DaVinci-Resolve.zip"
 CHECKSUMS="$DIST/SHA256SUMS.txt"
 VERIFY="$(mktemp -d "${TMPDIR:-/tmp/}weclaw-send-release.XXXXXX")"
@@ -34,7 +34,13 @@ codesign --verify --deep --strict "$APP"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")" == "14.0" ]]
 
 mkdir -p "$DIST"
-rm -f "$ZIP" "$DMG" "$PREMIERE_ZIP" "$DAVINCI_ZIP" "$CHECKSUMS"
+rm -f \
+    "$ZIP" \
+    "$DMG" \
+    "$PREMIERE_ZIP" \
+    "$DAVINCI_ZIP" \
+    "$CHECKSUMS" \
+    "$DIST/WeClaw-Send-Premiere-UXP.zip"
 mkdir -p "$PACKAGE"
 COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$APP" "$PACKAGE/WeClaw Send.app"
 cp "$ROOT/docs/使用说明.html" "$PACKAGE/使用说明.html"
@@ -47,8 +53,7 @@ ln -s /Applications "$DMG_PACKAGE/Applications"
 hdiutil create -volname "WeClaw Send" -srcfolder "$DMG_PACKAGE" -format UDZO -ov "$DMG" >/dev/null
 
 mkdir -p "$PREMIERE_PACKAGE"
-COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$ROOT/premiere-uxp/dist" "$PREMIERE_PACKAGE"
-cp "$ROOT/premiere-uxp/README.md" "$PREMIERE_PACKAGE/README.md"
+COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$ROOT/premiere-cep" "$PREMIERE_PACKAGE"
 COPYFILE_DISABLE=1 ditto --norsrc --noextattr -c -k "$PREMIERE_PACKAGE" "$PREMIERE_ZIP"
 
 mkdir -p "$DAVINCI_PACKAGE/davinci-resolve/Deliver" "$DAVINCI_PACKAGE/scripts"
@@ -70,19 +75,21 @@ for archive in "$ZIP" "$PREMIERE_ZIP" "$DAVINCI_ZIP"; do
     fi
 done
 
-if ! zipinfo -1 "$PREMIERE_ZIP" | grep -qx 'manifest.json' \
-    || ! zipinfo -1 "$PREMIERE_ZIP" | grep -qx 'main.js'; then
+PREMIERE_CONTENTS="$(LC_ALL=C zipinfo -1 "$PREMIERE_ZIP")"
+if ! grep -qx 'CSXS/manifest.xml' <<<"$PREMIERE_CONTENTS" \
+    || ! grep -Eq '\.command$' <<<"$PREMIERE_CONTENTS"; then
     print -u2 "Premiere 发布包缺少构建产物"
     exit 1
 fi
 
-if ! zipinfo -1 "$DAVINCI_ZIP" | LC_ALL=C grep -q '^davinci-resolve/Deliver/.*\.py$' \
-    || ! zipinfo -1 "$DAVINCI_ZIP" | grep -qx 'scripts/install-davinci-plugin.sh'; then
+DAVINCI_CONTENTS="$(LC_ALL=C zipinfo -1 "$DAVINCI_ZIP")"
+if ! grep -q '^davinci-resolve/Deliver/.*\.py$' <<<"$DAVINCI_CONTENTS" \
+    || ! grep -qx 'scripts/install-davinci-plugin.sh' <<<"$DAVINCI_CONTENTS"; then
     print -u2 "DaVinci 发布包缺少脚本"
     exit 1
 fi
 
-if zipinfo -1 "$DAVINCI_ZIP" | grep -q '__pycache__'; then
+if grep -q '__pycache__' <<<"$DAVINCI_CONTENTS"; then
     print -u2 "DaVinci 发布包包含 Python 缓存"
     exit 1
 fi

@@ -4,17 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="./style.css" />
-    <script defer src="./main.js"></script>
+    <script defer src="./js/protocol.js"></script>
+    <script defer src="./js/main.js"></script>
     <title>WeClaw Send</title>
   </head>
   <body>
     <main>
       <header>
         <div>
-          <p class="eyebrow">PREMIERE PRO</p>
+          <p class="eyebrow">PREMIERE PRO · CEP 12</p>
           <h1>WeClaw Send</h1>
         </div>
-        <button id="refresh-sequence" class="icon-button" type="button" title="刷新序列">↻</button>
+        <button id="refresh-sequence" class="icon-button" type="button" title="刷新序列" aria-label="刷新序列">↻</button>
       </header>
 
       <section class="sequence-card">
@@ -38,7 +39,7 @@
       <section class="send-option">
         <div>
           <strong>导出完成后自动发送</strong>
-          <span>关闭时只导出，不调用 WeClaw Send</span>
+          <span>需要在 WeClaw Send 设置中开启本地接口</span>
         </div>
         <label class="switch">
           <input id="auto-send" type="checkbox" aria-label="导出完成后自动发送" />

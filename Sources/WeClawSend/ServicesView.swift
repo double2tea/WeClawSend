@@ -239,7 +239,7 @@ struct ServicesView: View {
                 settingRow(
                     icon: "network",
                     title: "启用本地接口",
-                    subtitle: "允许本机脚本和自动化调用",
+                    subtitle: "供 Premiere、DaVinci 和本机脚本调用",
                     isOn: Binding(
                         get: { model.localAPIEnabled },
                         set: { model.setLocalAPIEnabled($0) }

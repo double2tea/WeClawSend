@@ -127,41 +127,6 @@ precondition(!AppSettings.localAPIEnabled)
 UserDefaults.standard.set(true, forKey: AppSettings.localAPIEnabledKey)
 precondition(AppSettings.localAPIEnabled)
 
-let integrationURL = URL(
-    string: "weclaw-send://send?file_path=%2Ftmp%2F%E6%88%90%E7%89%87%20v1.mp4&file_name=%E6%88%90%E7%89%87%20v1.mp4"
-)!
-let integrationRequest = try IntegrationURL.sendRequest(from: integrationURL)
-precondition(integrationRequest.filePath == "/tmp/成片 v1.mp4")
-precondition(integrationRequest.fileName == "成片 v1.mp4")
-
-let pathOnlyIntegrationRequest = try IntegrationURL.sendRequest(
-    from: URL(string: "weclaw-send://send?file_path=%2Ftmp%2Fa")!
-)
-precondition(pathOnlyIntegrationRequest.fileName == nil)
-
-let rejectedIntegrationURLs = [
-    ("other://send?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
-    ("weclaw-send://other?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
-    ("weclaw-send://send/unexpected?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
-    ("weclaw-send://send:1234?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
-    ("weclaw-send://user@send?file_path=%2Ftmp%2Fa", "不支持的集成链接"),
-    ("weclaw-send://send?file_path=%2Ftmp%2Fa#fragment", "不支持的集成链接"),
-    ("weclaw-send://send?file_path=%2Ftmp%2Fa&unknown=value", "未知参数"),
-    ("weclaw-send://send?file_path=%2Ftmp%2Fa&token=legacy", "未知参数"),
-    ("weclaw-send://send?file_path=%2Ftmp%2Fa&file_name=", "文件名不能为空"),
-    ("weclaw-send://send?file_path=%2Ftmp%2Fa&file_path=%2Ftmp%2Fb", "重复参数"),
-    ("weclaw-send://send?file_path=relative.mp4", "必须是绝对路径"),
-    ("weclaw-send://send", "缺少文件路径")
-]
-for (urlString, expectedMessage) in rejectedIntegrationURLs {
-    do {
-        _ = try IntegrationURL.sendRequest(from: URL(string: urlString)!)
-        preconditionFailure("invalid integration URL must be rejected: \(urlString)")
-    } catch let error as BackendError {
-        precondition(error.localizedDescription.contains(expectedMessage))
-    }
-}
-
 precondition(LaunchAtLogin.transition(for: .notFound, enabled: true) == .register)
 precondition(LaunchAtLogin.transition(for: .notRegistered, enabled: true) == .register)
 precondition(LaunchAtLogin.transition(for: .enabled, enabled: true) == .none)

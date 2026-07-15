@@ -19,7 +19,7 @@
 - **可选 .mp4 → .m4v 附件名**（只改微信显示名，不改本地文件）
 - 可在设置中启停本地接口 `http://127.0.0.1:18790`（默认关闭，菜单栏发送不依赖它）
 - **DaVinci Resolve 后渲染脚本**：渲染成功后自动发送，可选 M4V 文件或 MP4 视频模式
-- **Premiere Pro 25.6+ UXP 面板**：可选在本次导出成功后自动发送
+- **Premiere Pro 2025 25.3 / CEP 12 面板**：可选在本次导出成功后自动发送，无需 UXP Developer Tool
 - 设置页提供 GitHub 与邮件联系图标（`double_tea@foxmail.com`）
 - 微信会话受限时按需等待用户消息，自动刷新上下文并重试原文件
 
@@ -37,7 +37,7 @@
 ./scripts/release.sh
 ```
 
-产物包括 `dist/WeClaw-Send.dmg`、`dist/WeClaw-Send.zip` 和 `dist/SHA256SUMS.txt`。DMG 与 ZIP 均内含 App 和可直接双击查看的图解版 `使用说明.html`。由于当前没有 Developer ID 签名，朋友首次打开时需要在 **系统设置 → 隐私与安全性** 中手动批准。
+产物包括 App 的 DMG/ZIP、`WeClaw-Send-Premiere-CEP12.zip`、DaVinci Resolve 插件包和 `SHA256SUMS.txt`。DMG 与 App ZIP 均内含可直接双击查看的图解版 `使用说明.html`。由于当前没有 Developer ID 签名，朋友首次打开时需要在 **系统设置 → 隐私与安全性** 中手动批准。
 
 ## 开发者安装
 
@@ -105,13 +105,13 @@ Content-Type: application/json
 
 ## Premiere Pro 插件
 
-插件位于 [`premiere-uxp`](premiere-uxp)，要求 Premiere Pro 25.6+。自动发送默认关闭；关闭时插件只导出，不会调用 WeClaw Send。
+项目只维护 [`premiere-cep`](premiere-cep) 这一套 CEP 12 面板，面向 Premiere Pro 2025 25.0–25.5，并针对 25.3 验证。自动发送默认关闭；关闭时面板只导出，不会调用 WeClaw Send。导出由 Premiere 直接执行，不依赖 Adobe Media Encoder；Adobe 脚本导出接口要求选择一个 `.epr` 预设。
 
 ```sh
-./scripts/build-premiere-plugin.sh
+./scripts/install-premiere-plugin.sh
 ```
 
-构建产物为 `premiere-uxp/dist`。使用 UXP Developer Tool 2.2+ 加载其中的 `manifest.json`，详细步骤见 [`premiere-uxp/README.md`](premiere-uxp/README.md)。插件通过 `weclaw-send://` 本机链接唤起应用，不需要连接码，也不要求开启本地 HTTP 接口。
+安装后重新打开 Premiere，在 **窗口 → 扩展 → WeClaw Send** 打开面板，不需要 UXP Developer Tool。开启自动发送前，需要先在 WeClaw Send 设置中打开「本地接口」。详细步骤见 [`premiere-cep/README.md`](premiere-cep/README.md)。
 
 ## 品牌资源
 
