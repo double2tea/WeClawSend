@@ -33,7 +33,7 @@
 ./scripts/release.sh
 ```
 
-产物位于 `dist/WeClaw-Send.zip`，内含 App 和可直接双击查看的图解版 `使用说明.html`。由于当前没有 Developer ID 签名，朋友首次打开时需要在 **系统设置 → 隐私与安全性** 中手动批准。
+产物包括 `dist/WeClaw-Send.dmg`、`dist/WeClaw-Send.zip` 和 `dist/SHA256SUMS.txt`。DMG 与 ZIP 均内含 App 和可直接双击查看的图解版 `使用说明.html`。由于当前没有 Developer ID 签名，朋友首次打开时需要在 **系统设置 → 隐私与安全性** 中手动批准。
 
 ## 开发者安装
 
