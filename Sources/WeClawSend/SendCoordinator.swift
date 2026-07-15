@@ -1,0 +1,272 @@
+import Foundation
+
+enum BackendError: LocalizedError {
+    case rejected(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .rejected(message):
+            message
+        }
+    }
+}
+
+struct SendRequest: Codable, Sendable {
+    let filePath: String
+    let fileName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case filePath = "file_path"
+        case fileName = "file_name"
+    }
+}
+
+struct SendResult: Codable, Sendable {
+    let ok: Bool
+    let status: String
+    let mediaType: String
+    let filePath: String
+    let fileName: String
+    let size: Int64
+    let queueWaitMilliseconds: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case status
+        case mediaType = "media_type"
+        case filePath = "file_path"
+        case fileName = "file_name"
+        case size
+        case queueWaitMilliseconds = "queue_wait_ms"
+    }
+}
+
+struct BridgeSnapshot: Sendable {
+    let queueDepth: Int
+    let weChatConnected: Bool
+    let lastSendAt: Date?
+}
+
+enum TransferEvent: Sendable {
+    case started(TransferRecord)
+    case updated(TransferRecord)
+    case completed(TransferRecord)
+    case failed(TransferRecord)
+}
+
+actor SendCoordinator {
+    static let sendCooldownMilliseconds: Int64 = 60_000
+    static let maxSendBytes: Int64 = 200 * 1024 * 1024
+
+    nonisolated let events: AsyncStream<TransferEvent>
+
+    private let weChat: WeChatService
+    private let eventContinuation: AsyncStream<TransferEvent>.Continuation
+    private var queueDepth = 0
+    private var lastSendAt: Date?
+    private var sendSlotLocked = false
+    private var sendWaiters: [SendWaiter] = []
+    private var activeRecords: [UUID: TransferRecord] = [:]
+
+    init(weChat: WeChatService) {
+        let eventPair = AsyncStream<TransferEvent>.makeStream()
+        events = eventPair.stream
+        eventContinuation = eventPair.continuation
+        self.weChat = weChat
+    }
+
+    func snapshot() async -> BridgeSnapshot {
+        let validated = await weChat.isConnected()
+        return BridgeSnapshot(
+            queueDepth: queueDepth,
+            weChatConnected: validated,
+            lastSendAt: lastSendAt
+        )
+    }
+
+    func send(_ request: SendRequest) async throws -> SendResult {
+        let validated = try validate(request)
+        queueDepth += 1
+        activeRecords[validated.record.id] = validated.record
+        eventContinuation.yield(.started(validated.record))
+        let waitStartedAt = Date()
+        do {
+            try await acquireSendSlot()
+        } catch {
+            queueDepth -= 1
+            var record = activeRecords.removeValue(forKey: validated.record.id) ?? validated.record
+            record.status = .failed
+            record.message = error.localizedDescription
+            eventContinuation.yield(.failed(record))
+            throw error
+        }
+        let queueWaitMilliseconds = Int64(Date().timeIntervalSince(waitStartedAt) * 1_000)
+        updateRecord(id: validated.record.id, status: .sending)
+
+        do {
+            let result = try await performSend(validated, queueWaitMilliseconds: queueWaitMilliseconds)
+            var record = activeRecords.removeValue(forKey: validated.record.id) ?? validated.record
+            record.status = .sent
+            record.stage = .finished
+            record.progress = 1
+            record.sentBytes = record.byteCount
+            record.message = nil
+            eventContinuation.yield(.completed(record))
+            finishSendSlot(sentAt: .now)
+            return result
+        } catch {
+            var record = activeRecords.removeValue(forKey: validated.record.id) ?? validated.record
+            record.status = .failed
+            record.message = error.localizedDescription
+            record.progress = record.progress ?? 0
+            eventContinuation.yield(.failed(record))
+            finishSendSlot(sentAt: nil)
+            throw error
+        }
+    }
+
+    private func acquireSendSlot() async throws {
+        try Task.checkCancellation()
+        if !sendSlotLocked {
+            sendSlotLocked = true
+            if Task.isCancelled {
+                releaseSendSlot()
+                throw CancellationError()
+            }
+            return
+        }
+
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                sendWaiters.append(SendWaiter(id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+        if Task.isCancelled {
+            releaseSendSlot()
+            throw CancellationError()
+        }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = sendWaiters.firstIndex(where: { $0.id == id }) else { return }
+        sendWaiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+
+    private func finishSendSlot(sentAt: Date?) {
+        queueDepth -= 1
+        if let sentAt {
+            lastSendAt = sentAt
+        }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.sendCooldownMilliseconds))
+            await self?.releaseSendSlot()
+        }
+    }
+
+    private func releaseSendSlot() {
+        if sendWaiters.isEmpty {
+            sendSlotLocked = false
+        } else {
+            sendWaiters.removeFirst().continuation.resume()
+        }
+    }
+
+    private func performSend(
+        _ validated: ValidatedSend,
+        queueWaitMilliseconds: Int64
+    ) async throws -> SendResult {
+        try Task.checkCancellation()
+        try await weChat.sendFile(at: validated.fileURL, fileName: validated.fileName) { [weak self] progress in
+            await self?.updateRecord(id: validated.record.id, progress: progress)
+        }
+
+        return SendResult(
+            ok: true,
+            status: "sent",
+            mediaType: "file",
+            filePath: validated.fileURL.path,
+            fileName: validated.fileName,
+            size: validated.byteCount,
+            queueWaitMilliseconds: queueWaitMilliseconds
+        )
+    }
+
+    private func validate(_ request: SendRequest) throws -> ValidatedSend {
+        let fileURL = URL(fileURLWithPath: request.filePath).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw BackendError.rejected("文件不存在：\(fileURL.path)")
+        }
+        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard values.isRegularFile == true else {
+            throw BackendError.rejected("不是普通文件：\(fileURL.path)")
+        }
+
+        let byteCount = Int64(values.fileSize ?? 0)
+        guard byteCount <= Self.maxSendBytes else {
+            throw BackendError.rejected("文件过大：\(formatBytes(byteCount)) > \(formatBytes(Self.maxSendBytes))")
+        }
+
+        let resolvedFileName: String
+        if let requestedFileName = request.fileName, !requestedFileName.isEmpty {
+            resolvedFileName = requestedFileName
+        } else {
+            resolvedFileName = fileURL.lastPathComponent
+        }
+        let outgoingFileName = AppSettings.outgoingFileName(resolvedFileName)
+        let record = TransferRecord(
+            path: fileURL.path,
+            fileName: outgoingFileName,
+            byteCount: byteCount,
+            date: .now,
+            status: .queued,
+            message: nil,
+            stage: nil,
+            progress: 0,
+            sentBytes: 0
+        )
+        return ValidatedSend(
+            fileURL: fileURL,
+            fileName: outgoingFileName,
+            byteCount: byteCount,
+            record: record
+        )
+    }
+
+    private func updateRecord(
+        id: UUID,
+        status: TransferRecord.Status? = nil,
+        progress: WeChatSendProgress? = nil
+    ) {
+        guard var record = activeRecords[id] else { return }
+        if let status {
+            record.status = status
+            if status == .sending, record.stage == nil {
+                record.stage = .preparing
+                record.progress = max(record.progress ?? 0, 0.01)
+            }
+        }
+        if let progress {
+            record.stage = progress.stage
+            record.progress = progress.fraction
+            record.sentBytes = progress.sentBytes
+        }
+        activeRecords[id] = record
+        eventContinuation.yield(.updated(record))
+    }
+
+}
+
+private struct SendWaiter {
+    let id: UUID
+    let continuation: CheckedContinuation<Void, Error>
+}
+
+private struct ValidatedSend: Sendable {
+    let fileURL: URL
+    let fileName: String
+    let byteCount: Int64
+    let record: TransferRecord
+}
