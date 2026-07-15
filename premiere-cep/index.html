@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="./style.css" />
     <script defer src="./js/protocol.js"></script>
+    <script defer src="./js/preset-library.js"></script>
     <script defer src="./js/main.js"></script>
     <title>WeClaw Send</title>
   </head>
@@ -24,9 +25,21 @@
       </section>
 
       <section class="form-section">
-        <label>Adobe 导出预设</label>
-        <button id="choose-preset" class="secondary-button" type="button">选择 .epr 预设</button>
-        <p id="preset-path" class="path">未选择</p>
+        <div class="label-row">
+          <label for="preset-trigger">Adobe 导出预设</label>
+          <button id="refresh-presets" class="compact-button" type="button">刷新</button>
+        </div>
+        <div id="preset-picker" class="preset-picker">
+          <button id="preset-trigger" class="preset-trigger" type="button" aria-haspopup="dialog" aria-controls="preset-menu" aria-expanded="false">
+            <span id="preset-value">正在扫描预设…</span>
+            <span class="preset-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div id="preset-menu" class="preset-menu" role="dialog" aria-label="Adobe 导出预设" hidden>
+            <input id="preset-search" type="search" placeholder="搜索预设" autocomplete="off" aria-label="搜索导出预设" />
+            <div id="preset-options" class="preset-options"></div>
+          </div>
+        </div>
+        <p class="path">在 Premiere 导出页调整参数并保存预设后，点击刷新</p>
 
         <label>输出位置</label>
         <button id="choose-folder" class="secondary-button" type="button">选择文件夹</button>

@@ -7,11 +7,6 @@ $._WECLAW = {
         return "ERROR|" + encodeURIComponent(value || "Premiere 操作失败");
     },
 
-    choosePreset: function () {
-        var preset = File.openDialog("选择 Adobe 导出预设", "Adobe 导出预设:*.epr", false);
-        return preset ? this.ok(preset.fsName) : "CANCEL|";
-    },
-
     chooseFolder: function () {
         var folder = Folder.selectDialog("选择导出文件夹");
         return folder ? this.ok(folder.fsName) : "CANCEL|";

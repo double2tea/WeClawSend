@@ -32,8 +32,10 @@
 }
 
 body {
+  height: 100vh;
   margin: 0;
   background: var(--background);
+  overflow-y: auto;
 }
 
 main {
@@ -123,7 +125,8 @@ button:disabled {
   gap: 8px;
 }
 
-.form-section label {
+.form-section > label,
+.label-row label {
   margin-top: 4px;
   font-size: 11px;
   font-weight: 600;
@@ -137,6 +140,123 @@ input[type="text"] {
   color: var(--text);
   padding: 7px 10px;
   text-align: left;
+}
+
+.preset-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.preset-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--control);
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.preset-trigger span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-chevron {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.preset-menu {
+  position: absolute;
+  z-index: 10;
+  top: 100%;
+  right: 0;
+  left: 0;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  padding: 7px;
+}
+
+.preset-menu[hidden] {
+  display: none;
+}
+
+#preset-search {
+  width: 100%;
+  min-height: 30px;
+  background: var(--control);
+  padding: 6px 9px;
+}
+
+.preset-options {
+  max-height: 180px;
+  margin-top: 6px;
+  overflow-y: auto;
+}
+
+.preset-group {
+  padding: 7px 8px 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.preset-option {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 7px 8px;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-option:hover,
+.preset-option.selected {
+  background: var(--control);
+}
+
+.preset-option:focus {
+  outline: 2px solid var(--accent-border);
+  outline-offset: -2px;
+  background: var(--control);
+}
+
+.preset-option.selected {
+  color: var(--accent-border);
+  font-weight: 650;
+}
+
+.preset-empty {
+  padding: 12px 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.compact-button {
+  border: 0;
+  background: transparent;
+  color: var(--accent-border);
+  padding: 2px 0;
+  font-size: 11px;
 }
 
 .path {

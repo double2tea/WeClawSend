@@ -105,7 +105,7 @@ Content-Type: application/json
 
 ## Premiere Pro 插件
 
-项目只维护 [`premiere-cep`](premiere-cep) 这一套 CEP 12 面板，面向 Premiere Pro 2025 25.0–25.5，并针对 25.3 验证。自动发送默认关闭；关闭时面板只导出，不会调用 WeClaw Send。导出由 Premiere 直接执行，不依赖 Adobe Media Encoder；Adobe 脚本导出接口要求选择一个 `.epr` 预设。
+项目只维护 [`premiere-cep`](premiere-cep) 这一套 CEP 12 面板，面向 Premiere Pro 2025 25.0–25.5，并针对 25.3 验证。自动发送默认关闭；关闭时面板只导出，不会调用 WeClaw Send。导出由 Premiere 直接执行，不依赖 Adobe Media Encoder。面板自动扫描用户和系统 `.epr` 预设，可在面板内搜索、滚动选择并记住上次选择；参数在 Premiere 原生导出页调整并保存后，回到面板刷新即可。
 
 ```sh
 ./scripts/install-premiere-plugin.sh

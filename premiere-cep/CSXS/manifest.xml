@@ -2,11 +2,11 @@
 <ExtensionManifest
     Version="7.0"
     ExtensionBundleId="com.chacha.WeClawSend.Premiere"
-    ExtensionBundleVersion="1.0.0"
+    ExtensionBundleVersion="1.4.0"
     ExtensionBundleName="WeClaw Send"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <ExtensionList>
-        <Extension Id="com.chacha.WeClawSend.Premiere.panel" Version="1.0.0"/>
+        <Extension Id="com.chacha.WeClawSend.Premiere.panel" Version="1.4.0"/>
     </ExtensionList>
     <ExecutionEnvironment>
         <HostList>
@@ -38,8 +38,8 @@
                     <Menu>WeClaw Send</Menu>
                     <Geometry>
                         <Size>
-                            <Height>540</Height>
-                            <Width>360</Width>
+                            <Height>640</Height>
+                            <Width>380</Width>
                         </Size>
                         <MinSize>
                             <Height>420</Height>
