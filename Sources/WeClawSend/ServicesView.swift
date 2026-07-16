@@ -62,6 +62,19 @@ struct ServicesView: View {
             }
             .buttonStyle(.plain)
             .help("刷新状态")
+
+            Button {
+                model.quit()
+            } label: {
+                Image(systemName: "power")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.primary.opacity(0.05)))
+            }
+            .buttonStyle(.plain)
+            .help("退出")
+            .accessibilityLabel("退出 WeClaw Send")
         }
         .padding(.horizontal, 12)
         .frame(height: 44)
@@ -311,17 +324,10 @@ struct ServicesView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
             Spacer()
-            Button("退出") {
-                model.quit()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.mini)
+            SocialLinksView(appVersion: model.appVersion)
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
-        .overlay {
-            SocialLinksView(appVersion: model.appVersion)
-        }
     }
 
     private func settingRow(

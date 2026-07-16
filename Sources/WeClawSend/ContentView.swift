@@ -396,12 +396,10 @@ struct ContentView: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer()
+            SocialLinksView(appVersion: model.appVersion)
         }
         .padding(.horizontal, 20)
         .frame(height: 36)
-        .overlay {
-            SocialLinksView(appVersion: model.appVersion)
-        }
     }
 
     private var activitySummary: String {
