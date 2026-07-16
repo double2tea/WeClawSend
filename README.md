@@ -19,7 +19,7 @@
 - **可选 .mp4 → .m4v 附件名**（只改微信显示名，不改本地文件）
 - 可在设置中启停本地接口 `http://127.0.0.1:18790`（默认关闭，菜单栏发送不依赖它）
 - **DaVinci Resolve 后渲染脚本**：渲染成功后自动发送，可选 M4V 文件或 MP4 视频模式
-- **Premiere Pro 2025 25.3 / CEP 12 面板**：可选在本次导出成功后自动发送，无需 UXP Developer Tool
+- **Premiere Pro 25+ / CEP 12 面板**：可选在本次导出成功后自动发送，无需 UXP Developer Tool
 - 设置页提供 GitHub 与邮件联系图标（`double_tea@foxmail.com`）
 - 微信会话受限时按需等待用户消息，自动刷新上下文并重试原文件
 
@@ -105,7 +105,7 @@ Content-Type: application/json
 
 ## Premiere Pro 插件
 
-项目只维护 [`premiere-cep`](premiere-cep) 这一套 CEP 12 面板，面向 Premiere Pro 2025 25.0–25.5，并针对 25.3 验证。自动发送默认关闭；关闭时面板只导出，不会调用 WeClaw Send。导出由 Premiere 直接执行，不依赖 Adobe Media Encoder。面板自动扫描用户和系统 `.epr` 预设，可在面板内搜索、滚动选择并记住上次选择；参数在 Premiere 原生导出页调整并保存后，回到面板刷新即可。
+项目只维护 [`premiere-cep`](premiere-cep) 这一套 CEP 12 面板，面向 Premiere Pro 25+；manifest 接受 25.0–99.9。自动发送默认关闭；关闭时面板只导出，不会调用 WeClaw Send。导出由 Premiere 直接执行，不依赖 Adobe Media Encoder。面板自动扫描所有已安装的 Premiere 25+ 与 Adobe Media Encoder 25+ 的 `.epr` 预设，可在面板内搜索、滚动选择，并记住上次的预设、输出文件夹和自动发送开关；参数在 Premiere 原生导出页调整并保存后，回到面板刷新即可。
 
 ```sh
 ./scripts/install-premiere-plugin.sh

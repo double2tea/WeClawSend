@@ -1,14 +1,14 @@
-# WeClaw Send for Premiere Pro 25.3
+# WeClaw Send for Premiere Pro 25+
 
 这是项目唯一维护的 Premiere 插件：**CEP 12 面板**。不需要 UXP Developer Tool。
 
 ## 前置条件
 
 - macOS 14+
-- Premiere Pro 2025 25.0–25.5（已针对 25.3 验证）
+- Premiere Pro 25+（manifest 覆盖 25.0–99.9）
 - 已安装并登录 WeClaw Send
 
-自动导出必须使用 Adobe `.epr` 预设，因为 Premiere 的脚本导出接口要求用预设确定格式、编码器和扩展名。面板会自动扫描并记住选择，不需要手动寻找 `.epr` 文件。
+自动导出必须使用 Adobe `.epr` 预设，因为 Premiere 的脚本导出接口要求用预设确定格式、编码器和扩展名。面板会自动扫描并记住预设、输出文件夹和自动发送开关，不需要手动寻找 `.epr` 文件。
 
 ## 安装
 
@@ -31,8 +31,8 @@
 
 需要修改码率、分辨率等参数时，在 Premiere 原生导出页调整并保存为预设，再回到面板点击「刷新」。面板扫描：
 
-- `~/Documents/Adobe/Adobe Media Encoder/25.0/Presets` 中的用户预设
-- Premiere Pro 2025 内置系统预设（自动排除内部 `SequencePreview` 预设）
+- `~/Documents/Adobe/Adobe Media Encoder/` 下所有 25+ 版本中的用户预设
+- 所有已安装 Premiere Pro 25+ 的内置系统预设（自动排除内部 `SequencePreview` 预设）
 
 ## 开发验证
 

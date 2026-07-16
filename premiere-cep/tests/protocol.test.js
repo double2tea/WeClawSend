@@ -42,3 +42,32 @@ test("scans EPR files and excludes internal preview presets", () => {
   }]);
   fs.rmSync(root, { recursive: true });
 });
+
+test("discovers Premiere and Media Encoder presets from every supported version", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "weclaw-all-presets-"));
+  const home = path.join(root, "home");
+  const applications = path.join(root, "Applications");
+
+  for (const version of ["24.0", "25.0", "26.0", "27.0"]) {
+    const presets = path.join(home, "Documents", "Adobe", "Adobe Media Encoder", version, "Presets");
+    fs.mkdirSync(presets, { recursive: true });
+    fs.writeFileSync(path.join(presets, `AME ${version}.epr`), "");
+  }
+  for (const year of [2022, 2025, 2026, 2027]) {
+    const presets = path.join(
+      applications,
+      `Adobe Premiere Pro ${year}`,
+      `Adobe Premiere Pro ${year}.app`,
+      "Contents",
+      "Settings",
+      "EncoderPresets"
+    );
+    fs.mkdirSync(presets, { recursive: true });
+    fs.writeFileSync(path.join(presets, `Premiere ${year}.epr`), "");
+  }
+
+  const result = presetLibrary.discoverPresets(fs, path, home, applications);
+  assert.deepEqual(result.user.map((preset) => preset.name), ["AME 25.0", "AME 26.0", "AME 27.0"]);
+  assert.deepEqual(result.system.map((preset) => preset.name), ["Premiere 2025", "Premiere 2026", "Premiere 2027"]);
+  fs.rmSync(root, { recursive: true });
+});

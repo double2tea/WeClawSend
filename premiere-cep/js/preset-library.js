@@ -33,22 +33,34 @@
     return presets;
   }
 
-  function discoverPresets(fileSystem, pathModule, homeDirectory) {
-    var userDirectory = pathModule.join(
+  function discoverPresets(fileSystem, pathModule, homeDirectory, applicationsDirectory) {
+    var mediaEncoderDirectory = pathModule.join(
       homeDirectory,
       "Documents",
       "Adobe",
-      "Adobe Media Encoder",
-      "25.0",
-      "Presets"
+      "Adobe Media Encoder"
     );
-    var user = scanPresetDirectory(fileSystem, pathModule, userDirectory, []);
+    var user = [];
     var system = [];
-    var applicationsDirectory = "/Applications";
+    applicationsDirectory = applicationsDirectory || "/Applications";
+
+    if (fileSystem.existsSync(mediaEncoderDirectory)) {
+      fileSystem.readdirSync(mediaEncoderDirectory, { withFileTypes: true }).forEach(function (entry) {
+        if (!entry.isDirectory() || !isSupportedMajorVersion(entry.name)) {
+          return;
+        }
+        user = user.concat(scanPresetDirectory(
+          fileSystem,
+          pathModule,
+          pathModule.join(mediaEncoderDirectory, entry.name, "Presets"),
+          []
+        ));
+      });
+    }
 
     if (fileSystem.existsSync(applicationsDirectory)) {
       fileSystem.readdirSync(applicationsDirectory, { withFileTypes: true }).forEach(function (entry) {
-        if (!entry.isDirectory() || entry.name.indexOf("Adobe Premiere Pro 2025") !== 0) {
+        if (!entry.isDirectory() || !isSupportedPremiereApplication(entry.name)) {
           return;
         }
         var presetDirectory = pathModule.join(
@@ -73,6 +85,15 @@
       user: user.sort(byName),
       system: system.sort(byName)
     };
+  }
+
+  function isSupportedMajorVersion(version) {
+    return /^\d+\.\d+$/.test(version) && parseInt(version, 10) >= 25;
+  }
+
+  function isSupportedPremiereApplication(name) {
+    var match = /^Adobe Premiere Pro (\d{4})$/.exec(name);
+    return match && parseInt(match[1], 10) >= 2025;
   }
 
   return {

@@ -3,6 +3,7 @@
 
   var AUTO_SEND_STORAGE_KEY = "autoSendAfterExport";
   var PRESET_STORAGE_KEY = "selectedExportPreset";
+  var FOLDER_STORAGE_KEY = "selectedOutputFolder";
   var cep = window.__adobe_cep__;
   var protocol = window.WeClawProtocol;
   var presetLibrary = window.WeClawPresetLibrary;
@@ -35,6 +36,10 @@
   }
 
   autoSend.checked = localStorage.getItem(AUTO_SEND_STORAGE_KEY) === "true";
+  selectedFolder = localStorage.getItem(FOLDER_STORAGE_KEY) || "";
+  if (selectedFolder) {
+    folderPath.textContent = selectedFolder;
+  }
   updateExportButtonLabel();
   applyHostTheme();
 
@@ -169,6 +174,7 @@
     callHost("chooseFolder", [], function (reply) {
       if (reply.status === "CANCEL") { return; }
       selectedFolder = reply.detail;
+      localStorage.setItem(FOLDER_STORAGE_KEY, selectedFolder);
       folderPath.textContent = selectedFolder;
       setStatus("已选择输出位置", "neutral");
     });
