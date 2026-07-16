@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Validate release version
+        shell: zsh {0}
+        run: |
+          app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          premiere_version="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' premiere-cep/CSXS/manifest.xml)"
+
+          if [[ "$GITHUB_REF_NAME" != "v$app_version" ]]; then
+            print -u2 "标签与 App 版本不一致：tag=$GITHUB_REF_NAME app=$app_version"
+            exit 1
+          fi
+
+          if [[ "$app_version" != "$premiere_version" ]]; then
+            print -u2 "App 与 Premiere 插件版本不一致：app=$app_version premiere=$premiere_version"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: ./scripts/test.sh
+
+      - name: Build release assets
+        run: ./scripts/release.sh
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/WeClaw-Send.zip \
+            dist/WeClaw-Send.dmg \
+            dist/WeClaw-Send-Premiere-CEP12.zip \
+            dist/WeClaw-Send-DaVinci-Resolve.zip \
+            dist/SHA256SUMS.txt \
+            --verify-tag \
+            --generate-notes \
+            --title "WeClaw Send $GITHUB_REF_NAME"
