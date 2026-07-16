@@ -19,9 +19,9 @@
 - **可选 .mp4 → .m4v 附件名**（只改微信显示名，不改本地文件）
 - 可在设置中启停本地接口 `http://127.0.0.1:18790`（默认关闭，菜单栏发送不依赖它）
 - **DaVinci Resolve 后渲染脚本**：渲染成功后自动发送，可选 M4V 文件或 MP4 视频模式
-- **Premiere Pro 25+ / CEP 12 面板**：可选在本次导出成功后自动发送，无需 UXP Developer Tool
-- **在线更新与一键安装**：设置页从 GitHub Release 下载、校验并更新 App，也可一键安装 Premiere 面板和 DaVinci Deliver 脚本
-- 设置页提供 GitHub 与邮件联系图标（`double_tea@foxmail.com`）
+- **Premiere Pro 25+ / CEP 12 面板**：稳定的单序列导出，支持完整序列或 I/O 范围、渲染后后台发送与失败重试，无需 UXP Developer Tool
+- **在线更新与一键安装**：设置页从 GitHub Release 下载、校验并更新 App；可识别、安装、修复或更新 Premiere 面板，并防止线上旧版覆盖本地新版；也可一键安装 DaVinci Deliver 脚本
+- 设置页底部提供 [GitHub](https://github.com/double2tea/WeClawSend)、[个人作品集](https://zeezhi.pages.dev/) 与邮件联系入口（`double_tea@foxmail.com`）
 - 微信会话受限时按需等待用户消息，自动刷新上下文并重试原文件
 
 ## 给朋友使用（推荐）
@@ -110,9 +110,11 @@ Content-Type: application/json
 
 ## Premiere Pro 插件
 
-项目只维护 [`premiere-cep`](premiere-cep) 这一套 CEP 12 面板，面向 Premiere Pro 25+；manifest 接受 25.0–99.9。自动发送默认关闭；关闭时面板只导出，不会调用 WeClaw Send。导出由 Premiere 直接执行，不依赖 Adobe Media Encoder。面板自动扫描所有已安装的 Premiere 25+ 与 Adobe Media Encoder 25+ 的 `.epr` 预设，可在面板内搜索、滚动选择，并记住上次的预设、输出文件夹和自动发送开关；参数在 Premiere 原生导出页调整并保存后，回到面板刷新即可。
+项目只维护 [`premiere-cep`](premiere-cep) 这一套 CEP 12 面板，面向 Premiere Pro 25+；manifest 接受 25.0–99.9。面板保持稳定的单序列导出路径，可选完整序列或入点到出点（I/O）范围；I/O 未设置或无效时会在导出前提示。面板重新获得焦点时会同步当前序列名，手动修改过的文件名不会被覆盖；同名输出已存在时会阻止覆盖，导出完成后可在 Finder 中显示文件。
 
-推荐在 App 的「设置 → 更新与编辑器集成」中点击「一键安装」；App 会下载 CEP 发布包、校验 SHA-256 并写入当前用户的 Adobe CEP 扩展目录。手动安装仍可使用：
+自动发送默认关闭；关闭时面板只导出，不会调用 WeClaw Send。开启后会先检查本机接口，导出成功即解除渲染占用并在后台发送，因此可切换序列继续导出；一个或多个发送失败时可逐个仅重试发送，不会重复渲染。导出由 Premiere 直接执行，不依赖 Adobe Media Encoder。面板自动扫描所有已安装的 Premiere 25+ 与 Adobe Media Encoder 25+ 的 `.epr` 预设，可在面板内搜索、滚动选择，并记住上次的预设、输出文件夹和自动发送开关；参数在 Premiere 原生导出页调整并保存后，回到面板刷新即可。
+
+推荐在 App 的「设置 → 更新与编辑器集成」中安装；App 会读取本地 Premiere 插件版本，并根据状态显示安装、更新或已安装。下载 CEP 发布包后会校验版本与 SHA-256，再写入当前用户的 Adobe CEP 扩展目录；本地版本高于线上版本时不会降级覆盖。手动安装仍可使用：
 
 ```sh
 ./scripts/install-premiere-plugin.sh

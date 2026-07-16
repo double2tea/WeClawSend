@@ -6,6 +6,7 @@
     <link rel="stylesheet" href="./style.css" />
     <script defer src="./js/protocol.js"></script>
     <script defer src="./js/preset-library.js"></script>
+    <script defer src="./js/bridge-client.js"></script>
     <script defer src="./js/main.js"></script>
     <title>WeClaw Send</title>
   </head>
@@ -47,6 +48,13 @@
 
         <label for="output-name">文件名（不含扩展名）</label>
         <input id="output-name" type="text" autocomplete="off" />
+
+        <label for="export-range">导出范围</label>
+        <select id="export-range" class="range-select">
+          <option value="entire">完整序列</option>
+          <option value="inOut">入点到出点（I/O）</option>
+        </select>
+        <p class="path">选择 I/O 时，将使用当前序列的入点和出点</p>
       </section>
 
       <section class="send-option">
@@ -61,6 +69,10 @@
       </section>
 
       <button id="export" class="primary-button" type="button">导出</button>
+      <div id="output-actions" class="output-actions" hidden>
+        <button id="reveal-output" class="action-button" type="button">在 Finder 中显示</button>
+        <button id="retry-send" class="action-button" type="button" hidden>仅重试发送</button>
+      </div>
       <p id="status" class="status" role="status">请选择导出预设和输出位置</p>
     </main>
   </body>

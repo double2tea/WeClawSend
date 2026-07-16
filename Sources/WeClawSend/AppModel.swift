@@ -45,6 +45,8 @@ final class AppModel: ObservableObject {
     @Published var isUpdatingApp = false
     @Published var isInstallingPremierePlugin = false
     @Published var isInstallingDaVinciScripts = false
+    @Published private(set) var isCheckingPremierePlugin = true
+    @Published private(set) var premierePluginUpdateState: PremierePluginUpdateState?
     @Published var updateMessage = ""
     @Published var premierePluginMessage = ""
     @Published var daVinciScriptsMessage = ""
@@ -98,6 +100,9 @@ final class AppModel: ObservableObject {
             refreshLaunchAtLogin()
             await refreshServices()
         }
+        Task { [weak self] in
+            await self?.refreshPremierePluginStatus()
+        }
     }
 
     /// 主界面“可用”只看微信登录；本地 HTTP 接口是可选能力。
@@ -115,6 +120,51 @@ final class AppModel: ObservableObject {
 
     var isUpdateOperationInProgress: Bool {
         isUpdatingApp || isInstallingPremierePlugin || isInstallingDaVinciScripts
+    }
+
+    var premierePluginSubtitle: String {
+        if !premierePluginMessage.isEmpty { return premierePluginMessage }
+        if isCheckingPremierePlugin { return "正在检查已安装版本…" }
+        guard let premierePluginUpdateState else { return "无法获取插件版本，请重试" }
+        switch premierePluginUpdateState {
+        case let .notInstalled(latest):
+            return "未安装 · 可安装 v\(latest)"
+        case let .repairRequired(latest):
+            return "本地插件无法识别 · 可修复为 v\(latest)"
+        case let .updateAvailable(installed, latest):
+            return "当前 v\(installed) · 可更新至 v\(latest)"
+        case let .current(version):
+            return "已是最新版本 v\(version)"
+        case let .localNewer(installed, latest):
+            return "本地 v\(installed) · 在线最新 v\(latest)，不会降级"
+        }
+    }
+
+    var premierePluginButtonTitle: String {
+        if isCheckingPremierePlugin { return "检查中" }
+        guard let premierePluginUpdateState else { return "重试检查" }
+        switch premierePluginUpdateState {
+        case .notInstalled:
+            return "安装"
+        case .repairRequired:
+            return "修复"
+        case .updateAvailable:
+            return "更新"
+        case .current:
+            return "重新安装"
+        case .localNewer:
+            return "本地版本较新"
+        }
+    }
+
+    var isPremierePluginBusy: Bool {
+        isCheckingPremierePlugin || isInstallingPremierePlugin
+    }
+
+    var isPremierePluginActionDisabled: Bool {
+        if isUpdateOperationInProgress || isCheckingPremierePlugin { return true }
+        if case .localNewer? = premierePluginUpdateState { return true }
+        return false
     }
 
     var sendingTransferCount: Int {
@@ -218,14 +268,22 @@ final class AppModel: ObservableObject {
     }
 
     func installPremierePlugin() {
-        guard !isUpdateOperationInProgress else { return }
+        guard !isUpdateOperationInProgress, !isCheckingPremierePlugin else { return }
+        guard premierePluginUpdateState != nil else {
+            Task { [weak self] in
+                await self?.refreshPremierePluginStatus()
+            }
+            return
+        }
+        if case .localNewer? = premierePluginUpdateState { return }
         isInstallingPremierePlugin = true
         premierePluginMessage = "正在下载、校验并安装…"
         Task { [weak self] in
             guard let self else { return }
             do {
                 let version = try await updateManager.installPremierePlugin()
-                premierePluginMessage = "已安装 \(version)，请重启 Premiere Pro"
+                premierePluginUpdateState = .current(version)
+                premierePluginMessage = "已安装 v\(version)，请重启 Premiere Pro"
                 isInstallingPremierePlugin = false
             } catch {
                 isInstallingPremierePlugin = false
@@ -233,6 +291,19 @@ final class AppModel: ObservableObject {
                 presentedError = "Premiere 插件安装失败：\(error.localizedDescription)"
             }
         }
+    }
+
+    func refreshPremierePluginStatus() async {
+        guard !isInstallingPremierePlugin else { return }
+        isCheckingPremierePlugin = true
+        premierePluginMessage = ""
+        do {
+            premierePluginUpdateState = try await updateManager.premierePluginUpdateState()
+        } catch {
+            premierePluginUpdateState = nil
+            premierePluginMessage = "无法检查插件版本：\(error.localizedDescription)"
+        }
+        isCheckingPremierePlugin = false
     }
 
     func installDaVinciScripts() {

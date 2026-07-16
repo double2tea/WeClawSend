@@ -16,6 +16,13 @@ DAVINCI_PACKAGE="$VERIFY/davinci"
 MOUNT="$VERIFY/mount"
 MOUNTED=false
 
+APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Resources/Info.plist")"
+PREMIERE_VERSION="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' "$ROOT/premiere-cep/CSXS/manifest.xml")"
+if [[ -z "$PREMIERE_VERSION" || "$APP_VERSION" != "$PREMIERE_VERSION" ]]; then
+    print -u2 "App 与 Premiere 插件版本不一致：App=$APP_VERSION Premiere=$PREMIERE_VERSION"
+    exit 1
+fi
+
 cleanup() {
     if [[ "$MOUNTED" == true ]]; then
         hdiutil detach "$MOUNT" >/dev/null 2>&1 || true
@@ -77,6 +84,7 @@ done
 
 PREMIERE_CONTENTS="$(LC_ALL=C zipinfo -1 "$PREMIERE_ZIP")"
 if ! grep -qx 'CSXS/manifest.xml' <<<"$PREMIERE_CONTENTS" \
+    || ! grep -qx 'js/bridge-client.js' <<<"$PREMIERE_CONTENTS" \
     || ! grep -Eq '\.command$' <<<"$PREMIERE_CONTENTS"; then
     print -u2 "Premiere 发布包缺少构建产物"
     exit 1

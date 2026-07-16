@@ -475,6 +475,23 @@ let version140 = ReleaseVersion(tag: "v1.4.0")!
 let version150 = ReleaseVersion(tag: "1.5.0")!
 precondition(version140 < version150)
 precondition(ReleaseVersion(tag: "v1.5") == nil)
+let version160 = ReleaseVersion(tag: "1.6.0")!
+precondition(
+    UpdateManager.premierePluginUpdateState(installed: nil, latest: version150)
+        == .notInstalled(latest: version150)
+)
+precondition(
+    UpdateManager.premierePluginUpdateState(installed: version140, latest: version150)
+        == .updateAvailable(installed: version140, latest: version150)
+)
+precondition(
+    UpdateManager.premierePluginUpdateState(installed: version150, latest: version150)
+        == .current(version150)
+)
+precondition(
+    UpdateManager.premierePluginUpdateState(installed: version160, latest: version150)
+        == .localNewer(installed: version160, latest: version150)
+)
 let release = try JSONDecoder().decode(
     GitHubRelease.self,
     from: Data(
@@ -542,12 +559,58 @@ try FileManager.default.createDirectory(at: installerFixtures, withIntermediateD
 defer { try? FileManager.default.removeItem(at: installerRoot) }
 
 let premiereFixture = installerFixtures.appending(path: "premiere", directoryHint: .isDirectory)
-let premiereManifest = premiereFixture.appending(path: "CSXS/manifest.xml")
-try FileManager.default.createDirectory(at: premiereManifest.deletingLastPathComponent(), withIntermediateDirectories: true)
-try Data(#"<ExtensionManifest ExtensionBundleId="com.chacha.WeClawSend.Premiere">new</ExtensionManifest>"#.utf8)
-    .write(to: premiereManifest)
+try writePremiereFixture(at: premiereFixture, version: "9.0.0")
 let premiereArchive = installerFixtures.appending(path: UpdateManager.premiereArchiveName)
 try zipDirectory(premiereFixture, to: premiereArchive)
+
+let invalidPremiereFixture = installerFixtures.appending(path: "invalid-premiere", directoryHint: .isDirectory)
+try writePremiereFixture(at: invalidPremiereFixture, version: "9.0.0")
+let deceptiveManifest = """
+<ExtensionManifest ExtensionBundleId="wrong.extension" ExtensionBundleVersion="9.0.0">
+    <!-- ExtensionBundleId="com.chacha.WeClawSend.Premiere" -->
+</ExtensionManifest>
+"""
+try Data(deceptiveManifest.utf8).write(
+    to: invalidPremiereFixture.appending(path: "CSXS/manifest.xml")
+)
+do {
+    _ = try UpdateManager.validatePremierePlugin(at: invalidPremiereFixture)
+    preconditionFailure("Premiere manifest identity must be parsed as XML")
+} catch let error as UpdateManagerError {
+    guard case .invalidArchive = error else {
+        preconditionFailure("unexpected Premiere manifest validation error")
+    }
+}
+
+let incompletePremiereFixture = installerFixtures.appending(path: "incomplete-premiere", directoryHint: .isDirectory)
+try writePremiereFixture(at: incompletePremiereFixture, version: "9.0.0")
+try FileManager.default.removeItem(at: incompletePremiereFixture.appending(path: "js/main.js"))
+do {
+    _ = try UpdateManager.validatePremierePlugin(at: incompletePremiereFixture)
+    preconditionFailure("Premiere plugin missing a required file must fail")
+} catch let error as UpdateManagerError {
+    guard case .invalidArchive = error else {
+        preconditionFailure("unexpected Premiere required-file validation error")
+    }
+}
+
+let missingBridgeFixture = installerFixtures.appending(path: "missing-bridge", directoryHint: .isDirectory)
+try writePremiereFixture(at: missingBridgeFixture, version: "1.6.1")
+try FileManager.default.removeItem(at: missingBridgeFixture.appending(path: "js/bridge-client.js"))
+do {
+    _ = try UpdateManager.validatePremierePlugin(at: missingBridgeFixture)
+    preconditionFailure("Premiere 1.6.1+ package missing bridge client must fail")
+} catch let error as UpdateManagerError {
+    guard case .invalidArchive = error else {
+        preconditionFailure("unexpected Premiere bridge-client validation error")
+    }
+}
+
+let legacyPremiereFixture = installerFixtures.appending(path: "legacy-premiere", directoryHint: .isDirectory)
+try writePremiereFixture(at: legacyPremiereFixture, version: "1.6.0")
+try FileManager.default.removeItem(at: legacyPremiereFixture.appending(path: "js/bridge-client.js"))
+let legacyPremiereVersion = try UpdateManager.validatePremierePlugin(at: legacyPremiereFixture)
+precondition(legacyPremiereVersion == ReleaseVersion(tag: "1.6.0")!)
 
 let daVinciFixture = installerFixtures.appending(path: "davinci", directoryHint: .isDirectory)
 let daVinciSource = daVinciFixture.appending(path: "davinci-resolve/Deliver", directoryHint: .isDirectory)
@@ -560,7 +623,7 @@ try zipDirectory(daVinciFixture, to: daVinciArchive)
 
 let existingPremiere = installerHome
     .appending(path: "Library/Application Support/Adobe/CEP/extensions/com.chacha.WeClawSend.Premiere", directoryHint: .isDirectory)
-try FileManager.default.createDirectory(at: existingPremiere, withIntermediateDirectories: true)
+try writePremiereManifest(at: existingPremiere, version: "8.0.0")
 try Data("old".utf8).write(to: existingPremiere.appending(path: "old.txt"))
 let existingDaVinci = installerHome.appending(
     path: "Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Deliver",
@@ -608,6 +671,8 @@ let installerResult = UpdateInstallResultBox()
 let installerFinished = DispatchSemaphore(value: 0)
 Task {
     do {
+        installerResult.installedPremiereVersion = try await installerManager.installedPremierePluginVersion()
+        installerResult.premiereState = try await installerManager.premierePluginUpdateState()
         installerResult.premiereVersion = try await installerManager.installPremierePlugin()
         installerResult.daVinciVersion = try await installerManager.installDaVinciScripts()
     } catch {
@@ -617,6 +682,14 @@ Task {
 }
 precondition(installerFinished.wait(timeout: .now() + 10) == .success)
 if let error = installerResult.error { throw error }
+precondition(installerResult.installedPremiereVersion?.description == "8.0.0")
+precondition(
+    installerResult.premiereState
+        == .updateAvailable(
+            installed: ReleaseVersion(tag: "8.0.0")!,
+            latest: ReleaseVersion(tag: "9.0.0")!
+        )
+)
 precondition(installerResult.premiereVersion?.description == "9.0.0")
 precondition(installerResult.daVinciVersion?.description == "9.0.0")
 precondition(!FileManager.default.fileExists(atPath: existingPremiere.appending(path: "old.txt").path))
@@ -624,11 +697,55 @@ let installedManifest = try String(
     contentsOf: existingPremiere.appending(path: "CSXS/manifest.xml"),
     encoding: .utf8
 )
-precondition(installedManifest.contains("new"))
+precondition(installedManifest.contains("ExtensionBundleVersion=\"9.0.0\""))
+let validatedInstalledPremiereVersion = try UpdateManager.validatePremierePlugin(at: existingPremiere)
+precondition(validatedInstalledPremiereVersion.description == "9.0.0")
 for name in UpdateManager.daVinciScriptNames {
     let installedScript = try String(contentsOf: existingDaVinci.appending(path: name), encoding: .utf8)
     precondition(installedScript == "new \(name)")
 }
+
+try writePremiereFixture(at: existingPremiere, version: "10.0.0")
+let downgradeResult = UpdateInstallResultBox()
+let downgradeFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        downgradeResult.premiereVersion = try await installerManager.installPremierePlugin()
+    } catch {
+        downgradeResult.error = error
+    }
+    downgradeFinished.signal()
+}
+precondition(downgradeFinished.wait(timeout: .now() + 10) == .success)
+if let error = downgradeResult.error as? UpdateManagerError,
+   case let .premierePluginDowngradeNotAllowed(installed, available) = error {
+    precondition(installed.description == "10.0.0")
+    precondition(available.description == "9.0.0")
+} else {
+    preconditionFailure("Premiere plugin downgrade must be blocked by default")
+}
+let retainedPremiereVersion = try UpdateManager.validatePremierePlugin(at: existingPremiere)
+precondition(retainedPremiereVersion.description == "10.0.0")
+
+try Data("<broken>".utf8).write(to: existingPremiere.appending(path: "CSXS/manifest.xml"))
+let repairResult = UpdateInstallResultBox()
+let repairFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        repairResult.premiereState = try await installerManager.premierePluginUpdateState()
+        repairResult.premiereVersion = try await installerManager.installPremierePlugin()
+    } catch {
+        repairResult.error = error
+    }
+    repairFinished.signal()
+}
+precondition(repairFinished.wait(timeout: .now() + 10) == .success)
+if let error = repairResult.error { throw error }
+precondition(
+    repairResult.premiereState
+        == .repairRequired(latest: ReleaseVersion(tag: "9.0.0")!)
+)
+precondition(repairResult.premiereVersion?.description == "9.0.0")
 
 let pasteboard = NSPasteboard(name: .init("WeClawSendComponentChecks"))
 let fileURL = FileManager.default.temporaryDirectory
@@ -655,6 +772,40 @@ private func zipDirectory(_ source: URL, to archive: URL) throws {
     guard process.terminationStatus == 0 else {
         throw CocoaError(.fileWriteUnknown)
     }
+}
+
+private func writePremiereFixture(at directory: URL, version: String) throws {
+    for relativePath in UpdateManager.premiereRequiredFiles where relativePath != "CSXS/manifest.xml" {
+        let fileURL = directory.appending(path: relativePath)
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("fixture".utf8).write(to: fileURL)
+    }
+    try writePremiereManifest(at: directory, version: version)
+}
+
+private func writePremiereManifest(at directory: URL, version: String) throws {
+    let manifestURL = directory.appending(path: "CSXS/manifest.xml")
+    try FileManager.default.createDirectory(
+        at: manifestURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    let manifest = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <ExtensionManifest
+        ExtensionBundleId="com.chacha.WeClawSend.Premiere"
+        ExtensionBundleVersion="\(version)">
+        <ExtensionList>
+            <Extension Id="com.chacha.WeClawSend.Premiere.panel" Version="\(version)"/>
+        </ExtensionList>
+        <DispatchInfoList>
+            <Extension Id="com.chacha.WeClawSend.Premiere.panel"/>
+        </DispatchInfoList>
+    </ExtensionManifest>
+    """
+    try Data(manifest.utf8).write(to: manifestURL)
 }
 
 private extension Data {
@@ -700,6 +851,8 @@ final class UpdateResultBox: @unchecked Sendable {
 
 final class UpdateInstallResultBox: @unchecked Sendable {
     var error: Error?
+    var installedPremiereVersion: ReleaseVersion?
+    var premiereState: PremierePluginUpdateState?
     var premiereVersion: ReleaseVersion?
     var daVinciVersion: ReleaseVersion?
 }

@@ -2,11 +2,11 @@
 <ExtensionManifest
     Version="7.0"
     ExtensionBundleId="com.chacha.WeClawSend.Premiere"
-    ExtensionBundleVersion="1.6.0"
+    ExtensionBundleVersion="1.6.1"
     ExtensionBundleName="WeClaw Send"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <ExtensionList>
-        <Extension Id="com.chacha.WeClawSend.Premiere.panel" Version="1.6.0"/>
+        <Extension Id="com.chacha.WeClawSend.Premiere.panel" Version="1.6.1"/>
     </ExtensionList>
     <ExecutionEnvironment>
         <HostList>

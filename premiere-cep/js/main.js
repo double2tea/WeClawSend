@@ -7,11 +7,19 @@
   var cep = window.__adobe_cep__;
   var protocol = window.WeClawProtocol;
   var presetLibrary = window.WeClawPresetLibrary;
+  var bridgeClient = window.WeClawBridgeClient;
   var selectedFolder = "";
   var selectedPresetPath = "";
   var presetGroups = { user: [], system: [] };
   var exporting = false;
-  var shouldSendAfterExport = false;
+  var sequenceRequestID = 0;
+  var lastAutoOutputName = "";
+  var lastExportedPath = "";
+  var failedSends = [];
+  var activeSendCount = 0;
+  var retryingSendPath = "";
+  var statusRevision = 0;
+  var protectedErrorRevision = -1;
 
   var sequenceName = requiredElement("sequence-name");
   var presetPicker = requiredElement("preset-picker");
@@ -23,15 +31,19 @@
   var refreshPresets = requiredElement("refresh-presets");
   var folderPath = requiredElement("folder-path");
   var outputName = requiredElement("output-name");
+  var exportRange = requiredElement("export-range");
   var autoSend = requiredElement("auto-send");
   var chooseFolder = requiredElement("choose-folder");
   var refreshSequence = requiredElement("refresh-sequence");
   var exportButton = requiredElement("export");
+  var outputActions = requiredElement("output-actions");
+  var revealOutput = requiredElement("reveal-output");
+  var retrySend = requiredElement("retry-send");
   var status = requiredElement("status");
 
-  if (!cep) {
+  if (!cep || !bridgeClient) {
     setStatus("此面板必须在 Premiere Pro 中运行", "error");
-    setBusy(true);
+    setExportBusy(true);
     return;
   }
 
@@ -61,12 +73,17 @@
   });
   refreshPresets.addEventListener("click", loadPresets);
   chooseFolder.addEventListener("click", selectFolder);
-  refreshSequence.addEventListener("click", function () { loadActiveSequence(true); });
+  refreshSequence.addEventListener("click", loadActiveSequence);
   exportButton.addEventListener("click", startExport);
+  revealOutput.addEventListener("click", revealExportedFile);
+  retrySend.addEventListener("click", retryFailedSend);
+  window.addEventListener("focus", function () {
+    if (!exporting) { loadActiveSequence(); }
+  });
   cep.addEventListener("com.adobe.csxs.events.ThemeColorChanged", applyHostTheme);
 
   loadPresets();
-  loadActiveSequence(false);
+  loadActiveSequence();
 
   function loadPresets() {
     if (!window.cep_node || typeof window.cep_node.require !== "function") {
@@ -180,11 +197,23 @@
     });
   }
 
-  function loadActiveSequence(replaceOutputName) {
+  function loadActiveSequence(onSuccess, onFailure) {
+    var requestID = ++sequenceRequestID;
     callHost("activeSequenceName", [], function (reply) {
+      if (requestID !== sequenceRequestID) { return; }
       sequenceName.textContent = reply.detail;
-      if (replaceOutputName || outputName.value.trim().length === 0) {
+      if (protocol.shouldReplaceAutoName(outputName.value, lastAutoOutputName)) {
         outputName.value = reply.detail;
+      }
+      lastAutoOutputName = reply.detail;
+      if (typeof onSuccess === "function") { onSuccess(reply.detail); }
+    }, function (error) {
+      if (requestID !== sequenceRequestID) { return; }
+      sequenceName.textContent = "未打开序列";
+      if (typeof onFailure === "function") {
+        onFailure(error);
+      } else {
+        reportError(error);
       }
     });
   }
@@ -194,93 +223,99 @@
       reportError(new Error("已有导出任务正在进行"));
       return;
     }
+    statusRevision += 1;
+    protectedErrorRevision = -1;
     if (!selectedPresetPath) {
-      reportError(new Error("没有可用的 Adobe 导出预设"));
+      reportExportError(new Error("没有可用的 Adobe 导出预设"));
       return;
     }
     if (!selectedFolder) {
-      reportError(new Error("请选择输出位置"));
-      return;
-    }
-
-    var name;
-    try {
-      name = protocol.validateOutputName(outputName.value);
-    } catch (error) {
-      reportError(error);
+      reportExportError(new Error("请选择输出位置"));
       return;
     }
 
     exporting = true;
-    shouldSendAfterExport = autoSend.checked;
-    setBusy(true);
-    setStatus("正在由 Premiere 导出…", "neutral");
-    callHost("exportSequence", [selectedPresetPath, selectedFolder, name], function (reply) {
-      if (!shouldSendAfterExport) {
-        finish("导出完成", "success");
-        return;
+    setExportBusy(true);
+    var sendAfterExport = autoSend.checked;
+    var exportRevision = statusRevision;
+
+    function prepareExport() {
+      setStatus("正在读取当前序列…", "neutral");
+      loadActiveSequence(function (activeSequenceName) {
+        var name;
+        try {
+          name = protocol.validateOutputName(outputName.value);
+        } catch (error) {
+          finishExportWithError(error);
+          return;
+        }
+
+        setStatus(exportRange.value === "inOut" ? "正在由 Premiere 导出 I/O 范围…" : "正在由 Premiere 导出…", "neutral");
+        callHost("exportSequence", [selectedPresetPath, selectedFolder, name, exportRange.value, activeSequenceName], function (reply) {
+          lastExportedPath = reply.detail;
+          updateOutputActions();
+          finishExport(sendAfterExport ? "导出完成，可继续导出；正在后台发送…" : "导出完成", sendAfterExport ? "neutral" : "success");
+          if (sendAfterExport) {
+            sendInBackground(reply.detail, false, exportRevision);
+          } else {
+            renderSendStatus("", exportRevision);
+          }
+        }, finishExportWithError);
+      }, finishExportWithError);
+    }
+
+    if (!sendAfterExport) {
+      prepareExport();
+      return;
+    }
+
+    setStatus("正在检查 WeClaw Send 本地接口…", "neutral");
+    bridgeClient.checkHealth(window.cep_node).then(prepareExport).catch(finishExportWithError);
+  }
+
+  function sendInBackground(filePath, isRetry, operationRevision) {
+    activeSendCount += 1;
+    if (isRetry) { retryingSendPath = filePath; }
+    updateOutputActions();
+    renderSendStatus("", operationRevision);
+
+    bridgeClient.sendFile(window.cep_node, filePath).then(function () {
+      activeSendCount -= 1;
+      removeFailedSend(filePath);
+      if (isRetry) {
+        retryingSendPath = "";
       }
-      setStatus("导出完成，正在发送到微信…", "neutral");
-      sendFile(reply.detail).then(function () {
-        finish("导出并发送完成", "success");
-      }).catch(finishWithError);
-    }, function (error) {
-      finishWithError(error);
+      updateOutputActions();
+      renderSendStatus(isRetry ? "重新发送完成" : "后台发送完成", operationRevision);
+    }).catch(function (error) {
+      activeSendCount -= 1;
+      if (isRetry) { retryingSendPath = ""; }
+      recordFailedSend(filePath, error instanceof Error ? error.message : String(error));
+      updateOutputActions();
+      renderSendStatus("", operationRevision);
     });
   }
 
-  function sendFile(filePath) {
-    if (!window.cep_node || typeof window.cep_node.require !== "function") {
-      return Promise.reject(new Error("CEP 12 的 Node.js 接口不可用"));
+  function retryFailedSend() {
+    if (failedSends.length === 0 || retryingSendPath) { return; }
+    statusRevision += 1;
+    protectedErrorRevision = -1;
+    sendInBackground(failedSends[0].path, true, statusRevision);
+  }
+
+  function revealExportedFile() {
+    if (!lastExportedPath || !window.cep_node || typeof window.cep_node.require !== "function") { return; }
+    try {
+      var child = window.cep_node.require("child_process").spawn(
+        "/usr/bin/open",
+        ["-R", lastExportedPath],
+        { detached: true, stdio: "ignore" }
+      );
+      child.on("error", reportError);
+      child.unref();
+    } catch (error) {
+      reportError(error);
     }
-    var http = window.cep_node.require("http");
-    var body = JSON.stringify({
-      file_path: filePath,
-      file_name: filePath.split("/").pop()
-    });
-
-    return new Promise(function (resolve, reject) {
-      var request = http.request({
-        hostname: "127.0.0.1",
-        port: 18790,
-        path: "/send",
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json; charset=utf-8",
-          "Content-Length": window.cep_node.Buffer.byteLength(body)
-        }
-      }, function (response) {
-        var chunks = [];
-        response.on("data", function (chunk) { chunks.push(chunk); });
-        response.on("end", function () {
-          var text = window.cep_node.Buffer.concat(chunks).toString("utf8");
-          var payload;
-          try {
-            payload = JSON.parse(text);
-          } catch (_) {
-            reject(new Error("WeClaw Send 返回了无效响应"));
-            return;
-          }
-          if (response.statusCode !== 200 || payload.ok !== true) {
-            reject(new Error(payload.error || "WeClaw Send 发送失败"));
-            return;
-          }
-          resolve(payload);
-        });
-      });
-
-      request.setTimeout(300000, function () {
-        request.destroy(new Error("发送等待超过 5 分钟"));
-      });
-      request.on("error", function (error) {
-        if (error && error.code === "ECONNREFUSED") {
-          reject(new Error("请启动 WeClaw Send，并在设置中开启本地接口"));
-          return;
-        }
-        reject(error);
-      });
-      request.end(body);
-    });
   }
 
   function callHost(method, args, onSuccess, onFailure) {
@@ -305,22 +340,27 @@
     }
   }
 
-  function finish(message, kind) {
+  function finishExport(message, kind) {
     exporting = false;
-    shouldSendAfterExport = false;
-    setBusy(false);
+    setExportBusy(false);
     setStatus(message, kind);
   }
 
-  function finishWithError(error) {
-    finish(error instanceof Error ? error.message : String(error), "error");
+  function finishExportWithError(error) {
+    protectedErrorRevision = statusRevision;
+    finishExport(error instanceof Error ? error.message : String(error), "error");
+  }
+
+  function reportExportError(error) {
+    protectedErrorRevision = statusRevision;
+    reportError(error);
   }
 
   function reportError(error) {
     setStatus(error instanceof Error ? error.message : String(error), "error");
   }
 
-  function setBusy(value) {
+  function setExportBusy(value) {
     presetTrigger.disabled = value;
     if (value) { closePresetMenu(); }
     refreshPresets.disabled = value;
@@ -328,7 +368,55 @@
     refreshSequence.disabled = value;
     exportButton.disabled = value;
     outputName.disabled = value;
+    exportRange.disabled = value;
     autoSend.disabled = value;
+    updateOutputActions();
+  }
+
+  function updateOutputActions() {
+    var failedCount = failedSends.length;
+    outputActions.hidden = !lastExportedPath && failedCount === 0;
+    revealOutput.hidden = !lastExportedPath;
+    revealOutput.disabled = exporting;
+    retrySend.hidden = failedCount === 0;
+    retrySend.disabled = exporting || Boolean(retryingSendPath);
+    retrySend.textContent = failedCount > 1 ? "重试失败发送（" + failedCount + "）" : "仅重试发送";
+    retrySend.title = failedSends.map(function (failure) { return failure.path; }).join("\n");
+  }
+
+  function recordFailedSend(filePath, message) {
+    removeFailedSend(filePath);
+    failedSends.push({ path: filePath, message: message });
+  }
+
+  function removeFailedSend(filePath) {
+    for (var index = failedSends.length - 1; index >= 0; index -= 1) {
+      if (failedSends[index].path === filePath) { failedSends.splice(index, 1); }
+    }
+  }
+
+  function renderSendStatus(successMessage, operationRevision) {
+    if (exporting) { return; }
+    if (protectedErrorRevision === statusRevision) { return; }
+    if (retryingSendPath) {
+      setStatus("正在重新发送已导出的文件…", "neutral");
+      return;
+    }
+    if (failedSends.length === 1) {
+      setStatus("发送失败：" + failedSends[0].message + "；可仅重试发送", "error");
+      return;
+    }
+    if (failedSends.length > 1) {
+      setStatus(failedSends.length + " 个文件发送失败；可逐个重试发送", "error");
+      return;
+    }
+    if (activeSendCount > 0) {
+      setStatus("导出已完成，可继续导出；后台发送中（" + activeSendCount + "）", "neutral");
+      return;
+    }
+    if (successMessage && operationRevision === statusRevision) {
+      setStatus(successMessage, "success");
+    }
   }
 
   function updateExportButtonLabel() {

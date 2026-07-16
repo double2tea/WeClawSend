@@ -7,6 +7,7 @@ enum Brand {
     static let shortName = "WeClaw"
     static let bundleID = "com.chacha.WeClawSend"
     static let githubURL = URL(string: "https://github.com/double2tea/WeClawSend")!
+    static let portfolioURL = URL(string: "https://zeezhi.pages.dev/")!
     static let supportEmailURL = URL(string: "mailto:double_tea@foxmail.com")!
 
     /// 主强调：深墨，随深浅色微调
@@ -16,6 +17,8 @@ enum Brand {
     )
     /// 按钮填充（浅色模式用墨色，保证对比）
     static let action = Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255)
+    /// 系统控件强调色：跟随用户外观与辅助功能设置。
+    static let controlAccent = Color(nsColor: .controlAccentColor)
 
     /// Logo：纯墨底 + 白飞机
     static let logoTop = Color(red: 42 / 255, green: 42 / 255, blue: 46 / 255)

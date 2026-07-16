@@ -1,5 +1,8 @@
 import CryptoKit
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 struct ReleaseVersion: Comparable, Equatable, Sendable, CustomStringConvertible {
     let major: Int
@@ -66,6 +69,14 @@ struct GitHubRelease: Decodable, Equatable, Sendable {
     }
 }
 
+enum PremierePluginUpdateState: Equatable, Sendable {
+    case notInstalled(latest: ReleaseVersion)
+    case repairRequired(latest: ReleaseVersion)
+    case updateAvailable(installed: ReleaseVersion, latest: ReleaseVersion)
+    case current(ReleaseVersion)
+    case localNewer(installed: ReleaseVersion, latest: ReleaseVersion)
+}
+
 enum UpdateManagerError: LocalizedError {
     case invalidVersion(String)
     case invalidResponse
@@ -76,6 +87,7 @@ enum UpdateManagerError: LocalizedError {
     case invalidDownloadURL(String)
     case checksumMismatch(String)
     case invalidArchive(String)
+    case premierePluginDowngradeNotAllowed(installed: ReleaseVersion, available: ReleaseVersion)
     case currentAppNotWritable(String)
     case commandFailed(String)
 
@@ -99,6 +111,8 @@ enum UpdateManagerError: LocalizedError {
             "下载校验失败：\(name)"
         case let .invalidArchive(name):
             "发布包内容无效：\(name)"
+        case let .premierePluginDowngradeNotAllowed(installed, available):
+            "已安装的 Premiere 插件 v\(installed) 高于在线版本 v\(available)，已阻止降级"
         case let .currentAppNotWritable(path):
             "当前 App 所在目录不可写：\(path)。请将 App 移至当前用户可写的“应用程序”目录后重试。"
         case let .commandFailed(message):
@@ -121,6 +135,17 @@ actor UpdateManager {
     nonisolated static let daVinciArchiveName = "WeClaw-Send-DaVinci-Resolve.zip"
     nonisolated static let checksumsName = "SHA256SUMS.txt"
     nonisolated static let premiereExtensionID = "com.chacha.WeClawSend.Premiere"
+    nonisolated static let premierePanelExtensionID = "com.chacha.WeClawSend.Premiere.panel"
+    nonisolated static let premiereRequiredFiles = [
+        "CSXS/manifest.xml",
+        "index.html",
+        "style.css",
+        "js/bridge-client.js",
+        "js/main.js",
+        "js/preset-library.js",
+        "js/protocol.js",
+        "jsx/host.jsx"
+    ]
     nonisolated static let daVinciScriptNames = [
         "自动发送ClawBot_M4V文件.py",
         "自动发送ClawBot_MP4视频.py"
@@ -195,10 +220,48 @@ actor UpdateManager {
         }
     }
 
+    func premierePluginUpdateState() async throws -> PremierePluginUpdateState {
+        let installedVersion: ReleaseVersion?
+        let requiresRepair: Bool
+        do {
+            installedVersion = try installedPremierePluginVersion()
+            requiresRepair = false
+        } catch let error as UpdateManagerError {
+            guard case .invalidArchive = error else { throw error }
+            installedVersion = nil
+            requiresRepair = true
+        }
+        let release = try await latestRelease()
+        guard let latestVersion = release.version else {
+            throw UpdateManagerError.invalidVersion(release.tagName)
+        }
+        if requiresRepair { return .repairRequired(latest: latestVersion) }
+        return Self.premierePluginUpdateState(installed: installedVersion, latest: latestVersion)
+    }
+
+    func installedPremierePluginVersion() throws -> ReleaseVersion? {
+        let target = premierePluginURL
+        guard fileManager.fileExists(atPath: target.path) else { return nil }
+        return try Self.premierePluginVersion(at: target)
+    }
+
     func installPremierePlugin() async throws -> ReleaseVersion {
         let release = try await latestRelease()
         guard let releaseVersion = release.version else {
             throw UpdateManagerError.invalidVersion(release.tagName)
+        }
+        let installedVersion: ReleaseVersion?
+        do {
+            installedVersion = try installedPremierePluginVersion()
+        } catch let error as UpdateManagerError {
+            guard case .invalidArchive = error else { throw error }
+            installedVersion = nil
+        }
+        if let installedVersion, installedVersion > releaseVersion {
+            throw UpdateManagerError.premierePluginDowngradeNotAllowed(
+                installed: installedVersion,
+                available: releaseVersion
+            )
         }
         let workDirectory = try makeWorkDirectory()
         defer { try? fileManager.removeItem(at: workDirectory) }
@@ -210,18 +273,15 @@ actor UpdateManager {
         )
         let extractedDirectory = workDirectory.appendingPathComponent("premiere", isDirectory: true)
         try unzip(archive, to: extractedDirectory)
-        let manifest = extractedDirectory.appendingPathComponent("CSXS/manifest.xml")
-        guard
-            fileManager.fileExists(atPath: manifest.path),
-            let contents = try? String(contentsOf: manifest, encoding: .utf8),
-            contents.contains("ExtensionBundleId=\"\(Self.premiereExtensionID)\"")
-        else {
+        let archiveVersion = try Self.validatePremierePlugin(
+            at: extractedDirectory,
+            fileManager: fileManager
+        )
+        guard archiveVersion == releaseVersion else {
             throw UpdateManagerError.invalidArchive(Self.premiereArchiveName)
         }
 
-        let target = homeDirectory
-            .appendingPathComponent("Library/Application Support/Adobe/CEP/extensions", isDirectory: true)
-            .appendingPathComponent(Self.premiereExtensionID, isDirectory: true)
+        let target = premierePluginURL
         try fileManager.createDirectory(
             at: target.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -231,7 +291,7 @@ actor UpdateManager {
             arguments: ["write", "com.adobe.CSXS.12", "PlayerDebugMode", "1"]
         )
         try replaceItem(at: target, with: extractedDirectory)
-        return releaseVersion
+        return try Self.validatePremierePlugin(at: target, fileManager: fileManager)
     }
 
     func installDaVinciScripts() async throws -> ReleaseVersion {
@@ -300,6 +360,73 @@ actor UpdateManager {
             hasher.update(data: data)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated static func premierePluginUpdateState(
+        installed: ReleaseVersion?,
+        latest: ReleaseVersion
+    ) -> PremierePluginUpdateState {
+        guard let installed else { return .notInstalled(latest: latest) }
+        if installed < latest {
+            return .updateAvailable(installed: installed, latest: latest)
+        }
+        if installed == latest {
+            return .current(installed)
+        }
+        return .localNewer(installed: installed, latest: latest)
+    }
+
+    nonisolated static func validatePremierePlugin(
+        at directory: URL,
+        fileManager: FileManager = .default
+    ) throws -> ReleaseVersion {
+        let version = try premierePluginVersion(at: directory)
+        let requiredFiles = version < ReleaseVersion(tag: "1.6.1")!
+            ? Self.premiereRequiredFiles.filter { $0 != "js/bridge-client.js" }
+            : Self.premiereRequiredFiles
+        for relativePath in requiredFiles {
+            var isDirectory: ObjCBool = false
+            let path = directory.appendingPathComponent(relativePath).path
+            guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                throw UpdateManagerError.invalidArchive(Self.premiereArchiveName)
+            }
+        }
+        return version
+    }
+
+    nonisolated static func premierePluginVersion(at directory: URL) throws -> ReleaseVersion {
+        let manifestURL = directory.appendingPathComponent("CSXS/manifest.xml")
+        let document: XMLDocument
+        do {
+            document = try XMLDocument(contentsOf: manifestURL, options: [])
+        } catch {
+            throw UpdateManagerError.invalidArchive(Self.premiereArchiveName)
+        }
+        guard
+            let root = document.rootElement(),
+            root.name == "ExtensionManifest",
+            root.attribute(forName: "ExtensionBundleId")?.stringValue == Self.premiereExtensionID,
+            let versionText = root.attribute(forName: "ExtensionBundleVersion")?.stringValue,
+            let version = ReleaseVersion(tag: versionText),
+            let extensionList = root.elements(forName: "ExtensionList").first,
+            let panelExtension = extensionList.elements(forName: "Extension").first(where: {
+                $0.attribute(forName: "Id")?.stringValue == Self.premierePanelExtensionID
+            }),
+            panelExtension.attribute(forName: "Version")?.stringValue == versionText,
+            let dispatchInfoList = root.elements(forName: "DispatchInfoList").first,
+            dispatchInfoList.elements(forName: "Extension").contains(where: {
+                $0.attribute(forName: "Id")?.stringValue == Self.premierePanelExtensionID
+            })
+        else {
+            throw UpdateManagerError.invalidArchive(Self.premiereArchiveName)
+        }
+        return version
+    }
+
+    private var premierePluginURL: URL {
+        homeDirectory
+            .appendingPathComponent("Library/Application Support/Adobe/CEP/extensions", isDirectory: true)
+            .appendingPathComponent(Self.premiereExtensionID, isDirectory: true)
     }
 
     private func verifiedAsset(

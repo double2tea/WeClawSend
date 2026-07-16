@@ -73,7 +73,8 @@ h1 {
 }
 
 button,
-input {
+input,
+select {
   border: 1px solid var(--border);
   border-radius: 6px;
   color: inherit;
@@ -133,7 +134,8 @@ button:disabled {
 }
 
 .secondary-button,
-input[type="text"] {
+input[type="text"],
+.range-select {
   width: 100%;
   min-height: 34px;
   background: var(--control);
@@ -323,6 +325,23 @@ input[type="text"] {
   color: white;
   font-weight: 650;
   text-align: center;
+}
+
+.output-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.output-actions[hidden],
+.action-button[hidden] {
+  display: none;
+}
+
+.action-button {
+  min-height: 32px;
+  flex: 1;
+  background: var(--control);
+  color: var(--text);
 }
 
 .status {

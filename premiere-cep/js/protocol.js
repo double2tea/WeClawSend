@@ -31,8 +31,15 @@
     return name;
   }
 
+  function shouldReplaceAutoName(value, previousAutoName) {
+    var name = String(value).trim();
+    var previousName = String(previousAutoName || "");
+    return name.length === 0 || (previousName.length > 0 && name === previousName);
+  }
+
   return {
     parseHostReply: parseHostReply,
-    validateOutputName: validateOutputName
+    validateOutputName: validateOutputName,
+    shouldReplaceAutoName: shouldReplaceAutoName
   };
 });

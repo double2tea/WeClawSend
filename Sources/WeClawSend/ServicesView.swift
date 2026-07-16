@@ -49,7 +49,10 @@ struct ServicesView: View {
             }
             Spacer(minLength: 8)
             Button {
-                Task { await model.refreshServices() }
+                Task {
+                    await model.refreshServices()
+                    await model.refreshPremierePluginStatus()
+                }
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 11, weight: .medium))
@@ -279,11 +282,10 @@ struct ServicesView: View {
                 integrationActionRow(
                     icon: "film",
                     title: "Premiere Pro 插件",
-                    subtitle: model.premierePluginMessage.isEmpty
-                        ? "安装 CEP 12 面板；完成后重启 Premiere"
-                        : model.premierePluginMessage,
-                    buttonTitle: "一键安装",
-                    isWorking: model.isInstallingPremierePlugin,
+                    subtitle: model.premierePluginSubtitle,
+                    buttonTitle: model.premierePluginButtonTitle,
+                    isWorking: model.isPremierePluginBusy,
+                    isDisabled: model.isPremierePluginActionDisabled,
                     action: model.installPremierePlugin
                 )
 
@@ -320,6 +322,17 @@ struct ServicesView: View {
             .buttonStyle(.plain)
             .help("在 GitHub 查看项目")
             .accessibilityLabel("GitHub")
+
+            Link(destination: Brand.portfolioURL) {
+                Image(systemName: "person.crop.square")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.primary.opacity(0.05)))
+            }
+            .buttonStyle(.plain)
+            .help("查看 Zeezhi 作品集")
+            .accessibilityLabel("Zeezhi 作品集")
 
             Link(destination: Brand.supportEmailURL) {
                 Image(systemName: "envelope")
@@ -365,8 +378,8 @@ struct ServicesView: View {
             Toggle("", isOn: isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
-                .controlSize(.mini)
-                .tint(Brand.action)
+                .controlSize(.small)
+                .tint(Brand.controlAccent)
                 .accessibilityLabel(title)
                 .accessibilityHint(subtitle)
         }
@@ -380,6 +393,7 @@ struct ServicesView: View {
         subtitle: String,
         buttonTitle: String,
         isWorking: Bool,
+        isDisabled: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         HStack(alignment: .top, spacing: 8) {
@@ -405,7 +419,7 @@ struct ServicesView: View {
                 Button(buttonTitle, action: action)
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
-                    .disabled(model.isUpdateOperationInProgress)
+                    .disabled(model.isUpdateOperationInProgress || isDisabled)
             }
         }
         .frame(maxWidth: .infinity)
