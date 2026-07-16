@@ -310,40 +310,6 @@ struct ServicesView: View {
             Text("独立应用 · 无需其它后台")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
-            Link(destination: Brand.githubURL) {
-                Image(nsImage: Brand.githubMarkImage)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 13, height: 13)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-                    .background(Circle().fill(Color.primary.opacity(0.05)))
-            }
-            .buttonStyle(.plain)
-            .help("在 GitHub 查看项目")
-            .accessibilityLabel("GitHub")
-
-            Link(destination: Brand.portfolioURL) {
-                Image(systemName: "person.crop.square")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-                    .background(Circle().fill(Color.primary.opacity(0.05)))
-            }
-            .buttonStyle(.plain)
-            .help("查看 Zeezhi 作品集")
-            .accessibilityLabel("Zeezhi 作品集")
-
-            Link(destination: Brand.supportEmailURL) {
-                Image(systemName: "envelope")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-                    .background(Circle().fill(Color.primary.opacity(0.05)))
-            }
-            .buttonStyle(.plain)
-            .help("发送邮件至 double_tea@foxmail.com")
-            .accessibilityLabel("邮件联系")
             Spacer()
             Button("退出") {
                 model.quit()
@@ -353,6 +319,9 @@ struct ServicesView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
+        .overlay {
+            SocialLinksView(appVersion: model.appVersion)
+        }
     }
 
     private func settingRow(

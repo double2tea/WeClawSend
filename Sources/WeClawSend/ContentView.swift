@@ -399,6 +399,9 @@ struct ContentView: View {
         }
         .padding(.horizontal, 20)
         .frame(height: 36)
+        .overlay {
+            SocialLinksView(appVersion: model.appVersion)
+        }
     }
 
     private var activitySummary: String {

@@ -6,6 +6,7 @@ enum AppSettings {
     static let localAPIEnabledKey = "LocalAPIEnabled"
     static let migrateLaunchAtLoginKey = "MigrateLaunchAtLogin"
     static let launchMigrationCompleteKey = "LaunchAtLoginMigrationComplete"
+    static let portfolioSeenVersionKey = "PortfolioSeenVersion"
 
     static var localAPIEnabled: Bool {
         guard UserDefaults.standard.object(forKey: localAPIEnabledKey) != nil else { return false }
