@@ -20,6 +20,7 @@
 - 可在设置中启停本地接口 `http://127.0.0.1:18790`（默认关闭，菜单栏发送不依赖它）
 - **DaVinci Resolve 后渲染脚本**：渲染成功后自动发送，可选 M4V 文件或 MP4 视频模式
 - **Premiere Pro 25+ / CEP 12 面板**：可选在本次导出成功后自动发送，无需 UXP Developer Tool
+- **在线更新与一键安装**：设置页从 GitHub Release 下载、校验并更新 App，也可一键安装 Premiere 面板和 DaVinci Deliver 脚本
 - 设置页提供 GitHub 与邮件联系图标（`double_tea@foxmail.com`）
 - 微信会话受限时按需等待用户消息，自动刷新上下文并重试原文件
 
@@ -66,6 +67,8 @@ chmod +x scripts/*.sh
 | 开机自启 | 设置 → 登录时自动启动 |
 | mp4 改名 | 设置 → 发送时将 .mp4 显示为 .m4v |
 | 本地接口 | 设置 → 启用本地接口 |
+| 在线更新 | 设置 → 检查并更新 |
+| 编辑器集成 | 设置 → Premiere Pro 插件 / DaVinci Resolve 脚本 → 一键安装 |
 
 限制：单文件最大 200 MB；最多 3 个文件并行处理，微信消息提交保持串行且间隔 2 秒。
 
@@ -97,6 +100,8 @@ Content-Type: application/json
 
 后渲染脚本位于 [`davinci-resolve`](davinci-resolve)。安装后，在 Deliver 页选择需要的脚本；渲染成功时会把输出交给 WeClaw Send。
 
+推荐在 App 的「设置 → 更新与编辑器集成」中点击「一键安装」；App 会下载对应 Release 资产并校验 SHA-256。手动安装仍可使用：
+
 ```sh
 ./scripts/install-davinci-plugin.sh
 ```
@@ -106,6 +111,8 @@ Content-Type: application/json
 ## Premiere Pro 插件
 
 项目只维护 [`premiere-cep`](premiere-cep) 这一套 CEP 12 面板，面向 Premiere Pro 25+；manifest 接受 25.0–99.9。自动发送默认关闭；关闭时面板只导出，不会调用 WeClaw Send。导出由 Premiere 直接执行，不依赖 Adobe Media Encoder。面板自动扫描所有已安装的 Premiere 25+ 与 Adobe Media Encoder 25+ 的 `.epr` 预设，可在面板内搜索、滚动选择，并记住上次的预设、输出文件夹和自动发送开关；参数在 Premiere 原生导出页调整并保存后，回到面板刷新即可。
+
+推荐在 App 的「设置 → 更新与编辑器集成」中点击「一键安装」；App 会下载 CEP 发布包、校验 SHA-256 并写入当前用户的 Adobe CEP 扩展目录。手动安装仍可使用：
 
 ```sh
 ./scripts/install-premiere-plugin.sh

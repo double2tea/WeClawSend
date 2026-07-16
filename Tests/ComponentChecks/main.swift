@@ -471,6 +471,165 @@ if let timeoutError = timeoutResult.error as? WeChatError,
     preconditionFailure("context refresh must time out explicitly")
 }
 
+let version140 = ReleaseVersion(tag: "v1.4.0")!
+let version150 = ReleaseVersion(tag: "1.5.0")!
+precondition(version140 < version150)
+precondition(ReleaseVersion(tag: "v1.5") == nil)
+let release = try JSONDecoder().decode(
+    GitHubRelease.self,
+    from: Data(
+        #"{"tag_name":"v1.5.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v1.5.0","assets":[{"name":"WeClaw-Send.zip","browser_download_url":"https://example.test/WeClaw-Send.zip"}]}"#.utf8
+    )
+)
+precondition(release.version == version150)
+precondition(release.asset(named: UpdateManager.appArchiveName)?.browserDownloadURL.host == "example.test")
+let checksumManifest = """
+0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  WeClaw-Send.zip
+"""
+let releaseChecksum = try UpdateManager.checksum(
+    for: UpdateManager.appArchiveName,
+    in: checksumManifest
+)
+precondition(releaseChecksum == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+do {
+    _ = try UpdateManager.checksum(for: "missing.zip", in: checksumManifest)
+    preconditionFailure("missing release checksum must fail")
+} catch let error as UpdateManagerError {
+    guard case .missingChecksum = error else {
+        preconditionFailure("unexpected checksum error")
+    }
+}
+let updateChecksumFile = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-update-checksum-\(UUID()).txt")
+try Data("abc".utf8).write(to: updateChecksumFile)
+defer { try? FileManager.default.removeItem(at: updateChecksumFile) }
+let updateChecksum = try UpdateManager.sha256(of: updateChecksumFile)
+precondition(updateChecksum == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+let updateConfiguration = URLSessionConfiguration.ephemeral
+updateConfiguration.protocolClasses = [MockURLProtocol.self]
+let updateSession = URLSession(configuration: updateConfiguration)
+let updateEndpoint = URL(string: "https://mock.local/releases/latest")!
+MockURLProtocol.handler = { request in
+    precondition(request.url == updateEndpoint)
+    precondition(request.value(forHTTPHeaderField: "Accept") == "application/vnd.github+json")
+    precondition(request.value(forHTTPHeaderField: "User-Agent") == "WeClawSend")
+    return MockURLProtocol.response(
+        request,
+        body: #"{"tag_name":"v1.5.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v1.5.0","assets":[]}"#
+    )
+}
+let updateManager = UpdateManager(session: updateSession, latestReleaseURL: updateEndpoint)
+let updateResult = UpdateResultBox()
+let updateFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        updateResult.release = try await updateManager.latestRelease()
+    } catch {
+        updateResult.error = error
+    }
+    updateFinished.signal()
+}
+precondition(updateFinished.wait(timeout: .now() + 10) == .success)
+if let error = updateResult.error { throw error }
+precondition(updateResult.release?.tagName == "v1.5.0")
+
+let installerRoot = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-installer-\(UUID())", directoryHint: .isDirectory)
+let installerHome = installerRoot.appending(path: "home", directoryHint: .isDirectory)
+let installerFixtures = installerRoot.appending(path: "fixtures", directoryHint: .isDirectory)
+try FileManager.default.createDirectory(at: installerHome, withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: installerFixtures, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: installerRoot) }
+
+let premiereFixture = installerFixtures.appending(path: "premiere", directoryHint: .isDirectory)
+let premiereManifest = premiereFixture.appending(path: "CSXS/manifest.xml")
+try FileManager.default.createDirectory(at: premiereManifest.deletingLastPathComponent(), withIntermediateDirectories: true)
+try Data(#"<ExtensionManifest ExtensionBundleId="com.chacha.WeClawSend.Premiere">new</ExtensionManifest>"#.utf8)
+    .write(to: premiereManifest)
+let premiereArchive = installerFixtures.appending(path: UpdateManager.premiereArchiveName)
+try zipDirectory(premiereFixture, to: premiereArchive)
+
+let daVinciFixture = installerFixtures.appending(path: "davinci", directoryHint: .isDirectory)
+let daVinciSource = daVinciFixture.appending(path: "davinci-resolve/Deliver", directoryHint: .isDirectory)
+try FileManager.default.createDirectory(at: daVinciSource, withIntermediateDirectories: true)
+for name in UpdateManager.daVinciScriptNames {
+    try Data("new \(name)".utf8).write(to: daVinciSource.appending(path: name))
+}
+let daVinciArchive = installerFixtures.appending(path: UpdateManager.daVinciArchiveName)
+try zipDirectory(daVinciFixture, to: daVinciArchive)
+
+let existingPremiere = installerHome
+    .appending(path: "Library/Application Support/Adobe/CEP/extensions/com.chacha.WeClawSend.Premiere", directoryHint: .isDirectory)
+try FileManager.default.createDirectory(at: existingPremiere, withIntermediateDirectories: true)
+try Data("old".utf8).write(to: existingPremiere.appending(path: "old.txt"))
+let existingDaVinci = installerHome.appending(
+    path: "Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Deliver",
+    directoryHint: .isDirectory
+)
+try FileManager.default.createDirectory(at: existingDaVinci, withIntermediateDirectories: true)
+try Data("old".utf8).write(
+    to: existingDaVinci.appending(path: UpdateManager.daVinciScriptNames[0])
+)
+
+let premiereChecksum = try UpdateManager.sha256(of: premiereArchive)
+let daVinciChecksum = try UpdateManager.sha256(of: daVinciArchive)
+let installerChecksumManifest = """
+\(premiereChecksum)  \(UpdateManager.premiereArchiveName)
+\(daVinciChecksum)  \(UpdateManager.daVinciArchiveName)
+"""
+let installerEndpoint = URL(string: "https://mock.local/releases/latest")!
+let installerConfiguration = URLSessionConfiguration.ephemeral
+installerConfiguration.protocolClasses = [MockURLProtocol.self]
+let installerSession = URLSession(configuration: installerConfiguration)
+MockURLProtocol.handler = { request in
+    switch request.url!.path {
+    case "/releases/latest":
+        return MockURLProtocol.response(
+            request,
+            body: #"{"tag_name":"v9.0.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v9.0.0","assets":[{"name":"SHA256SUMS.txt","browser_download_url":"https://mock.local/SHA256SUMS.txt"},{"name":"WeClaw-Send-Premiere-CEP12.zip","browser_download_url":"https://mock.local/WeClaw-Send-Premiere-CEP12.zip"},{"name":"WeClaw-Send-DaVinci-Resolve.zip","browser_download_url":"https://mock.local/WeClaw-Send-DaVinci-Resolve.zip"}]}"#
+        )
+    case "/SHA256SUMS.txt":
+        return MockURLProtocol.response(request, body: installerChecksumManifest)
+    case "/WeClaw-Send-Premiere-CEP12.zip":
+        return MockURLProtocol.response(request, data: try Data(contentsOf: premiereArchive))
+    case "/WeClaw-Send-DaVinci-Resolve.zip":
+        return MockURLProtocol.response(request, data: try Data(contentsOf: daVinciArchive))
+    default:
+        preconditionFailure("Unexpected installer request: \(request.url!.absoluteString)")
+    }
+}
+let installerManager = UpdateManager(
+    session: installerSession,
+    latestReleaseURL: installerEndpoint,
+    homeDirectory: installerHome,
+    defaultsExecutablePath: "/usr/bin/true"
+)
+let installerResult = UpdateInstallResultBox()
+let installerFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        installerResult.premiereVersion = try await installerManager.installPremierePlugin()
+        installerResult.daVinciVersion = try await installerManager.installDaVinciScripts()
+    } catch {
+        installerResult.error = error
+    }
+    installerFinished.signal()
+}
+precondition(installerFinished.wait(timeout: .now() + 10) == .success)
+if let error = installerResult.error { throw error }
+precondition(installerResult.premiereVersion?.description == "9.0.0")
+precondition(installerResult.daVinciVersion?.description == "9.0.0")
+precondition(!FileManager.default.fileExists(atPath: existingPremiere.appending(path: "old.txt").path))
+let installedManifest = try String(
+    contentsOf: existingPremiere.appending(path: "CSXS/manifest.xml"),
+    encoding: .utf8
+)
+precondition(installedManifest.contains("new"))
+for name in UpdateManager.daVinciScriptNames {
+    let installedScript = try String(contentsOf: existingDaVinci.appending(path: name), encoding: .utf8)
+    precondition(installedScript == "new \(name)")
+}
+
 let pasteboard = NSPasteboard(name: .init("WeClawSendComponentChecks"))
 let fileURL = FileManager.default.temporaryDirectory
     .appending(path: "WeClawSend-中文文件-\(UUID()).m4v")
@@ -485,6 +644,17 @@ print("Component checks passed")
 
 func formatBytes(_ byteCount: Int64) -> String {
     ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
+}
+
+private func zipDirectory(_ source: URL, to archive: URL) throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+    process.arguments = ["-c", "-k", source.path, archive.path]
+    try process.run()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+        throw CocoaError(.fileWriteUnknown)
+    }
 }
 
 private extension Data {
@@ -521,6 +691,17 @@ final class ContextRefreshResultBox: @unchecked Sendable {
     var sendCount = 0
     var updateCount = 0
     var progress: [WeChatSendProgress] = []
+}
+
+final class UpdateResultBox: @unchecked Sendable {
+    var error: Error?
+    var release: GitHubRelease?
+}
+
+final class UpdateInstallResultBox: @unchecked Sendable {
+    var error: Error?
+    var premiereVersion: ReleaseVersion?
+    var daVinciVersion: ReleaseVersion?
 }
 
 final class RequestConcurrencyTracker: @unchecked Sendable {
@@ -630,6 +811,14 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
         headers: [String: String] = [:],
         body: String
     ) -> (HTTPURLResponse, Data) {
+        response(request, headers: headers, data: Data(body.utf8))
+    }
+
+    static func response(
+        _ request: URLRequest,
+        headers: [String: String] = [:],
+        data: Data
+    ) -> (HTTPURLResponse, Data) {
         (
             HTTPURLResponse(
                 url: request.url!,
@@ -637,7 +826,7 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
                 httpVersion: "HTTP/1.1",
                 headerFields: headers
             )!,
-            Data(body.utf8)
+            data
         )
     }
 }

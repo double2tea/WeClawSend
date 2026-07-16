@@ -13,6 +13,7 @@ struct ServicesView: View {
                     weChatSection
                     settingsSection
                     localAPISection
+                    updatesAndIntegrationsSection
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -254,6 +255,54 @@ struct ServicesView: View {
         }
     }
 
+    private var updatesAndIntegrationsSection: some View {
+        compactCard {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("更新与编辑器集成")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 6)
+
+                integrationActionRow(
+                    icon: "arrow.down.circle",
+                    title: "App 在线更新",
+                    subtitle: model.updateMessage.isEmpty
+                        ? "当前 v\(model.appVersion) · 下载并校验后自动重启"
+                        : model.updateMessage,
+                    buttonTitle: "检查并更新",
+                    isWorking: model.isUpdatingApp,
+                    action: model.updateApp
+                )
+
+                Divider().opacity(0.35).padding(.vertical, 6)
+
+                integrationActionRow(
+                    icon: "film",
+                    title: "Premiere Pro 插件",
+                    subtitle: model.premierePluginMessage.isEmpty
+                        ? "安装 CEP 12 面板；完成后重启 Premiere"
+                        : model.premierePluginMessage,
+                    buttonTitle: "一键安装",
+                    isWorking: model.isInstallingPremierePlugin,
+                    action: model.installPremierePlugin
+                )
+
+                Divider().opacity(0.35).padding(.vertical, 6)
+
+                integrationActionRow(
+                    icon: "wand.and.stars",
+                    title: "DaVinci Resolve 脚本",
+                    subtitle: model.daVinciScriptsMessage.isEmpty
+                        ? "安装 Deliver 自动发送脚本；完成后重启 DaVinci"
+                        : model.daVinciScriptsMessage,
+                    buttonTitle: "一键安装",
+                    isWorking: model.isInstallingDaVinciScripts,
+                    action: model.installDaVinciScripts
+                )
+            }
+        }
+    }
+
     private var footer: some View {
         HStack {
             Text("独立应用 · 无需其它后台")
@@ -323,6 +372,43 @@ struct ServicesView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 2)
+    }
+
+    private func integrationActionRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        buttonTitle: String,
+        isWorking: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.primary.opacity(0.05)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 11.5, weight: .medium))
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if isWorking {
+                ProgressView()
+                    .controlSize(.mini)
+                    .padding(.top, 4)
+            } else {
+                Button(buttonTitle, action: action)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .disabled(model.isUpdateOperationInProgress)
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func statusDot(_ color: Color) -> some View {

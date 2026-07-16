@@ -42,6 +42,12 @@ final class AppModel: ObservableObject {
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
     @Published var launchAtLoginEnabled = LaunchAtLogin.isEnabled
     @Published var launchAtLoginRequiresApproval = LaunchAtLogin.requiresApproval
+    @Published var isUpdatingApp = false
+    @Published var isInstallingPremierePlugin = false
+    @Published var isInstallingDaVinciScripts = false
+    @Published var updateMessage = ""
+    @Published var premierePluginMessage = ""
+    @Published var daVinciScriptsMessage = ""
 
     var onContextRefreshRequired: (() -> Void)?
 
@@ -50,6 +56,7 @@ final class AppModel: ObservableObject {
     private var serverStateTask: Task<Void, Never>?
     private var serviceMonitorTask: Task<Void, Never>?
     private var loginTask: Task<Void, Never>?
+    private let updateManager = UpdateManager()
     private let recentTransfersKey = "recentTransfers"
     private let legacyRecentTransferKey = "recentTransfer"
     private var contextRefreshTransfers: Set<UUID> = []
@@ -100,6 +107,14 @@ final class AppModel: ObservableObject {
 
     var hasActiveTransfers: Bool {
         recentTransfers.contains { $0.status == .queued || $0.status == .sending }
+    }
+
+    var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
+    }
+
+    var isUpdateOperationInProgress: Bool {
+        isUpdatingApp || isInstallingPremierePlugin || isInstallingDaVinciScripts
     }
 
     var sendingTransferCount: Int {
@@ -163,6 +178,79 @@ final class AppModel: ObservableObject {
 
     func openLoginItemsSettings() {
         LaunchAtLogin.openSystemSettings()
+    }
+
+    func updateApp() {
+        guard !isUpdateOperationInProgress else { return }
+        guard !hasActiveTransfers else {
+            presentedError = "当前有正在处理的文件，请发送完成后再更新 App"
+            return
+        }
+        guard let currentVersion = ReleaseVersion(tag: appVersion) else {
+            presentedError = "无法识别当前 App 版本：\(appVersion)"
+            return
+        }
+        isUpdatingApp = true
+        updateMessage = "正在检查更新…"
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await updateManager.prepareAppUpdate(
+                    currentVersion: currentVersion,
+                    appURL: Bundle.main.bundleURL,
+                    currentProcessID: ProcessInfo.processInfo.processIdentifier
+                )
+                switch result {
+                case .alreadyCurrent:
+                    updateMessage = "已是最新版本 v\(currentVersion)"
+                    isUpdatingApp = false
+                case let .replacementScheduled(release):
+                    updateMessage = "已下载 \(release.tagName)，正在重启…"
+                    runtime.server.stop()
+                    NSApplication.shared.terminate(nil)
+                }
+            } catch {
+                isUpdatingApp = false
+                updateMessage = "更新失败"
+                presentedError = "App 更新失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    func installPremierePlugin() {
+        guard !isUpdateOperationInProgress else { return }
+        isInstallingPremierePlugin = true
+        premierePluginMessage = "正在下载、校验并安装…"
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let version = try await updateManager.installPremierePlugin()
+                premierePluginMessage = "已安装 \(version)，请重启 Premiere Pro"
+                isInstallingPremierePlugin = false
+            } catch {
+                isInstallingPremierePlugin = false
+                premierePluginMessage = "安装失败"
+                presentedError = "Premiere 插件安装失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    func installDaVinciScripts() {
+        guard !isUpdateOperationInProgress else { return }
+        isInstallingDaVinciScripts = true
+        daVinciScriptsMessage = "正在下载、校验并安装…"
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let version = try await updateManager.installDaVinciScripts()
+                daVinciScriptsMessage = "已安装 \(version)，请重启 DaVinci Resolve"
+                isInstallingDaVinciScripts = false
+            } catch {
+                isInstallingDaVinciScripts = false
+                daVinciScriptsMessage = "安装失败"
+                presentedError = "DaVinci 脚本安装失败：\(error.localizedDescription)"
+            }
+        }
     }
 
     func startMonitoringServices() {
