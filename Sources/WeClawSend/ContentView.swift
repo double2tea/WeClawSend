@@ -66,6 +66,14 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
+                    .overlay(alignment: .topTrailing) {
+                        if model.hasAppUpdate {
+                            Circle()
+                                .fill(Brand.danger)
+                                .frame(width: 6, height: 6)
+                                .offset(x: -2, y: 2)
+                        }
+                    }
             }
             .buttonStyle(.plain)
             .help("设置")

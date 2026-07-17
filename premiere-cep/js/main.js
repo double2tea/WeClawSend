@@ -4,6 +4,7 @@
   var AUTO_SEND_STORAGE_KEY = "autoSendAfterExport";
   var PRESET_STORAGE_KEY = "selectedExportPreset";
   var FOLDER_STORAGE_KEY = "selectedOutputFolder";
+  var FAILED_SENDS_STORAGE_KEY = "failedBackgroundSends";
   var cep = window.__adobe_cep__;
   var protocol = window.WeClawProtocol;
   var presetLibrary = window.WeClawPresetLibrary;
@@ -15,7 +16,7 @@
   var sequenceRequestID = 0;
   var lastAutoOutputName = "";
   var lastExportedPath = "";
-  var failedSends = [];
+  var failedSends = loadFailedSends();
   var activeSendCount = 0;
   var retryingSendPath = "";
   var statusRevision = 0;
@@ -84,6 +85,8 @@
 
   loadPresets();
   loadActiveSequence();
+  updateOutputActions();
+  renderSendStatus("", statusRevision);
 
   function loadPresets() {
     if (!window.cep_node || typeof window.cep_node.require !== "function") {
@@ -298,9 +301,16 @@
 
   function retryFailedSend() {
     if (failedSends.length === 0 || retryingSendPath) { return; }
+    var failure = failedSends[0];
+    if (!fileExists(failure.path)) {
+      removeFailedSend(failure.path);
+      updateOutputActions();
+      setStatus("原导出文件已不存在，已移除失败记录", "error");
+      return;
+    }
     statusRevision += 1;
     protectedErrorRevision = -1;
-    sendInBackground(failedSends[0].path, true, statusRevision);
+    sendInBackground(failure.path, true, statusRevision);
   }
 
   function revealExportedFile() {
@@ -387,12 +397,43 @@
   function recordFailedSend(filePath, message) {
     removeFailedSend(filePath);
     failedSends.push({ path: filePath, message: message });
+    persistFailedSends();
   }
 
   function removeFailedSend(filePath) {
     for (var index = failedSends.length - 1; index >= 0; index -= 1) {
       if (failedSends[index].path === filePath) { failedSends.splice(index, 1); }
     }
+    persistFailedSends();
+  }
+
+  function loadFailedSends() {
+    var stored = localStorage.getItem(FAILED_SENDS_STORAGE_KEY);
+    if (!stored) { return []; }
+    try {
+      var values = JSON.parse(stored);
+      if (!Array.isArray(values)) { throw new Error("失败发送记录不是数组"); }
+      return values.filter(function (value) {
+        return value && typeof value.path === "string" && typeof value.message === "string";
+      });
+    } catch (error) {
+      localStorage.removeItem(FAILED_SENDS_STORAGE_KEY);
+      return [];
+    }
+  }
+
+  function persistFailedSends() {
+    if (failedSends.length === 0) {
+      localStorage.removeItem(FAILED_SENDS_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(FAILED_SENDS_STORAGE_KEY, JSON.stringify(failedSends));
+  }
+
+  function fileExists(filePath) {
+    if (!window.cep_node || typeof window.cep_node.require !== "function") { return false; }
+    var fileSystem = window.cep_node.require("fs");
+    return typeof fileSystem.existsSync === "function" && fileSystem.existsSync(filePath);
   }
 
   function renderSendStatus(successMessage, operationRevision) {

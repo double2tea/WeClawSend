@@ -7,6 +7,7 @@ ZIP="$DIST/WeClaw-Send.zip"
 DMG="$DIST/WeClaw-Send.dmg"
 PREMIERE_ZIP="$DIST/WeClaw-Send-Premiere-CEP12.zip"
 DAVINCI_ZIP="$DIST/WeClaw-Send-DaVinci-Resolve.zip"
+COMPONENTS="$DIST/WeClaw-Send-Components.json"
 CHECKSUMS="$DIST/SHA256SUMS.txt"
 VERIFY="$(mktemp -d "${TMPDIR:-/tmp/}weclaw-send-release.XXXXXX")"
 PACKAGE="$VERIFY/package"
@@ -18,10 +19,11 @@ MOUNTED=false
 
 APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Resources/Info.plist")"
 PREMIERE_VERSION="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' "$ROOT/premiere-cep/CSXS/manifest.xml")"
-if [[ -z "$PREMIERE_VERSION" || "$APP_VERSION" != "$PREMIERE_VERSION" ]]; then
-    print -u2 "App 与 Premiere 插件版本不一致：App=$APP_VERSION Premiere=$PREMIERE_VERSION"
-    exit 1
-fi
+DAVINCI_VERSION="$(tr -d '[:space:]' < "$ROOT/davinci-resolve/VERSION")"
+VERSION_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+$'
+[[ "$APP_VERSION" =~ $VERSION_PATTERN ]]
+[[ "$PREMIERE_VERSION" =~ $VERSION_PATTERN ]]
+[[ "$DAVINCI_VERSION" =~ $VERSION_PATTERN ]]
 
 cleanup() {
     if [[ "$MOUNTED" == true ]]; then
@@ -46,6 +48,7 @@ rm -f \
     "$DMG" \
     "$PREMIERE_ZIP" \
     "$DAVINCI_ZIP" \
+    "$COMPONENTS" \
     "$CHECKSUMS" \
     "$DIST/WeClaw-Send-Premiere-UXP.zip"
 mkdir -p "$PACKAGE"
@@ -71,6 +74,7 @@ do
     cp "$ROOT/davinci-resolve/Deliver/$name" "$DAVINCI_PACKAGE/davinci-resolve/Deliver/$name"
 done
 cp "$ROOT/davinci-resolve/README.md" "$DAVINCI_PACKAGE/davinci-resolve/README.md"
+cp "$ROOT/davinci-resolve/VERSION" "$DAVINCI_PACKAGE/davinci-resolve/VERSION"
 cp "$ROOT/scripts/install-davinci-plugin.sh" "$DAVINCI_PACKAGE/scripts/install-davinci-plugin.sh"
 chmod +x "$DAVINCI_PACKAGE/scripts/install-davinci-plugin.sh"
 COPYFILE_DISABLE=1 ditto --norsrc --noextattr -c -k "$DAVINCI_PACKAGE" "$DAVINCI_ZIP"
@@ -92,10 +96,17 @@ fi
 
 DAVINCI_CONTENTS="$(LC_ALL=C zipinfo -1 "$DAVINCI_ZIP")"
 if ! grep -q '^davinci-resolve/Deliver/.*\.py$' <<<"$DAVINCI_CONTENTS" \
+    || ! grep -qx 'davinci-resolve/VERSION' <<<"$DAVINCI_CONTENTS" \
     || ! grep -qx 'scripts/install-davinci-plugin.sh' <<<"$DAVINCI_CONTENTS"; then
     print -u2 "DaVinci 发布包缺少脚本"
     exit 1
 fi
+
+printf '{\n  "app": "%s",\n  "premiere": "%s",\n  "davinci": "%s"\n}\n' \
+    "$APP_VERSION" \
+    "$PREMIERE_VERSION" \
+    "$DAVINCI_VERSION" > "$COMPONENTS"
+python3 -m json.tool "$COMPONENTS" >/dev/null
 
 if grep -q '__pycache__' <<<"$DAVINCI_CONTENTS"; then
     print -u2 "DaVinci 发布包包含 Python 缓存"
@@ -131,13 +142,15 @@ MOUNTED=false
         "${ZIP:t}" \
         "${DMG:t}" \
         "${PREMIERE_ZIP:t}" \
-        "${DAVINCI_ZIP:t}" >"${CHECKSUMS:t}"
+        "${DAVINCI_ZIP:t}" \
+        "${COMPONENTS:t}" >"${CHECKSUMS:t}"
 )
 
 print "ZIP：$ZIP"
 print "DMG：$DMG"
 print "Premiere：$PREMIERE_ZIP"
 print "DaVinci：$DAVINCI_ZIP"
+print "组件版本：$COMPONENTS"
 print "校验：$CHECKSUMS"
 print "架构：$(lipo -archs "$EXTRACTED_BINARY")"
 print "系统：macOS 14+"

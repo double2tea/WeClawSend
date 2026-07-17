@@ -101,6 +101,35 @@ class PostRenderScriptTests(unittest.TestCase):
                     self.assertFalse(Path(lock_path).exists())
                     self.assertTrue(Path(sent_path).exists())
 
+    def test_rotates_large_log_and_removes_expired_send_markers(self):
+        for module in (M4V, MP4):
+            with self.subTest(mode=module.SEND_MODE), tempfile.TemporaryDirectory() as directory:
+                log_path = Path(directory) / "postrender.log"
+                state_dir = Path(directory) / "state"
+                state_dir.mkdir()
+                log_path.write_bytes(b"x" * 20)
+                expired = state_dir / "expired.sent"
+                current = state_dir / "current.sent"
+                lock = state_dir / "current.lock"
+                for path in (expired, current, lock):
+                    path.write_text("state", encoding="utf-8")
+                expired_time = 10
+                os.utime(expired, (expired_time, expired_time))
+
+                with (
+                    mock.patch.object(module, "LOG_PATH", str(log_path)),
+                    mock.patch.object(module, "LOG_MAX_BYTES", 10),
+                    mock.patch.object(module, "SEND_STATE_DIR", str(state_dir)),
+                ):
+                    module.log("new entry")
+                    module.cleanup_send_state()
+
+                self.assertTrue(Path(str(log_path) + ".1").exists())
+                self.assertIn("new entry", log_path.read_text(encoding="utf-8"))
+                self.assertFalse(expired.exists())
+                self.assertTrue(current.exists())
+                self.assertTrue(lock.exists())
+
     def test_m4v_script_copies_output_with_m4v_name(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "output.mp4"
@@ -158,6 +187,10 @@ class PostRenderScriptTests(unittest.TestCase):
                 installed = target / name
                 self.assertEqual(installed.read_bytes(), (DELIVER_DIR / name).read_bytes())
                 self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o644)
+
+            installed_version = target / ".weclaw-send-version"
+            self.assertEqual(installed_version.read_text(encoding="utf-8"), "1.6.3\n")
+            self.assertEqual(stat.S_IMODE(installed_version.stat().st_mode), 0o644)
 
 
 if __name__ == "__main__":

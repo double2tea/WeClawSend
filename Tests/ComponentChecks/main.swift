@@ -500,6 +500,13 @@ let release = try JSONDecoder().decode(
 )
 precondition(release.version == version150)
 precondition(release.asset(named: UpdateManager.appArchiveName)?.browserDownloadURL.host == "example.test")
+let releaseComponents = try JSONDecoder().decode(
+    ReleaseComponents.self,
+    from: Data(#"{"app":"1.5.0","premiere":"2.0.0","davinci":"3.0.0"}"#.utf8)
+)
+precondition(releaseComponents.app == version150)
+precondition(releaseComponents.premiere == ReleaseVersion(tag: "2.0.0")!)
+precondition(releaseComponents.daVinci == ReleaseVersion(tag: "3.0.0")!)
 let checksumManifest = """
 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  WeClaw-Send.zip
 """
@@ -528,6 +535,7 @@ let updateSession = URLSession(configuration: updateConfiguration)
 let updateEndpoint = URL(string: "https://mock.local/releases/latest")!
 MockURLProtocol.handler = { request in
     precondition(request.url == updateEndpoint)
+    precondition(request.timeoutInterval == UpdateManager.metadataRequestTimeout)
     precondition(request.value(forHTTPHeaderField: "Accept") == "application/vnd.github+json")
     precondition(request.value(forHTTPHeaderField: "User-Agent") == "WeClawSend")
     return MockURLProtocol.response(
@@ -541,6 +549,9 @@ let updateFinished = DispatchSemaphore(value: 0)
 Task {
     do {
         updateResult.release = try await updateManager.latestRelease()
+        updateResult.appAvailability = try await updateManager.appUpdateAvailability(
+            currentVersion: version140
+        )
     } catch {
         updateResult.error = error
     }
@@ -549,6 +560,7 @@ Task {
 precondition(updateFinished.wait(timeout: .now() + 10) == .success)
 if let error = updateResult.error { throw error }
 precondition(updateResult.release?.tagName == "v1.5.0")
+precondition(updateResult.appAvailability == .updateAvailable(version150))
 
 let installerRoot = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-installer-\(UUID())", directoryHint: .isDirectory)
@@ -613,13 +625,22 @@ let legacyPremiereVersion = try UpdateManager.validatePremierePlugin(at: legacyP
 precondition(legacyPremiereVersion == ReleaseVersion(tag: "1.6.0")!)
 
 let daVinciFixture = installerFixtures.appending(path: "davinci", directoryHint: .isDirectory)
-let daVinciSource = daVinciFixture.appending(path: "davinci-resolve/Deliver", directoryHint: .isDirectory)
+let daVinciRoot = daVinciFixture.appending(path: "davinci-resolve", directoryHint: .isDirectory)
+let daVinciSource = daVinciRoot.appending(path: "Deliver", directoryHint: .isDirectory)
 try FileManager.default.createDirectory(at: daVinciSource, withIntermediateDirectories: true)
 for name in UpdateManager.daVinciScriptNames {
     try Data("new \(name)".utf8).write(to: daVinciSource.appending(path: name))
 }
+try Data("9.1.0\n".utf8).write(
+    to: daVinciRoot.appending(path: UpdateManager.daVinciVersionFileName)
+)
 let daVinciArchive = installerFixtures.appending(path: UpdateManager.daVinciArchiveName)
 try zipDirectory(daVinciFixture, to: daVinciArchive)
+
+let componentsFile = installerFixtures.appending(path: UpdateManager.componentsName)
+try Data(#"{"app":"9.0.0","premiere":"9.0.0","davinci":"9.1.0"}"#.utf8).write(
+    to: componentsFile
+)
 
 let existingPremiere = installerHome
     .appending(path: "Library/Application Support/Adobe/CEP/extensions/com.chacha.WeClawSend.Premiere", directoryHint: .isDirectory)
@@ -636,9 +657,11 @@ try Data("old".utf8).write(
 
 let premiereChecksum = try UpdateManager.sha256(of: premiereArchive)
 let daVinciChecksum = try UpdateManager.sha256(of: daVinciArchive)
+let componentsChecksum = try UpdateManager.sha256(of: componentsFile)
 let installerChecksumManifest = """
 \(premiereChecksum)  \(UpdateManager.premiereArchiveName)
 \(daVinciChecksum)  \(UpdateManager.daVinciArchiveName)
+\(componentsChecksum)  \(UpdateManager.componentsName)
 """
 let installerEndpoint = URL(string: "https://mock.local/releases/latest")!
 let installerConfiguration = URLSessionConfiguration.ephemeral
@@ -649,7 +672,7 @@ MockURLProtocol.handler = { request in
     case "/releases/latest":
         return MockURLProtocol.response(
             request,
-            body: #"{"tag_name":"v9.0.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v9.0.0","assets":[{"name":"SHA256SUMS.txt","browser_download_url":"https://mock.local/SHA256SUMS.txt"},{"name":"WeClaw-Send-Premiere-CEP12.zip","browser_download_url":"https://mock.local/WeClaw-Send-Premiere-CEP12.zip"},{"name":"WeClaw-Send-DaVinci-Resolve.zip","browser_download_url":"https://mock.local/WeClaw-Send-DaVinci-Resolve.zip"}]}"#
+            body: #"{"tag_name":"v9.0.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v9.0.0","assets":[{"name":"SHA256SUMS.txt","browser_download_url":"https://mock.local/SHA256SUMS.txt"},{"name":"WeClaw-Send-Components.json","browser_download_url":"https://mock.local/WeClaw-Send-Components.json"},{"name":"WeClaw-Send-Premiere-CEP12.zip","browser_download_url":"https://mock.local/WeClaw-Send-Premiere-CEP12.zip"},{"name":"WeClaw-Send-DaVinci-Resolve.zip","browser_download_url":"https://mock.local/WeClaw-Send-DaVinci-Resolve.zip"}]}"#
         )
     case "/SHA256SUMS.txt":
         return MockURLProtocol.response(request, body: installerChecksumManifest)
@@ -657,6 +680,8 @@ MockURLProtocol.handler = { request in
         return MockURLProtocol.response(request, data: try Data(contentsOf: premiereArchive))
     case "/WeClaw-Send-DaVinci-Resolve.zip":
         return MockURLProtocol.response(request, data: try Data(contentsOf: daVinciArchive))
+    case "/WeClaw-Send-Components.json":
+        return MockURLProtocol.response(request, data: try Data(contentsOf: componentsFile))
     default:
         preconditionFailure("Unexpected installer request: \(request.url!.absoluteString)")
     }
@@ -674,6 +699,7 @@ Task {
         installerResult.installedPremiereVersion = try await installerManager.installedPremierePluginVersion()
         installerResult.premiereState = try await installerManager.premierePluginUpdateState()
         installerResult.premiereVersion = try await installerManager.installPremierePlugin()
+        installerResult.daVinciState = try await installerManager.daVinciScriptsUpdateState()
         installerResult.daVinciVersion = try await installerManager.installDaVinciScripts()
     } catch {
         installerResult.error = error
@@ -691,7 +717,8 @@ precondition(
         )
 )
 precondition(installerResult.premiereVersion?.description == "9.0.0")
-precondition(installerResult.daVinciVersion?.description == "9.0.0")
+precondition(installerResult.daVinciState == .repairRequired(latest: ReleaseVersion(tag: "9.1.0")!))
+precondition(installerResult.daVinciVersion?.description == "9.1.0")
 precondition(!FileManager.default.fileExists(atPath: existingPremiere.appending(path: "old.txt").path))
 let installedManifest = try String(
     contentsOf: existingPremiere.appending(path: "CSXS/manifest.xml"),
@@ -703,6 +730,34 @@ precondition(validatedInstalledPremiereVersion.description == "9.0.0")
 for name in UpdateManager.daVinciScriptNames {
     let installedScript = try String(contentsOf: existingDaVinci.appending(path: name), encoding: .utf8)
     precondition(installedScript == "new \(name)")
+}
+let installedDaVinciVersion = try String(
+    contentsOf: existingDaVinci.appending(path: UpdateManager.daVinciInstalledVersionFileName),
+    encoding: .utf8
+).trimmingCharacters(in: .whitespacesAndNewlines)
+precondition(installedDaVinciVersion == "9.1.0")
+
+try Data("10.0.0\n".utf8).write(
+    to: existingDaVinci.appending(path: UpdateManager.daVinciInstalledVersionFileName),
+    options: .atomic
+)
+let daVinciDowngradeResult = UpdateInstallResultBox()
+let daVinciDowngradeFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        daVinciDowngradeResult.daVinciVersion = try await installerManager.installDaVinciScripts()
+    } catch {
+        daVinciDowngradeResult.error = error
+    }
+    daVinciDowngradeFinished.signal()
+}
+precondition(daVinciDowngradeFinished.wait(timeout: .now() + 10) == .success)
+if let error = daVinciDowngradeResult.error as? UpdateManagerError,
+   case let .daVinciScriptsDowngradeNotAllowed(installed, available) = error {
+    precondition(installed.description == "10.0.0")
+    precondition(available.description == "9.1.0")
+} else {
+    preconditionFailure("DaVinci scripts downgrade must be blocked by default")
 }
 
 try writePremiereFixture(at: existingPremiere, version: "10.0.0")
@@ -847,6 +902,7 @@ final class ContextRefreshResultBox: @unchecked Sendable {
 final class UpdateResultBox: @unchecked Sendable {
     var error: Error?
     var release: GitHubRelease?
+    var appAvailability: AppUpdateAvailability?
 }
 
 final class UpdateInstallResultBox: @unchecked Sendable {
@@ -854,6 +910,7 @@ final class UpdateInstallResultBox: @unchecked Sendable {
     var installedPremiereVersion: ReleaseVersion?
     var premiereState: PremierePluginUpdateState?
     var premiereVersion: ReleaseVersion?
+    var daVinciState: DaVinciScriptsUpdateState?
     var daVinciVersion: ReleaseVersion?
 }
 

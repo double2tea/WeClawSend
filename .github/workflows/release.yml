@@ -22,16 +22,17 @@ jobs:
         run: |
           app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
           premiere_version="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' premiere-cep/CSXS/manifest.xml)"
+          davinci_version="$(tr -d '[:space:]' < davinci-resolve/VERSION)"
 
           if [[ "$GITHUB_REF_NAME" != "v$app_version" ]]; then
             print -u2 "标签与 App 版本不一致：tag=$GITHUB_REF_NAME app=$app_version"
             exit 1
           fi
 
-          if [[ "$app_version" != "$premiere_version" ]]; then
-            print -u2 "App 与 Premiere 插件版本不一致：app=$app_version premiere=$premiere_version"
-            exit 1
-          fi
+          version_pattern='^[0-9]+\.[0-9]+\.[0-9]+$'
+          [[ "$app_version" =~ $version_pattern ]]
+          [[ "$premiere_version" =~ $version_pattern ]]
+          [[ "$davinci_version" =~ $version_pattern ]]
 
       - name: Run tests
         run: ./scripts/test.sh
@@ -48,6 +49,7 @@ jobs:
             dist/WeClaw-Send.dmg \
             dist/WeClaw-Send-Premiere-CEP12.zip \
             dist/WeClaw-Send-DaVinci-Resolve.zip \
+            dist/WeClaw-Send-Components.json \
             dist/SHA256SUMS.txt \
             --verify-tag \
             --generate-notes \

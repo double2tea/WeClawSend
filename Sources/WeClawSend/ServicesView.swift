@@ -50,8 +50,11 @@ struct ServicesView: View {
             Spacer(minLength: 8)
             Button {
                 Task {
-                    await model.refreshServices()
+                    async let services: Void = model.refreshServices()
+                    async let appUpdate: Void = model.refreshAppUpdateStatus()
                     await model.refreshPremierePluginStatus()
+                    await model.refreshDaVinciScriptsStatus()
+                    _ = await (services, appUpdate)
                 }
             } label: {
                 Image(systemName: "arrow.clockwise")
@@ -282,11 +285,10 @@ struct ServicesView: View {
                 integrationActionRow(
                     icon: "arrow.down.circle",
                     title: "App 在线更新",
-                    subtitle: model.updateMessage.isEmpty
-                        ? "当前 v\(model.appVersion) · 下载并校验后自动重启"
-                        : model.updateMessage,
-                    buttonTitle: "检查并更新",
-                    isWorking: model.isUpdatingApp,
+                    subtitle: model.appUpdateSubtitle,
+                    buttonTitle: model.appUpdateButtonTitle,
+                    isWorking: model.isAppUpdateBusy,
+                    isDisabled: model.isCheckingAppUpdate,
                     action: model.updateApp
                 )
 
@@ -307,11 +309,10 @@ struct ServicesView: View {
                 integrationActionRow(
                     icon: "wand.and.stars",
                     title: "DaVinci Resolve 脚本",
-                    subtitle: model.daVinciScriptsMessage.isEmpty
-                        ? "安装 Deliver 自动发送脚本；完成后重启 DaVinci"
-                        : model.daVinciScriptsMessage,
-                    buttonTitle: "一键安装",
-                    isWorking: model.isInstallingDaVinciScripts,
+                    subtitle: model.daVinciScriptsSubtitle,
+                    buttonTitle: model.daVinciScriptsButtonTitle,
+                    isWorking: model.isDaVinciScriptsBusy,
+                    isDisabled: model.isDaVinciScriptsActionDisabled,
                     action: model.installDaVinciScripts
                 )
             }

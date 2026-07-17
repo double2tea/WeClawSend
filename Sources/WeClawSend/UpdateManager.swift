@@ -69,12 +69,51 @@ struct GitHubRelease: Decodable, Equatable, Sendable {
     }
 }
 
-enum PremierePluginUpdateState: Equatable, Sendable {
+struct ReleaseComponents: Equatable, Sendable {
+    let app: ReleaseVersion
+    let premiere: ReleaseVersion
+    let daVinci: ReleaseVersion
+}
+
+extension ReleaseComponents: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case app
+        case premiere
+        case daVinci = "davinci"
+    }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let appText = try values.decode(String.self, forKey: .app)
+        let premiereText = try values.decode(String.self, forKey: .premiere)
+        let daVinciText = try values.decode(String.self, forKey: .daVinci)
+        guard
+            let app = ReleaseVersion(tag: appText),
+            let premiere = ReleaseVersion(tag: premiereText),
+            let daVinci = ReleaseVersion(tag: daVinciText)
+        else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "组件版本格式无效")
+            )
+        }
+        self.init(app: app, premiere: premiere, daVinci: daVinci)
+    }
+}
+
+enum IntegrationUpdateState: Equatable, Sendable {
     case notInstalled(latest: ReleaseVersion)
     case repairRequired(latest: ReleaseVersion)
     case updateAvailable(installed: ReleaseVersion, latest: ReleaseVersion)
     case current(ReleaseVersion)
     case localNewer(installed: ReleaseVersion, latest: ReleaseVersion)
+}
+
+typealias PremierePluginUpdateState = IntegrationUpdateState
+typealias DaVinciScriptsUpdateState = IntegrationUpdateState
+
+enum AppUpdateAvailability: Equatable, Sendable {
+    case current(ReleaseVersion)
+    case updateAvailable(ReleaseVersion)
 }
 
 enum UpdateManagerError: LocalizedError {
@@ -88,6 +127,7 @@ enum UpdateManagerError: LocalizedError {
     case checksumMismatch(String)
     case invalidArchive(String)
     case premierePluginDowngradeNotAllowed(installed: ReleaseVersion, available: ReleaseVersion)
+    case daVinciScriptsDowngradeNotAllowed(installed: ReleaseVersion, available: ReleaseVersion)
     case currentAppNotWritable(String)
     case commandFailed(String)
 
@@ -113,6 +153,8 @@ enum UpdateManagerError: LocalizedError {
             "发布包内容无效：\(name)"
         case let .premierePluginDowngradeNotAllowed(installed, available):
             "已安装的 Premiere 插件 v\(installed) 高于在线版本 v\(available)，已阻止降级"
+        case let .daVinciScriptsDowngradeNotAllowed(installed, available):
+            "已安装的 DaVinci 脚本 v\(installed) 高于在线版本 v\(available)，已阻止降级"
         case let .currentAppNotWritable(path):
             "当前 App 所在目录不可写：\(path)。请将 App 移至当前用户可写的“应用程序”目录后重试。"
         case let .commandFailed(message):
@@ -133,6 +175,7 @@ actor UpdateManager {
     nonisolated static let appArchiveName = "WeClaw-Send.zip"
     nonisolated static let premiereArchiveName = "WeClaw-Send-Premiere-CEP12.zip"
     nonisolated static let daVinciArchiveName = "WeClaw-Send-DaVinci-Resolve.zip"
+    nonisolated static let componentsName = "WeClaw-Send-Components.json"
     nonisolated static let checksumsName = "SHA256SUMS.txt"
     nonisolated static let premiereExtensionID = "com.chacha.WeClawSend.Premiere"
     nonisolated static let premierePanelExtensionID = "com.chacha.WeClawSend.Premiere.panel"
@@ -150,12 +193,20 @@ actor UpdateManager {
         "自动发送ClawBot_M4V文件.py",
         "自动发送ClawBot_MP4视频.py"
     ]
+    nonisolated static let daVinciVersionFileName = "VERSION"
+    nonisolated static let daVinciInstalledVersionFileName = ".weclaw-send-version"
+    nonisolated static let metadataRequestTimeout: TimeInterval = 20
+    nonisolated static let assetRequestTimeout: TimeInterval = 300
+    nonisolated static let releaseCacheDuration: TimeInterval = 300
 
     private let session: URLSession
     private let fileManager: FileManager
     private let latestReleaseURL: URL
     private let homeDirectory: URL
     private let defaultsExecutablePath: String
+    private var cachedRelease: (release: GitHubRelease, date: Date)?
+    private var latestReleaseTask: Task<GitHubRelease, Error>?
+    private var cachedComponents: [String: ReleaseComponents] = [:]
 
     init(
         session: URLSession = .shared,
@@ -220,6 +271,14 @@ actor UpdateManager {
         }
     }
 
+    func appUpdateAvailability(currentVersion: ReleaseVersion) async throws -> AppUpdateAvailability {
+        let release = try await latestRelease()
+        guard let latestVersion = release.version else {
+            throw UpdateManagerError.invalidVersion(release.tagName)
+        }
+        return currentVersion < latestVersion ? .updateAvailable(latestVersion) : .current(currentVersion)
+    }
+
     func premierePluginUpdateState() async throws -> PremierePluginUpdateState {
         let installedVersion: ReleaseVersion?
         let requiresRepair: Bool
@@ -232,9 +291,7 @@ actor UpdateManager {
             requiresRepair = true
         }
         let release = try await latestRelease()
-        guard let latestVersion = release.version else {
-            throw UpdateManagerError.invalidVersion(release.tagName)
-        }
+        let latestVersion = try await releaseComponents(in: release).premiere
         if requiresRepair { return .repairRequired(latest: latestVersion) }
         return Self.premierePluginUpdateState(installed: installedVersion, latest: latestVersion)
     }
@@ -247,9 +304,7 @@ actor UpdateManager {
 
     func installPremierePlugin() async throws -> ReleaseVersion {
         let release = try await latestRelease()
-        guard let releaseVersion = release.version else {
-            throw UpdateManagerError.invalidVersion(release.tagName)
-        }
+        let releaseVersion = try await releaseComponents(in: release).premiere
         let installedVersion: ReleaseVersion?
         do {
             installedVersion = try installedPremierePluginVersion()
@@ -294,10 +349,58 @@ actor UpdateManager {
         return try Self.validatePremierePlugin(at: target, fileManager: fileManager)
     }
 
+    func daVinciScriptsUpdateState() async throws -> DaVinciScriptsUpdateState {
+        let installedVersion: ReleaseVersion?
+        let requiresRepair: Bool
+        do {
+            installedVersion = try installedDaVinciScriptsVersion()
+            requiresRepair = false
+        } catch let error as UpdateManagerError {
+            guard case .invalidArchive = error else { throw error }
+            installedVersion = nil
+            requiresRepair = true
+        }
+        let release = try await latestRelease()
+        let latestVersion = try await releaseComponents(in: release).daVinci
+        if requiresRepair { return .repairRequired(latest: latestVersion) }
+        return Self.integrationUpdateState(installed: installedVersion, latest: latestVersion)
+    }
+
+    func installedDaVinciScriptsVersion() throws -> ReleaseVersion? {
+        let target = daVinciScriptsURL
+        let existingScripts = Self.daVinciScriptNames.filter {
+            fileManager.fileExists(atPath: target.appendingPathComponent($0).path)
+        }
+        guard !existingScripts.isEmpty else { return nil }
+        guard existingScripts.count == Self.daVinciScriptNames.count else {
+            throw UpdateManagerError.invalidArchive(Self.daVinciArchiveName)
+        }
+        let versionURL = target.appendingPathComponent(Self.daVinciInstalledVersionFileName)
+        guard
+            let versionText = try? String(contentsOf: versionURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            let version = ReleaseVersion(tag: versionText)
+        else {
+            throw UpdateManagerError.invalidArchive(Self.daVinciArchiveName)
+        }
+        return version
+    }
+
     func installDaVinciScripts() async throws -> ReleaseVersion {
         let release = try await latestRelease()
-        guard let releaseVersion = release.version else {
-            throw UpdateManagerError.invalidVersion(release.tagName)
+        let releaseVersion = try await releaseComponents(in: release).daVinci
+        let installedVersion: ReleaseVersion?
+        do {
+            installedVersion = try installedDaVinciScriptsVersion()
+        } catch let error as UpdateManagerError {
+            guard case .invalidArchive = error else { throw error }
+            installedVersion = nil
+        }
+        if let installedVersion, installedVersion > releaseVersion {
+            throw UpdateManagerError.daVinciScriptsDowngradeNotAllowed(
+                installed: installedVersion,
+                available: releaseVersion
+            )
         }
         let workDirectory = try makeWorkDirectory()
         defer { try? fileManager.removeItem(at: workDirectory) }
@@ -309,14 +412,10 @@ actor UpdateManager {
         )
         let extractedDirectory = workDirectory.appendingPathComponent("davinci", isDirectory: true)
         try unzip(archive, to: extractedDirectory)
-        let sourceDirectory = extractedDirectory.appendingPathComponent(
-            "davinci-resolve/Deliver",
-            isDirectory: true
-        )
-        let targetDirectory = homeDirectory.appendingPathComponent(
-            "Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Deliver",
-            isDirectory: true
-        )
+        let sourceRoot = extractedDirectory.appendingPathComponent("davinci-resolve", isDirectory: true)
+        try validateDaVinciScripts(at: sourceRoot, version: releaseVersion)
+        let sourceDirectory = sourceRoot.appendingPathComponent("Deliver", isDirectory: true)
+        let targetDirectory = daVinciScriptsURL
         try fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
         for name in Self.daVinciScriptNames {
@@ -326,17 +425,41 @@ actor UpdateManager {
             }
             try replaceItem(at: targetDirectory.appendingPathComponent(name), with: source)
         }
+        try Data("\(releaseVersion)\n".utf8).write(
+            to: targetDirectory.appendingPathComponent(Self.daVinciInstalledVersionFileName),
+            options: .atomic
+        )
         return releaseVersion
     }
 
     func latestRelease() async throws -> GitHubRelease {
-        let (data, response) = try await session.data(for: request(for: latestReleaseURL))
-        try validate(response)
-        do {
-            return try JSONDecoder().decode(GitHubRelease.self, from: data)
-        } catch {
-            throw UpdateManagerError.invalidResponse
+        if let cachedRelease,
+           Date().timeIntervalSince(cachedRelease.date) < Self.releaseCacheDuration {
+            return cachedRelease.release
         }
+        if let latestReleaseTask { return try await latestReleaseTask.value }
+
+        let session = self.session
+        let request = request(for: latestReleaseURL, timeoutInterval: Self.metadataRequestTimeout)
+        let task = Task<GitHubRelease, Error> {
+            let (data, response) = try await session.data(for: request)
+            guard let response = response as? HTTPURLResponse else {
+                throw UpdateManagerError.invalidResponse
+            }
+            guard (200...299).contains(response.statusCode) else {
+                throw UpdateManagerError.httpStatus(response.statusCode)
+            }
+            do {
+                return try JSONDecoder().decode(GitHubRelease.self, from: data)
+            } catch {
+                throw UpdateManagerError.invalidResponse
+            }
+        }
+        latestReleaseTask = task
+        defer { latestReleaseTask = nil }
+        let release = try await task.value
+        cachedRelease = (release, Date())
+        return release
     }
 
     nonisolated static func checksum(for assetName: String, in manifest: String) throws -> String {
@@ -366,6 +489,13 @@ actor UpdateManager {
         installed: ReleaseVersion?,
         latest: ReleaseVersion
     ) -> PremierePluginUpdateState {
+        integrationUpdateState(installed: installed, latest: latest)
+    }
+
+    nonisolated static func integrationUpdateState(
+        installed: ReleaseVersion?,
+        latest: ReleaseVersion
+    ) -> IntegrationUpdateState {
         guard let installed else { return .notInstalled(latest: latest) }
         if installed < latest {
             return .updateAvailable(installed: installed, latest: latest)
@@ -429,6 +559,70 @@ actor UpdateManager {
             .appendingPathComponent(Self.premiereExtensionID, isDirectory: true)
     }
 
+    private var daVinciScriptsURL: URL {
+        homeDirectory.appendingPathComponent(
+            "Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Deliver",
+            isDirectory: true
+        )
+    }
+
+    private func releaseComponents(in release: GitHubRelease) async throws -> ReleaseComponents {
+        if let cached = cachedComponents[release.tagName] { return cached }
+        guard let appVersion = release.version else {
+            throw UpdateManagerError.invalidVersion(release.tagName)
+        }
+        guard release.asset(named: Self.componentsName) != nil else {
+            let legacy = ReleaseComponents(
+                app: appVersion,
+                premiere: appVersion,
+                daVinci: appVersion
+            )
+            cachedComponents[release.tagName] = legacy
+            return legacy
+        }
+
+        let workDirectory = try makeWorkDirectory()
+        defer { try? fileManager.removeItem(at: workDirectory) }
+        let componentsURL = try await verifiedAsset(
+            named: Self.componentsName,
+            in: release,
+            workDirectory: workDirectory
+        )
+        let components: ReleaseComponents
+        do {
+            components = try JSONDecoder().decode(
+                ReleaseComponents.self,
+                from: Data(contentsOf: componentsURL)
+            )
+        } catch {
+            throw UpdateManagerError.invalidArchive(Self.componentsName)
+        }
+        guard components.app == appVersion else {
+            throw UpdateManagerError.invalidArchive(Self.componentsName)
+        }
+        cachedComponents[release.tagName] = components
+        return components
+    }
+
+    private func validateDaVinciScripts(at root: URL, version: ReleaseVersion) throws {
+        let versionURL = root.appendingPathComponent(Self.daVinciVersionFileName)
+        guard
+            let versionText = try? String(contentsOf: versionURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            ReleaseVersion(tag: versionText) == version
+        else {
+            throw UpdateManagerError.invalidArchive(Self.daVinciArchiveName)
+        }
+        let deliver = root.appendingPathComponent("Deliver", isDirectory: true)
+        for name in Self.daVinciScriptNames {
+            var isDirectory: ObjCBool = false
+            let path = deliver.appendingPathComponent(name).path
+            guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                throw UpdateManagerError.invalidArchive(Self.daVinciArchiveName)
+            }
+        }
+    }
+
     private func verifiedAsset(
         named name: String,
         in release: GitHubRelease,
@@ -447,7 +641,10 @@ actor UpdateManager {
             throw UpdateManagerError.invalidDownloadURL(name)
         }
         let (checksumData, checksumResponse) = try await session.data(
-            for: request(for: checksumAsset.browserDownloadURL)
+            for: request(
+                for: checksumAsset.browserDownloadURL,
+                timeoutInterval: Self.metadataRequestTimeout
+            )
         )
         try validate(checksumResponse)
         guard let checksumManifest = String(data: checksumData, encoding: .utf8) else {
@@ -455,7 +652,9 @@ actor UpdateManager {
         }
         let expectedChecksum = try Self.checksum(for: name, in: checksumManifest)
 
-        let (temporaryURL, response) = try await session.download(for: request(for: asset.browserDownloadURL))
+        let (temporaryURL, response) = try await session.download(
+            for: request(for: asset.browserDownloadURL, timeoutInterval: Self.assetRequestTimeout)
+        )
         try validate(response)
         let destinationURL = workDirectory.appendingPathComponent(name)
         try fileManager.moveItem(at: temporaryURL, to: destinationURL)
@@ -465,8 +664,9 @@ actor UpdateManager {
         return destinationURL
     }
 
-    private func request(for url: URL) -> URLRequest {
+    private func request(for url: URL, timeoutInterval: TimeInterval) -> URLRequest {
         var request = URLRequest(url: url)
+        request.timeoutInterval = timeoutInterval
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("WeClawSend", forHTTPHeaderField: "User-Agent")
         return request

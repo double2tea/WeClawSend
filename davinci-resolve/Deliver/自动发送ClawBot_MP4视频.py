@@ -22,8 +22,10 @@ import urllib.request
 WECLAW_SEND_URL = "http://127.0.0.1:18790/send"
 SEND_MODE = "mp4-video"
 SEND_STATE_DIR = os.path.expanduser("~/.davinci-clawbot-postrender-state")
+SEND_STATE_RETENTION_DAYS = 30
 MAX_SEND_BYTES = 200 * 1024 * 1024
 LOG_PATH = os.path.expanduser("~/.davinci-clawbot-postrender.log")
+LOG_MAX_BYTES = 1024 * 1024
 SEND_TIMEOUT_SECONDS = 900
 SCRIPT_TIMEOUT_SECONDS = 1080
 RENDER_STATUS_WAIT_SECONDS = 120
@@ -35,10 +37,33 @@ CURRENT_CLAIM = None
 def log(message):
     print(message)
     try:
+        rotate_log()
         with open(LOG_PATH, "a", encoding="utf-8") as handle:
             handle.write("[{}] {}\n".format(time.strftime("%Y-%m-%d %H:%M:%S"), message))
     except Exception:
         pass
+
+
+def rotate_log():
+    if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) < LOG_MAX_BYTES:
+        return
+    rotated_path = LOG_PATH + ".1"
+    if os.path.exists(rotated_path):
+        os.remove(rotated_path)
+    os.replace(LOG_PATH, rotated_path)
+
+
+def cleanup_send_state():
+    cutoff = time.time() - SEND_STATE_RETENTION_DAYS * 24 * 60 * 60
+    for name in os.listdir(SEND_STATE_DIR):
+        if not name.endswith(".sent"):
+            continue
+        path = os.path.join(SEND_STATE_DIR, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+        except FileNotFoundError:
+            continue
 
 
 def applescript_string(value):
@@ -220,6 +245,7 @@ def verified_claim(lock_path, sent_path, file_path):
 
 def claim_send(file_path):
     os.makedirs(SEND_STATE_DIR, exist_ok=True)
+    cleanup_send_state()
     key = send_fingerprint(file_path)
     lock_path = os.path.join(SEND_STATE_DIR, key + ".lock")
     sent_path = os.path.join(SEND_STATE_DIR, key + ".sent")

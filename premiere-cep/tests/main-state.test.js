@@ -37,7 +37,7 @@ function createElement(id) {
   };
 }
 
-function createPanelHarness() {
+function createPanelHarness(initialStorage) {
   const elementIDs = [
     "sequence-name",
     "preset-picker",
@@ -64,7 +64,7 @@ function createPanelHarness() {
     ["autoSendAfterExport", "true"],
     ["selectedExportPreset", "/preset.epr"],
     ["selectedOutputFolder", "/output"]
-  ]);
+  ].concat(Object.entries(initialStorage || {})));
   const exportReplies = [];
   const sendResults = [];
   let activeSequenceName = "Sequence A";
@@ -77,7 +77,8 @@ function createPanelHarness() {
   };
   const localStorage = {
     getItem(key) { return storage.has(key) ? storage.get(key) : null; },
-    setItem(key, value) { storage.set(key, value); }
+    setItem(key, value) { storage.set(key, value); },
+    removeItem(key) { storage.delete(key); }
   };
   const cep = {
     addEventListener() {},
@@ -112,6 +113,7 @@ function createPanelHarness() {
       Buffer,
       require(name) {
         if (name === "os") { return { homedir() { return "/tmp"; } }; }
+        if (name === "fs") { return { existsSync() { return true; } }; }
         return {};
       }
     },
@@ -154,6 +156,9 @@ function createPanelHarness() {
     },
     setSequenceName(name) {
       activeSequenceName = name;
+    },
+    storedValue(key) {
+      return storage.get(key);
     }
   };
 }
@@ -216,6 +221,7 @@ test("retains multiple failed sends and retries them one at a time", async () =>
   firstSend.reject(new Error("A failed"));
   secondSend.reject(new Error("B failed"));
   await flushPromises();
+  assert.equal(JSON.parse(harness.storedValue("failedBackgroundSends")).length, 2);
   assert.match(harness.elements.status.textContent, /2 个文件发送失败/);
   assert.equal(harness.elements["retry-send"].textContent, "重试失败发送（2）");
 
@@ -236,4 +242,26 @@ test("retains multiple failed sends and retries them one at a time", async () =>
   successfulResend.resolve({ ok: true });
   await flushPromises();
   assert.equal(harness.elements["retry-send"].hidden, true);
+  assert.equal(harness.storedValue("failedBackgroundSends"), undefined);
+});
+
+test("restores failed sends after the panel reloads", async () => {
+  const harness = createPanelHarness({
+    failedBackgroundSends: JSON.stringify([
+      { path: "/output/Previous.mp4", message: "previous failure" }
+    ])
+  });
+
+  assert.equal(harness.elements["retry-send"].hidden, false);
+  assert.match(harness.elements.status.textContent, /previous failure/);
+
+  const retry = deferred();
+  harness.addSendResult(retry);
+  harness.clickRetry();
+  await flushPromises();
+  retry.resolve({ ok: true });
+  await flushPromises();
+
+  assert.equal(harness.elements["retry-send"].hidden, true);
+  assert.equal(harness.storedValue("failedBackgroundSends"), undefined);
 });

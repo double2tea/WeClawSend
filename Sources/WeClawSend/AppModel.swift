@@ -45,8 +45,12 @@ final class AppModel: ObservableObject {
     @Published var isUpdatingApp = false
     @Published var isInstallingPremierePlugin = false
     @Published var isInstallingDaVinciScripts = false
+    @Published private(set) var isCheckingAppUpdate = true
+    @Published private(set) var appUpdateAvailability: AppUpdateAvailability?
     @Published private(set) var isCheckingPremierePlugin = true
     @Published private(set) var premierePluginUpdateState: PremierePluginUpdateState?
+    @Published private(set) var isCheckingDaVinciScripts = true
+    @Published private(set) var daVinciScriptsUpdateState: DaVinciScriptsUpdateState?
     @Published var updateMessage = ""
     @Published var premierePluginMessage = ""
     @Published var daVinciScriptsMessage = ""
@@ -101,7 +105,11 @@ final class AppModel: ObservableObject {
             await refreshServices()
         }
         Task { [weak self] in
-            await self?.refreshPremierePluginStatus()
+            guard let self else { return }
+            async let appUpdate: Void = refreshAppUpdateStatus()
+            await refreshPremierePluginStatus()
+            await refreshDaVinciScriptsStatus()
+            _ = await appUpdate
         }
     }
 
@@ -120,6 +128,34 @@ final class AppModel: ObservableObject {
 
     var isUpdateOperationInProgress: Bool {
         isUpdatingApp || isInstallingPremierePlugin || isInstallingDaVinciScripts
+    }
+
+    var appUpdateSubtitle: String {
+        if !updateMessage.isEmpty { return updateMessage }
+        if isCheckingAppUpdate { return "正在检查新版本…" }
+        guard let appUpdateAvailability else { return "无法获取最新版本，请重试" }
+        switch appUpdateAvailability {
+        case let .current(version):
+            return "已是最新版本 v\(version)"
+        case let .updateAvailable(version):
+            return "发现新版本 v\(version)"
+        }
+    }
+
+    var appUpdateButtonTitle: String {
+        if isCheckingAppUpdate { return "检查中" }
+        if case let .updateAvailable(version)? = appUpdateAvailability {
+            return "更新到 v\(version)"
+        }
+        return appUpdateAvailability == nil ? "重试检查" : "重新检查"
+    }
+
+    var isAppUpdateBusy: Bool {
+        isCheckingAppUpdate || isUpdatingApp
+    }
+
+    var hasAppUpdate: Bool {
+        if case .updateAvailable? = appUpdateAvailability { true } else { false }
     }
 
     var premierePluginSubtitle: String {
@@ -164,6 +200,51 @@ final class AppModel: ObservableObject {
     var isPremierePluginActionDisabled: Bool {
         if isUpdateOperationInProgress || isCheckingPremierePlugin { return true }
         if case .localNewer? = premierePluginUpdateState { return true }
+        return false
+    }
+
+    var daVinciScriptsSubtitle: String {
+        if !daVinciScriptsMessage.isEmpty { return daVinciScriptsMessage }
+        if isCheckingDaVinciScripts { return "正在检查已安装版本…" }
+        guard let daVinciScriptsUpdateState else { return "无法获取脚本版本，请重试" }
+        switch daVinciScriptsUpdateState {
+        case let .notInstalled(latest):
+            return "未安装 · 可安装 v\(latest)"
+        case let .repairRequired(latest):
+            return "本地脚本无法识别 · 可修复为 v\(latest)"
+        case let .updateAvailable(installed, latest):
+            return "当前 v\(installed) · 可更新至 v\(latest)"
+        case let .current(version):
+            return "已是最新版本 v\(version)"
+        case let .localNewer(installed, latest):
+            return "本地 v\(installed) · 在线最新 v\(latest)，不会降级"
+        }
+    }
+
+    var daVinciScriptsButtonTitle: String {
+        if isCheckingDaVinciScripts { return "检查中" }
+        guard let daVinciScriptsUpdateState else { return "重试检查" }
+        switch daVinciScriptsUpdateState {
+        case .notInstalled:
+            return "安装"
+        case .repairRequired:
+            return "修复"
+        case .updateAvailable:
+            return "更新"
+        case .current:
+            return "重新安装"
+        case .localNewer:
+            return "本地版本较新"
+        }
+    }
+
+    var isDaVinciScriptsBusy: Bool {
+        isCheckingDaVinciScripts || isInstallingDaVinciScripts
+    }
+
+    var isDaVinciScriptsActionDisabled: Bool {
+        if isUpdateOperationInProgress || isCheckingDaVinciScripts { return true }
+        if case .localNewer? = daVinciScriptsUpdateState { return true }
         return false
     }
 
@@ -231,7 +312,7 @@ final class AppModel: ObservableObject {
     }
 
     func updateApp() {
-        guard !isUpdateOperationInProgress else { return }
+        guard !isUpdateOperationInProgress, !isCheckingAppUpdate else { return }
         guard !hasActiveTransfers else {
             presentedError = "当前有正在处理的文件，请发送完成后再更新 App"
             return
@@ -252,6 +333,7 @@ final class AppModel: ObservableObject {
                 )
                 switch result {
                 case .alreadyCurrent:
+                    appUpdateAvailability = .current(currentVersion)
                     updateMessage = "已是最新版本 v\(currentVersion)"
                     isUpdatingApp = false
                 case let .replacementScheduled(release):
@@ -265,6 +347,26 @@ final class AppModel: ObservableObject {
                 presentedError = "App 更新失败：\(error.localizedDescription)"
             }
         }
+    }
+
+    func refreshAppUpdateStatus() async {
+        guard !isUpdatingApp else { return }
+        guard let currentVersion = ReleaseVersion(tag: appVersion) else {
+            isCheckingAppUpdate = false
+            updateMessage = "开发版本不检查在线更新"
+            return
+        }
+        isCheckingAppUpdate = true
+        updateMessage = ""
+        do {
+            appUpdateAvailability = try await updateManager.appUpdateAvailability(
+                currentVersion: currentVersion
+            )
+        } catch {
+            appUpdateAvailability = nil
+            updateMessage = "无法检查更新：\(error.localizedDescription)"
+        }
+        isCheckingAppUpdate = false
     }
 
     func installPremierePlugin() {
@@ -307,13 +409,21 @@ final class AppModel: ObservableObject {
     }
 
     func installDaVinciScripts() {
-        guard !isUpdateOperationInProgress else { return }
+        guard !isUpdateOperationInProgress, !isCheckingDaVinciScripts else { return }
+        guard daVinciScriptsUpdateState != nil else {
+            Task { [weak self] in
+                await self?.refreshDaVinciScriptsStatus()
+            }
+            return
+        }
+        if case .localNewer? = daVinciScriptsUpdateState { return }
         isInstallingDaVinciScripts = true
         daVinciScriptsMessage = "正在下载、校验并安装…"
         Task { [weak self] in
             guard let self else { return }
             do {
                 let version = try await updateManager.installDaVinciScripts()
+                daVinciScriptsUpdateState = .current(version)
                 daVinciScriptsMessage = "已安装 \(version)，请重启 DaVinci Resolve"
                 isInstallingDaVinciScripts = false
             } catch {
@@ -322,6 +432,19 @@ final class AppModel: ObservableObject {
                 presentedError = "DaVinci 脚本安装失败：\(error.localizedDescription)"
             }
         }
+    }
+
+    func refreshDaVinciScriptsStatus() async {
+        guard !isInstallingDaVinciScripts else { return }
+        isCheckingDaVinciScripts = true
+        daVinciScriptsMessage = ""
+        do {
+            daVinciScriptsUpdateState = try await updateManager.daVinciScriptsUpdateState()
+        } catch {
+            daVinciScriptsUpdateState = nil
+            daVinciScriptsMessage = "无法检查脚本版本：\(error.localizedDescription)"
+        }
+        isCheckingDaVinciScripts = false
     }
 
     func startMonitoringServices() {
