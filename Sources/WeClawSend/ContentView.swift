@@ -256,7 +256,22 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .help(displayedFailureMessage(transfer) ?? transfer.message ?? "在 Finder 中显示")
 
-            if transfer.status == .failed {
+            if transfer.status == .queued || transfer.status == .sending {
+                HStack {
+                    Spacer()
+                    Button {
+                        model.cancel(transfer)
+                    } label: {
+                        Label("取消发送", systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Brand.danger)
+                }
+                .padding(.top, -6)
+                .padding(.bottom, 8)
+                .padding(.trailing, 2)
+            } else if transfer.status == .failed {
                 HStack {
                     Spacer()
                     Button {
@@ -342,10 +357,15 @@ struct ContentView: View {
               !message.isEmpty else {
             return nil
         }
-        if message == "已取消" || message.contains("Swift.CancellationError") {
-            return "发送已取消（请求中断）"
-        }
+        if isCancelledTransfer(transfer) { return nil }
         return message
+    }
+
+    private func isCancelledTransfer(_ transfer: TransferRecord) -> Bool {
+        guard transfer.status == .failed, let message = transfer.message else { return false }
+        return message == "发送已取消"
+            || message == "已取消"
+            || message.contains("Swift.CancellationError")
     }
 
     private func transferStatusText(_ transfer: TransferRecord) -> String {
@@ -358,7 +378,7 @@ struct ContentView: View {
             default: "\(Int((transfer.progress ?? 0) * 100))%"
             }
         case .sent: "完成"
-        case .failed: "失败"
+        case .failed: isCancelledTransfer(transfer) ? "已取消" : "失败"
         }
     }
 
@@ -367,7 +387,7 @@ struct ContentView: View {
         case .queued: .secondary
         case .sending: .primary
         case .sent: Brand.success
-        case .failed: Brand.danger
+        case .failed: isCancelledTransfer(transfer) ? .secondary : Brand.danger
         }
     }
 

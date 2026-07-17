@@ -11,14 +11,15 @@ enum BackendError: LocalizedError {
     }
 }
 
-func sendFailureMessage(_ error: any Error) -> String {
+func isSendCancellation(_ error: any Error) -> Bool {
     let nsError = error as NSError
-    if error is CancellationError
+    return error is CancellationError
         || nsError.domain == "Swift.CancellationError"
         || (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled)
-    {
-        return "发送已取消"
-    }
+}
+
+func sendFailureMessage(_ error: any Error) -> String {
+    if isSendCancellation(error) { return "发送已取消" }
     return error.localizedDescription
 }
 
@@ -79,6 +80,7 @@ actor SendCoordinator {
     private var activeSendSlots = 0
     private var sendWaiters: [SendWaiter] = []
     private var activeRecords: [UUID: TransferRecord] = [:]
+    private var activeTasks: [UUID: Task<SendResult, Error>] = [:]
 
     init(weChat: WeChatService) {
         let eventPair = AsyncStream<TransferEvent>.makeStream()
@@ -100,8 +102,31 @@ actor SendCoordinator {
         let validated = try validate(request)
         queueDepth += 1
         activeRecords[validated.record.id] = validated.record
+        let task = Task { [self] in
+            try await executeSend(validated, waitStartedAt: .now)
+        }
+        activeTasks[validated.record.id] = task
         eventContinuation.yield(.started(validated.record))
-        let waitStartedAt = Date()
+
+        return try await withTaskCancellationHandler {
+            defer { activeTasks.removeValue(forKey: validated.record.id) }
+            return try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    @discardableResult
+    func cancel(transferID: UUID) -> Bool {
+        guard let task = activeTasks[transferID] else { return false }
+        task.cancel()
+        return true
+    }
+
+    private func executeSend(
+        _ validated: ValidatedSend,
+        waitStartedAt: Date
+    ) async throws -> SendResult {
         do {
             try await acquireSendSlot()
         } catch {

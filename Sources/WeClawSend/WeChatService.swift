@@ -60,7 +60,7 @@ actor WeChatService {
     private static let loginBaseURL = URL(string: "https://ilinkai.weixin.qq.com")!
     private static let cdnBaseURL = URL(string: "https://novac2c.cdn.weixin.qq.com/c2c")!
     private static let channelVersion = "2.4.6"
-    private static let botAgent = "WeClawSend/1.6.3"
+    private static let botAgent = "WeClawSend/1.6.4"
     private static let appClientVersion = "132102"
 
     private let store: WeChatCredentialStore

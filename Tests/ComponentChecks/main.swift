@@ -83,6 +83,8 @@ do {
 }
 precondition(sendFailureMessage(CancellationError()) == "发送已取消")
 precondition(sendFailureMessage(URLError(.cancelled)) == "发送已取消")
+precondition(isSendCancellation(CancellationError()))
+precondition(isSendCancellation(URLError(.cancelled)))
 
 let uploadURL = try WeChatService.uploadURL(
     from: GetUploadURLResponse(
@@ -241,6 +243,47 @@ precondition(integrationResult.progress.first?.stage == .preparing)
 precondition(integrationResult.progress.contains { $0.stage == .uploading })
 precondition(integrationResult.progress.last?.stage == .finished)
 precondition(integrationResult.progress.last?.fraction == 1)
+
+let cancellationResult = CancellationResultBox()
+let cancellationFinished = DispatchSemaphore(value: 0)
+Task {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CancellableURLProtocol.self]
+    let service = WeChatService(
+        credentials: mockCredentials,
+        session: URLSession(configuration: configuration)
+    )
+    let coordinator = SendCoordinator(weChat: service)
+    let eventTask = Task {
+        for await event in coordinator.events {
+            switch event {
+            case let .started(record):
+                precondition(CancellableURLProtocol.uploadStarted.wait(timeout: .now() + 2) == .success)
+                cancellationResult.cancelAccepted = await coordinator.cancel(transferID: record.id)
+            case let .failed(record):
+                cancellationResult.record = record
+                return
+            case .updated, .completed:
+                break
+            }
+        }
+    }
+    do {
+        _ = try await coordinator.send(
+            SendRequest(filePath: mockFile.path, fileName: mockFileName)
+        )
+        preconditionFailure("cancelled transfer must not complete")
+    } catch {
+        cancellationResult.error = error
+    }
+    await eventTask.value
+    cancellationFinished.signal()
+}
+precondition(cancellationFinished.wait(timeout: .now() + 3) == .success)
+precondition(cancellationResult.cancelAccepted)
+precondition(cancellationResult.error.map(isSendCancellation) == true)
+precondition(cancellationResult.record?.status == .failed)
+precondition(cancellationResult.record?.message == "发送已取消")
 
 let concurrencyResult = ResultBox()
 let requestConcurrency = RequestConcurrencyTracker()
@@ -892,6 +935,12 @@ final class ResultBox: @unchecked Sendable {
     var maxQueuedTransfers = 0
 }
 
+final class CancellationResultBox: @unchecked Sendable {
+    var cancelAccepted = false
+    var error: Error?
+    var record: TransferRecord?
+}
+
 final class ContextRefreshResultBox: @unchecked Sendable {
     var error: Error?
     var sendCount = 0
@@ -1038,6 +1087,59 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
             )!,
             data
         )
+    }
+}
+
+final class CancellableURLProtocol: URLProtocol, @unchecked Sendable {
+    static let uploadStarted = DispatchSemaphore(value: 0)
+
+    private let stateLock = NSLock()
+    private var stopped = false
+    private var responseWorkItem: DispatchWorkItem?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        switch request.url!.path {
+        case "/ilink/bot/getuploadurl":
+            respond(body: #"{"ret":0,"upload_full_url":"https://cancel.mock/upload"}"#)
+        case "/upload":
+            Self.uploadStarted.signal()
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self, !self.isStopped else { return }
+                self.respond(headers: ["x-encrypted-param": "must-not-complete"], body: "")
+            }
+            responseWorkItem = workItem
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: workItem)
+        default:
+            preconditionFailure("Unexpected cancellation request: \(request.url!.absoluteString)")
+        }
+    }
+
+    override func stopLoading() {
+        stateLock.lock()
+        stopped = true
+        stateLock.unlock()
+        responseWorkItem?.cancel()
+    }
+
+    private var isStopped: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return stopped
+    }
+
+    private func respond(headers: [String: String] = [:], body: String) {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: headers
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
     }
 }
 

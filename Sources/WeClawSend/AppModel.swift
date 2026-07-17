@@ -504,10 +504,19 @@ final class AppModel: ObservableObject {
                 do {
                     _ = try await runtime.coordinator.send(request)
                 } catch {
-                    presentedError = sendFailureMessage(error)
+                    if !isSendCancellation(error) {
+                        presentedError = sendFailureMessage(error)
+                    }
                 }
                 await refreshServices()
             }
+        }
+    }
+
+    func cancel(_ transfer: TransferRecord) {
+        guard transfer.status == .queued || transfer.status == .sending else { return }
+        Task {
+            _ = await runtime.coordinator.cancel(transferID: transfer.id)
         }
     }
 
