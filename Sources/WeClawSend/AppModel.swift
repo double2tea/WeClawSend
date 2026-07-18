@@ -122,6 +122,15 @@ final class AppModel: ObservableObject {
         recentTransfers.contains { $0.status == .queued || $0.status == .sending }
     }
 
+    var blocksPopoverAutoClose: Bool {
+        isLoggingIn
+            || needsVerificationCode
+            || loginQRCodeContent != nil
+            || isUpdateOperationInProgress
+            || hasPendingContextRefresh
+            || presentedError != nil
+    }
+
     var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
     }

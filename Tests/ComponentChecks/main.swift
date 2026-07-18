@@ -86,6 +86,57 @@ precondition(sendFailureMessage(URLError(.cancelled)) == "发送已取消")
 precondition(isSendCancellation(CancellationError()))
 precondition(isSendCancellation(URLError(.cancelled)))
 
+let autoCloseStart = Date(timeIntervalSince1970: 1_000)
+var autoClosePolicy = PopoverAutoClosePolicy()
+autoClosePolicy.opened(at: autoCloseStart)
+precondition(!autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(29),
+    hasActiveTransfers: false,
+    blocksAutoClose: false
+))
+precondition(autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(30),
+    hasActiveTransfers: false,
+    blocksAutoClose: false
+))
+autoClosePolicy.interacted(at: autoCloseStart.addingTimeInterval(20))
+precondition(!autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(49),
+    hasActiveTransfers: false,
+    blocksAutoClose: false
+))
+precondition(!autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(60),
+    hasActiveTransfers: true,
+    blocksAutoClose: false
+))
+precondition(!autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(61),
+    hasActiveTransfers: false,
+    blocksAutoClose: false
+))
+precondition(autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(66),
+    hasActiveTransfers: false,
+    blocksAutoClose: false
+))
+autoClosePolicy.opened(at: autoCloseStart)
+precondition(!autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(60),
+    hasActiveTransfers: false,
+    blocksAutoClose: true
+))
+precondition(!autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(61),
+    hasActiveTransfers: false,
+    blocksAutoClose: false
+))
+precondition(autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(91),
+    hasActiveTransfers: false,
+    blocksAutoClose: false
+))
+
 let uploadURL = try WeChatService.uploadURL(
     from: GetUploadURLResponse(
         result: 0,

@@ -9,6 +9,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
     private var openPanel: NSOpenPanel?
+    private var popoverAutoClosePolicy = PopoverAutoClosePolicy()
+    private var popoverAutoCloseTask: Task<Void, Never>?
+    private var popoverEventMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -67,11 +70,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     func popoverWillShow(_ notification: Notification) {
         statusItem?.button?.highlight(true)
         model.startMonitoringServices()
+        startPopoverAutoCloseMonitoring()
     }
 
     func popoverDidClose(_ notification: Notification) {
         statusItem?.button?.highlight(false)
         model.stopMonitoringServices()
+        stopPopoverAutoCloseMonitoring()
     }
 
     private func togglePopover() {
@@ -85,6 +90,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     private func showPopover() {
         guard !popover.isShown, let button = statusItem?.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func startPopoverAutoCloseMonitoring() {
+        popoverAutoClosePolicy.opened(at: .now)
+        popoverAutoCloseTask?.cancel()
+        popoverAutoCloseTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+                guard let self, popover.isShown else { return }
+                if popoverAutoClosePolicy.shouldClose(
+                    at: .now,
+                    hasActiveTransfers: model.hasActiveTransfers,
+                    blocksAutoClose: model.blocksPopoverAutoClose
+                ) {
+                    popover.close()
+                    return
+                }
+            }
+        }
+        let events: NSEvent.EventTypeMask = [
+            .leftMouseDown,
+            .rightMouseDown,
+            .otherMouseDown,
+            .keyDown,
+            .scrollWheel,
+            .leftMouseDragged,
+            .rightMouseDragged,
+            .otherMouseDragged
+        ]
+        popoverEventMonitor = NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in
+            self?.notePopoverInteraction()
+            return event
+        }
+    }
+
+    private func stopPopoverAutoCloseMonitoring() {
+        popoverAutoCloseTask?.cancel()
+        popoverAutoCloseTask = nil
+        popoverAutoClosePolicy.closed()
+        if let popoverEventMonitor {
+            NSEvent.removeMonitor(popoverEventMonitor)
+            self.popoverEventMonitor = nil
+        }
+    }
+
+    private func notePopoverInteraction() {
+        guard popover.isShown else { return }
+        popoverAutoClosePolicy.interacted(at: .now)
     }
 
     private func deliverContextRefreshNotification() {

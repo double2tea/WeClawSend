@@ -20,6 +20,7 @@ swiftc \
     "$ROOT/Sources/WeClawSend/PasteboardURLs.swift" \
     "$ROOT/Sources/WeClawSend/AppSettings.swift" \
     "$ROOT/Sources/WeClawSend/UpdateManager.swift" \
+    "$ROOT/Sources/WeClawSend/PopoverAutoClosePolicy.swift" \
     "$ROOT/Sources/WeClawSend/TransferRecord.swift" \
     "$ROOT/Sources/WeClawSend/WeChatCredentials.swift" \
     "$ROOT/Sources/WeClawSend/WeChatCrypto.swift" \
