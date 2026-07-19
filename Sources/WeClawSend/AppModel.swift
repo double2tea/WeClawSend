@@ -33,6 +33,7 @@ final class AppModel: ObservableObject {
     @Published var isDropTargeted = false
     @Published var showsServices = false
     @Published var presentedError: String?
+    @Published private(set) var transientNotice: String?
     @Published var loginQRCodeContent: String?
     @Published var loginMessage = ""
     @Published var needsVerificationCode = false
@@ -62,6 +63,7 @@ final class AppModel: ObservableObject {
     private var serverStateTask: Task<Void, Never>?
     private var serviceMonitorTask: Task<Void, Never>?
     private var loginTask: Task<Void, Never>?
+    private var transientNoticeTask: Task<Void, Never>?
     private let updateManager = UpdateManager()
     private let recentTransfersKey = "recentTransfers"
     private let legacyRecentTransferKey = "recentTransfer"
@@ -616,14 +618,14 @@ final class AppModel: ObservableObject {
                     updateTransfer(record)
                     if record.stage == .waitingForContext,
                        contextRefreshTransfers.insert(record.id).inserted {
-                        presentedError = "微信会话需要刷新。请在微信里给 ClawBot 发送任意消息，App 收到后会自动继续发送。"
+                        showTransientNotice("请给 ClawBot 发送任意消息，收到后会自动继续发送")
                         onContextRefreshRequired?()
                     }
                 case let .completed(record):
                     insertTransfer(record)
                     persistTransfers()
                     if contextRefreshTransfers.remove(record.id) != nil {
-                        presentedError = "微信会话已刷新，文件已自动重新发送。"
+                        showTransientNotice("微信会话已刷新，文件已自动重新发送")
                     }
                 case let .failed(record):
                     insertTransfer(record)
@@ -674,6 +676,21 @@ final class AppModel: ObservableObject {
             recentTransfers[index] = record
         } else {
             insertTransfer(record)
+        }
+    }
+
+    private func showTransientNotice(_ message: String) {
+        transientNoticeTask?.cancel()
+        transientNotice = message
+        transientNoticeTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(3))
+            } catch {
+                return
+            }
+            guard let self, transientNotice == message else { return }
+            transientNotice = nil
+            transientNoticeTask = nil
         }
     }
 

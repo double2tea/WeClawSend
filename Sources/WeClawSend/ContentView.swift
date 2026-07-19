@@ -15,6 +15,27 @@ struct ContentView: View {
         }
         .frame(width: Brand.panelWidth, height: Brand.panelHeight)
         .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .top) {
+            if let notice = model.transientNotice {
+                Label(notice, systemImage: "bell.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Brand.hairline, lineWidth: 1)
+                    }
+                    .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: model.transientNotice)
         .alert(
             Brand.name,
             isPresented: Binding(
