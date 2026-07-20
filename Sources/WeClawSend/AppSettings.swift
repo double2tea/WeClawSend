@@ -32,6 +32,7 @@ enum AppSettings {
     static let migrateLaunchAtLoginKey = "MigrateLaunchAtLogin"
     static let launchMigrationCompleteKey = "LaunchAtLoginMigrationComplete"
     static let portfolioSeenVersionKey = "PortfolioSeenVersion"
+    static let appUpdateNoticeSeenVersionKey = "AppUpdateNoticeSeenVersion"
     static let weChatCredentialSourceKey = "WeChatCredentialSource"
     static let openClawAccountIDKey = "OpenClawAccountID"
 

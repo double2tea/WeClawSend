@@ -7,6 +7,7 @@ enum WeChatError: LocalizedError {
     case http(Int, String)
     case api(String)
     case login(String)
+    case contextBindingRequired
     case contextRefreshTimedOut
     case missingUploadURL
     case missingUploadResult
@@ -21,6 +22,8 @@ enum WeChatError: LocalizedError {
             "微信服务 HTTP \(status)：\(message)"
         case let .api(message), let .login(message):
             message
+        case .contextBindingRequired:
+            "请先打开微信 ClawBot 发送任意一条消息，完成会话绑定"
         case .contextRefreshTimedOut:
             "等待微信会话刷新超时，请重新发送文件并在提示后给 ClawBot 发一条消息"
         case .missingUploadURL:
@@ -64,9 +67,9 @@ struct WeChatLoginPollingPolicy {
 
     static func timeoutMessage(hasScanned: Bool) -> String {
         if hasScanned {
-            return "扫码已完成，但微信没有返回登录确认。请给 ClawBot 发一条消息后重新扫码；若仍失败，请检查网络或 VPN。"
+            return "扫码后未完成连接。请先在手机确认，再打开 ClawBot 发送任意消息；仍无响应请检查网络或 VPN 后重新扫码。"
         }
-        return "等待微信扫码超时，请检查网络或 VPN 后重新生成二维码。"
+        return "等待微信扫码超时。请扫码确认后打开 ClawBot 发送任意消息；仍无响应请检查网络或 VPN 后重新生成二维码。"
     }
 }
 
@@ -76,7 +79,7 @@ actor WeChatService {
     private static let loginBaseURL = URL(string: "https://ilinkai.weixin.qq.com")!
     private static let cdnBaseURL = URL(string: "https://novac2c.cdn.weixin.qq.com/c2c")!
     private static let channelVersion = "2.4.6"
-    private static let botAgent = "WeClawSend/1.6.10"
+    private static let botAgent = "WeClawSend/1.6.11"
     private static let appClientVersion = "132102"
     private static let loginLogger = Logger(
         subsystem: "com.chacha.WeClawSend",
@@ -213,6 +216,9 @@ actor WeChatService {
     func validateCredentials() async throws {
         await bootstrapCredentials()
         guard let credentials else { throw WeChatError.notLoggedIn }
+        guard let contextToken = credentials.contextToken, !contextToken.isEmpty else {
+            throw WeChatError.contextBindingRequired
+        }
         if credentialsValidated { return }
         let endpoint = try Self.endpoint(
             baseURL: credentials.baseURL,
@@ -320,6 +326,17 @@ actor WeChatService {
             return .confirmed(confirmed)
         default:
             throw WeChatError.login("未知的微信登录状态：\(response.status)")
+        }
+    }
+
+    func waitForLoginBinding(credentials: WeChatCredentials) async throws {
+        do {
+            _ = try await waitForFreshContextToken(
+                credentials: credentials,
+                requiresNewToken: false
+            )
+        } catch WeChatError.contextRefreshTimedOut {
+            throw WeChatError.login("等待会话绑定超时，请重新扫码并在 ClawBot 发送任意一条消息")
         }
     }
 
@@ -590,13 +607,19 @@ actor WeChatService {
         return parameter
     }
 
-    private func waitForFreshContextToken(credentials: WeChatCredentials) async throws -> String {
+    private func waitForFreshContextToken(
+        credentials: WeChatCredentials,
+        requiresNewToken: Bool = true
+    ) async throws -> String {
         let source = credentialSource
         return try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask { [self] in
                 switch source {
                 case .weClawSend:
-                    try await pollForFreshContextToken(credentials: credentials)
+                    try await pollForFreshContextToken(
+                        credentials: credentials,
+                        requiresNewToken: requiresNewToken
+                    )
                 case .openClaw:
                     try await pollForOpenClawContextToken(credentials: credentials)
                 }
@@ -645,7 +668,10 @@ actor WeChatService {
         }
     }
 
-    private func pollForFreshContextToken(credentials: WeChatCredentials) async throws -> String {
+    private func pollForFreshContextToken(
+        credentials: WeChatCredentials,
+        requiresNewToken: Bool
+    ) async throws -> String {
         let endpoint = try Self.endpoint(
             baseURL: credentials.baseURL,
             path: "ilink/bot/getupdates"
@@ -672,7 +698,7 @@ actor WeChatService {
                 guard message.fromUserID == credentials.userID,
                       let contextToken = message.contextToken,
                       !contextToken.isEmpty,
-                      contextToken != credentials.contextToken else {
+                      (!requiresNewToken || contextToken != credentials.contextToken) else {
                     return newest
                 }
                 guard let newest else { return message }

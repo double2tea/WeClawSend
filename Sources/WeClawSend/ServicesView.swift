@@ -89,7 +89,7 @@ struct ServicesView: View {
         compactCard {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    statusDot(model.weChatStatus.isOnline ? Brand.success : Brand.danger)
+                    statusDot(weChatStatusColor)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("微信登录")
                             .font(.system(size: 12, weight: .semibold))
@@ -174,6 +174,35 @@ struct ServicesView: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if model.weChatCredentialSource == .weClawSend,
+                   let loginStep = model.loginStep {
+                    VStack(alignment: .leading, spacing: 5) {
+                        loginStepRow(
+                            number: 1,
+                            title: "使用微信扫码并确认",
+                            step: .scanAndConfirm,
+                            current: loginStep
+                        )
+                        loginStepRow(
+                            number: 2,
+                            title: "在 ClawBot 发送任意消息，完成会话绑定",
+                            step: .bindConversation,
+                            current: loginStep
+                        )
+                        loginStepRow(
+                            number: 3,
+                            title: "已连接，可以发送文件",
+                            step: .connected,
+                            current: loginStep
+                        )
+                    }
+                    .padding(9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color.primary.opacity(0.035))
+                    )
                 }
 
                 if model.weChatCredentialSource == .weClawSend,
@@ -551,14 +580,55 @@ struct ServicesView: View {
     }
 
     private var weChatSubtitle: String {
+        if case .checking = model.weChatStatus {
+            return model.loginMessage.isEmpty ? "正在检查连接" : model.loginMessage
+        }
         if case let .online(account) = model.weChatStatus {
             if let account, !account.isEmpty {
-                let source = model.weChatCredentialSource == .openClaw ? "OpenClaw" : "已登录"
-                return "\(source) · \(account)"
+                let source = model.weChatCredentialSource == .openClaw ? "OpenClaw" : "独立登录"
+                return "\(source) · 已连接，可以发送文件 · \(account)"
             }
-            return "已登录，可直接发送"
+            return "已连接，可以发送文件"
         }
         return "未登录"
+    }
+
+    private var weChatStatusColor: Color {
+        switch model.weChatStatus {
+        case .checking: Brand.warning
+        case .online: Brand.success
+        case .offline: Brand.danger
+        }
+    }
+
+    private func loginStepRow(
+        number: Int,
+        title: String,
+        step: WeChatLoginStep,
+        current: WeChatLoginStep
+    ) -> some View {
+        let isComplete = current == .connected || step.rawValue < current.rawValue
+        let isActive = step == current && current != .connected
+        return HStack(spacing: 7) {
+            ZStack {
+                Circle()
+                    .fill(isComplete || isActive ? Brand.accent : Color.primary.opacity(0.08))
+                    .frame(width: 17, height: 17)
+                if isComplete {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                } else {
+                    Text(String(number))
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(isActive ? .white : .secondary)
+                }
+            }
+            Text(title)
+                .font(.system(size: 10.5, weight: isActive ? .medium : .regular))
+                .foregroundStyle(isComplete || isActive ? .primary : .tertiary)
+            Spacer(minLength: 0)
+        }
     }
 
     private func qrCodeImage(_ content: String) -> NSImage? {

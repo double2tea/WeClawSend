@@ -33,9 +33,19 @@ struct ContentView: View {
                     .padding(.top, 10)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .allowsHitTesting(false)
+            } else if let update = model.appUpdateNotice {
+                AppUpdateNoticeCard(
+                    notice: update,
+                    dismiss: model.dismissAppUpdateNotice,
+                    showDetails: model.showAppUpdateDetails
+                )
+                .padding(.horizontal, 18)
+                .padding(.top, 62)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .animation(.easeInOut(duration: 0.2), value: model.transientNotice)
+        .animation(.easeInOut(duration: 0.2), value: model.appUpdateNotice)
         .alert(
             Brand.name,
             isPresented: Binding(
@@ -110,7 +120,7 @@ struct ContentView: View {
         if model.sendingTransferCount > 0 { return "发送中 \(model.sendingTransferCount)" }
         if model.queuedTransferCount > 0 { return "排队 \(model.queuedTransferCount)" }
         if case .checking = model.weChatStatus { return "连接中" }
-        return model.isReady ? "已登录" : "未登录"
+        return model.isReady ? "已连接" : "未登录"
     }
 
     private var headerStatusColor: Color {
@@ -458,6 +468,75 @@ struct ContentView: View {
         if model.sendingTransferCount > 0 { return "\(model.sendingTransferCount) 个处理中" }
         if model.queuedTransferCount > 0 { return "\(model.queuedTransferCount) 个排队中" }
         return "就绪"
+    }
+}
+
+private struct AppUpdateNoticeCard: View {
+    let notice: AppUpdateNotice
+    let dismiss: () -> Void
+    let showDetails: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 9) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 19))
+                    .foregroundStyle(Brand.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("发现新版本 v\(notice.version.description)")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("更新内容")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(action: dismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .help("本版本不再提醒")
+            }
+
+            if notice.notes.isEmpty {
+                Text("前往更新页面查看完整说明")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(notice.notes, id: \.self) { note in
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Circle()
+                                .fill(Brand.accent)
+                                .frame(width: 4, height: 4)
+                            Text(note)
+                                .font(.system(size: 11.5))
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button("知道了", action: dismiss)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Button("查看并更新", action: showDetails)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Brand.hairline, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
     }
 }
 

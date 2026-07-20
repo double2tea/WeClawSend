@@ -244,7 +244,8 @@ let mockCredentials = WeChatCredentials(
     botToken: "secret-token",
     botID: "bot@im.bot",
     baseURL: URL(string: "https://mock.local")!,
-    userID: "user@im.wechat"
+    userID: "user@im.wechat",
+    contextToken: "initial-context"
 )
 let oversizedFile = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-oversized-\(UUID()).mov")
@@ -328,7 +329,7 @@ MockURLProtocol.handler = { request in
         precondition(file["file_name"] as? String == mockFileName)
         precondition(media["encrypt_query_param"] as? String == "download-reference")
         precondition((media["aes_key"] as? String)?.base64DecodedUTF8 == integrationResult.aesKeyHex)
-        precondition(message["context_token"] == nil)
+        precondition(message["context_token"] as? String == "initial-context")
         return MockURLProtocol.response(request, body: #"{"ret":0}"#)
     default:
         preconditionFailure("Unexpected mock request: \(request.url!.absoluteString)")
@@ -721,6 +722,47 @@ precondition(refreshedCredentials?.getUpdatesBuffer == "new-buffer")
 let contextStorePermissions = try FileManager.default.attributesOfItem(atPath: contextStoreURL.path)[.posixPermissions]
 precondition((contextStorePermissions as? NSNumber)?.intValue == 0o600)
 
+let loginBindingResult = ResultBox()
+let loginBindingStoreURL = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-login-binding-\(UUID()).json")
+let loginBindingStore = WeChatCredentialStore(credentialsFileOverride: loginBindingStoreURL)
+defer { try? FileManager.default.removeItem(at: loginBindingStoreURL) }
+let pendingLoginCredentials = WeChatCredentials(
+    botToken: "login-token",
+    botID: "login-bot@im.bot",
+    baseURL: URL(string: "https://mock.local")!,
+    userID: "login-user@im.wechat",
+    contextToken: "login-context"
+)
+
+MockURLProtocol.handler = { request in
+    precondition(request.url!.path == "/ilink/bot/getupdates")
+    return MockURLProtocol.response(
+        request,
+        body: #"{"ret":0,"get_updates_buf":"login-buffer","msgs":[{"seq":1,"from_user_id":"login-user@im.wechat","create_time_ms":0,"context_token":"login-context"}]}"#
+    )
+}
+
+let loginBindingFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let service = WeChatService(
+            credentials: pendingLoginCredentials,
+            session: mockSession,
+            store: loginBindingStore
+        )
+        try await service.waitForLoginBinding(credentials: pendingLoginCredentials)
+    } catch {
+        loginBindingResult.error = error
+    }
+    loginBindingFinished.signal()
+}
+precondition(loginBindingFinished.wait(timeout: .now() + 10) == .success)
+if let error = loginBindingResult.error { throw error }
+let boundLoginCredentials = try loginBindingStore.load()
+precondition(boundLoginCredentials?.contextToken == "login-context")
+precondition(boundLoginCredentials?.getUpdatesBuffer == "login-buffer")
+
 let timeoutResult = ContextRefreshResultBox()
 let timeoutStoreURL = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-context-timeout-\(UUID()).json")
@@ -796,11 +838,15 @@ precondition(
 let release = try JSONDecoder().decode(
     GitHubRelease.self,
     from: Data(
-        #"{"tag_name":"v1.5.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v1.5.0","assets":[{"name":"WeClaw-Send.zip","browser_download_url":"https://example.test/WeClaw-Send.zip"}]}"#.utf8
+        ###"{"tag_name":"v1.5.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v1.5.0","body":"## 更新内容\n- 支持批量发送\n- 修复登录问题\n\n**Full Changelog**: https://example.test","assets":[{"name":"WeClaw-Send.zip","browser_download_url":"https://example.test/WeClaw-Send.zip"}]}"###.utf8
     )
 )
 precondition(release.version == version150)
 precondition(release.asset(named: UpdateManager.appArchiveName)?.browserDownloadURL.host == "example.test")
+precondition(AppUpdateNotice.notes(from: release.body) == ["支持批量发送", "修复登录问题"])
+precondition(AppUpdateNotice(release: release, currentVersion: version140, seenVersion: "") != nil)
+precondition(AppUpdateNotice(release: release, currentVersion: version140, seenVersion: "1.5.0") == nil)
+precondition(AppUpdateNotice(release: release, currentVersion: version150, seenVersion: "") == nil)
 let releaseComponents = try JSONDecoder().decode(
     ReleaseComponents.self,
     from: Data(#"{"app":"1.5.0","premiere":"2.0.0","davinci":"3.0.0"}"#.utf8)

@@ -11,6 +11,12 @@ enum ServiceStatus: Equatable {
     }
 }
 
+enum WeChatLoginStep: Int, Equatable, Sendable {
+    case scanAndConfirm = 1
+    case bindConversation = 2
+    case connected = 3
+}
+
 private final class AppRuntime: Sendable {
     let weChat: WeChatService
     let coordinator: SendCoordinator
@@ -36,6 +42,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var transientNotice: String?
     @Published var loginQRCodeContent: String?
     @Published var loginMessage = ""
+    @Published private(set) var loginStep: WeChatLoginStep?
     @Published var needsVerificationCode = false
     @Published var verificationCode = ""
     @Published var isLoggingIn = false
@@ -53,6 +60,7 @@ final class AppModel: ObservableObject {
     @Published var isInstallingDaVinciScripts = false
     @Published private(set) var isCheckingAppUpdate = false
     @Published private(set) var appUpdateAvailability: AppUpdateAvailability?
+    @Published private(set) var appUpdateNotice: AppUpdateNotice?
     @Published private(set) var isCheckingPremierePlugin = false
     @Published private(set) var premierePluginUpdateState: PremierePluginUpdateState?
     @Published private(set) var isCheckingDaVinciScripts = false
@@ -140,6 +148,7 @@ final class AppModel: ObservableObject {
             || loginQRCodeContent != nil
             || isUpdateOperationInProgress
             || hasPendingContextRefresh
+            || appUpdateNotice != nil
             || presentedError != nil
     }
 
@@ -384,6 +393,20 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func dismissAppUpdateNotice() {
+        guard let appUpdateNotice else { return }
+        UserDefaults.standard.set(
+            appUpdateNotice.version.description,
+            forKey: AppSettings.appUpdateNoticeSeenVersionKey
+        )
+        self.appUpdateNotice = nil
+    }
+
+    func showAppUpdateDetails() {
+        dismissAppUpdateNotice()
+        showsServices = true
+    }
+
     func refreshAllUpdateStatuses(forceRefresh: Bool = false) async {
         guard
             !isUpdateOperationInProgress,
@@ -413,8 +436,17 @@ final class AppModel: ObservableObject {
             appUpdateAvailability = try await updateManager.appUpdateAvailability(
                 currentVersion: currentVersion
             )
+            let release = try await updateManager.latestRelease()
+            appUpdateNotice = AppUpdateNotice(
+                release: release,
+                currentVersion: currentVersion,
+                seenVersion: UserDefaults.standard.string(
+                    forKey: AppSettings.appUpdateNoticeSeenVersionKey
+                ) ?? ""
+            )
         } catch {
             appUpdateAvailability = nil
+            appUpdateNotice = nil
             updateMessage = "无法检查更新：\(error.localizedDescription)"
         }
         isCheckingAppUpdate = false
@@ -667,15 +699,17 @@ final class AppModel: ObservableObject {
     func beginWeChatLogin() {
         guard loginTask == nil else { return }
         isLoggingIn = true
+        loginStep = .scanAndConfirm
+        weChatStatus = .checking
         needsVerificationCode = false
         verificationCode = ""
         loginQRCodeContent = nil
-        loginMessage = "正在生成二维码…"
+        loginMessage = "① 正在生成微信登录二维码…"
         loginTask = Task { [weak self] in
             guard let self else { return }
             do {
                 loginQRCodeContent = try await runtime.weChat.startLogin()
-                loginMessage = "请使用微信扫描二维码，并在手机上确认"
+                loginMessage = "① 使用微信扫码并在手机上确认"
                 await pollLogin(runtime: runtime, verificationCode: nil)
             } catch {
                 finishLogin(error: error)
@@ -691,6 +725,8 @@ final class AppModel: ObservableObject {
         verificationCode = ""
         loginQRCodeContent = nil
         loginMessage = ""
+        loginStep = nil
+        Task { [weak self] in await self?.refreshServices() }
     }
 
     func submitVerificationCode() {
@@ -702,7 +738,7 @@ final class AppModel: ObservableObject {
         }
         isLoggingIn = true
         needsVerificationCode = false
-        loginMessage = "正在验证配对码…"
+        loginMessage = "① 正在验证手机配对码…"
         loginTask = Task { [weak self] in
             guard let self else { return }
             await pollLogin(runtime: runtime, verificationCode: code)
@@ -858,22 +894,27 @@ final class AppModel: ObservableObject {
                 switch update {
                 case .waiting:
                     loginMessage = hasScanned
-                        ? "已扫码，等待微信确认；仍未完成可给 ClawBot 发一条消息"
-                        : "等待扫码确认…"
+                        ? "① 已扫码，等待手机确认"
+                        : "① 等待微信扫码并确认"
                 case .scanned:
                     hasScanned = true
                     code = nil
-                    loginMessage = "已扫码，等待手机确认；若已确认仍未完成，请给 ClawBot 发一条消息"
+                    loginMessage = "① 已扫码，请在手机上确认"
                 case .needsVerification:
                     needsVerificationCode = true
                     loginMessage = "请输入手机微信显示的配对码"
                     isLoggingIn = false
                     loginTask = nil
                     return
-                case .confirmed:
+                case let .confirmed(credentials):
                     loginQRCodeContent = nil
-                    loginMessage = "微信已登录"
+                    loginStep = .bindConversation
+                    loginMessage = "② 打开 ClawBot，发送任意一条消息完成会话绑定"
+                    weChatStatus = .checking
                     needsVerificationCode = false
+                    try await runtime.weChat.waitForLoginBinding(credentials: credentials)
+                    loginStep = .connected
+                    loginMessage = "③ 已连接，可以发送文件"
                     isLoggingIn = false
                     loginTask = nil
                     await refreshServices()
@@ -895,7 +936,9 @@ final class AppModel: ObservableObject {
         loginTask = nil
         loginQRCodeContent = nil
         loginMessage = ""
+        loginStep = nil
         needsVerificationCode = false
         presentedError = error.localizedDescription
+        Task { [weak self] in await self?.refreshServices() }
     }
 }

@@ -52,11 +52,13 @@ struct GitHubReleaseAsset: Decodable, Equatable, Sendable {
 struct GitHubRelease: Decodable, Equatable, Sendable {
     let tagName: String
     let htmlURL: URL
+    let body: String?
     let assets: [GitHubReleaseAsset]
 
     enum CodingKeys: String, CodingKey {
         case tagName = "tag_name"
         case htmlURL = "html_url"
+        case body
         case assets
     }
 
@@ -66,6 +68,38 @@ struct GitHubRelease: Decodable, Equatable, Sendable {
 
     func asset(named name: String) -> GitHubReleaseAsset? {
         assets.first { $0.name == name }
+    }
+}
+
+struct AppUpdateNotice: Equatable, Sendable {
+    let version: ReleaseVersion
+    let notes: [String]
+
+    init?(release: GitHubRelease, currentVersion: ReleaseVersion, seenVersion: String) {
+        guard let version = release.version, currentVersion < version else { return nil }
+        guard seenVersion != version.description else { return nil }
+        self.version = version
+        notes = Self.notes(from: release.body)
+    }
+
+    static func notes(from body: String?) -> [String] {
+        guard let body else { return [] }
+        return body
+            .split(whereSeparator: \Character.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+            .filter { !$0.localizedCaseInsensitiveContains("Full Changelog") }
+            .map { line in
+                var text = line
+                while let first = text.first, "-*•".contains(first) {
+                    text.removeFirst()
+                    text = text.trimmingCharacters(in: .whitespaces)
+                }
+                return text.replacingOccurrences(of: "**", with: "")
+            }
+            .filter { !$0.isEmpty }
+            .prefix(4)
+            .map { $0 }
     }
 }
 
