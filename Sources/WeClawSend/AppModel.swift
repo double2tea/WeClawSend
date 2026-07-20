@@ -59,6 +59,7 @@ final class AppModel: ObservableObject {
     var onContextRefreshRequired: (() -> Void)?
 
     private let runtime: AppRuntime
+    private var startupTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
     private var serverStateTask: Task<Void, Never>?
     private var serviceMonitorTask: Task<Void, Never>?
@@ -93,8 +94,9 @@ final class AppModel: ObservableObject {
         } else {
             bridgeStatus = .offline
         }
-        Task { [runtime] in
+        startupTask = Task { [weak self, runtime] in
             await runtime.weChat.bootstrapCredentials()
+            guard let self else { return }
             if let startupError = await runtime.weChat.startupError() {
                 presentedError = "无法读取微信凭据：\(startupError)。请重新扫码登录。"
             }
@@ -506,6 +508,11 @@ final class AppModel: ObservableObject {
             return
         }
         enqueue(requests)
+    }
+
+    func sendOpened(urls: [URL]) async {
+        await startupTask?.value
+        send(urls: urls)
     }
 
     private func enqueue(_ requests: [SendRequest]) {

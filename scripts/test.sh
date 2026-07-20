@@ -9,6 +9,10 @@ python3 -m unittest discover \
     -s "$ROOT/Tests/DaVinciPluginChecks" \
     -p 'test_*.py'
 
+plutil -lint "$ROOT/Resources/Info.plist" >/dev/null
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$ROOT/Resources/Info.plist")" == "public.movie" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSHandlerRank' "$ROOT/Resources/Info.plist")" == "Alternate" ]]
+
 "$ROOT/scripts/build-premiere-plugin.sh"
 
 swiftc \

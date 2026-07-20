@@ -60,6 +60,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         }
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        Task { [weak self] in
+            guard let self else { return }
+            await model.sendOpened(urls: urls)
+            showPopover()
+        }
+    }
+
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification

@@ -65,6 +65,8 @@ BUNDLE="$(realpath "$ROOT/.build/WeClaw Send.app")"
 [[ -f "$BUNDLE/Contents/Resources/MenuBarIcon.png" ]] || bad "MenuBarIcon.png missing in bundle"
 /usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$BUNDLE/Contents/Info.plist" | grep -q AppIcon \
     && ok "bundle icon metadata" || bad "CFBundleIconFile not AppIcon"
+/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$BUNDLE/Contents/Info.plist" | grep -qx public.movie \
+    && ok "Final Cut video handoff metadata" || bad "public.movie document type missing"
 
 print "== 3) reinstall & launch =="
 killall WeClawSend >/dev/null 2>&1 || true
