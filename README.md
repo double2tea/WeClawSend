@@ -6,7 +6,7 @@
 
 <p align="center"><strong>把 Mac、Premiere、Final Cut Pro 和 DaVinci 的文件直接发到微信。</strong></p>
 
-<p align="center">原生 macOS 菜单栏应用 · 无需 WeClaw、OpenClaw、Node 或 Go 后台</p>
+<p align="center">原生 macOS 菜单栏应用 · 可独立登录，也可复用 OpenClaw 的微信登录</p>
 
 <p align="center">
   <a href="https://github.com/double2tea/WeClawSend/releases">下载最新版</a> ·
@@ -25,7 +25,7 @@
 ## 安装
 
 1. 从 [Releases](https://github.com/double2tea/WeClawSend/releases) 下载 DMG 或 ZIP，把 App 放进“应用程序”。
-2. 点击菜单栏纸飞机，在设置中扫码登录微信。
+2. 点击菜单栏纸飞机，在设置中扫码登录微信；已经使用 OpenClaw，也可以把登录方式切到 OpenClaw。
 3. 拖入文件，或点击面板选择文件。
 
 项目没有 Apple Developer ID，发布包使用 ad-hoc 签名。第一次打开若被系统拦截，请在“系统设置 → 隐私与安全性”中选择“仍要打开”。
@@ -38,6 +38,7 @@
 - 显示准备、加密、上传和发送进度；支持取消与失败重试
 - 保留最近 20 条记录
 - 可将微信里的 `.mp4` 附件名显示为 `.m4v`，不修改本地文件
+- 可只读复用 OpenClaw 官方微信插件的登录；多个账号由你明确选择
 - 支持登录时启动；空闲 30 秒后自动收起
 
 单文件上限默认 200 MB，可在设置中选择 100 MB、200 MB、500 MB、1 GB 或 2 GB。更大的档位只调整 App 本地校验，最终能否送达仍取决于微信服务。文件可以并行准备，但微信消息会按顺序提交，相邻两条至少间隔 2 秒。
@@ -45,6 +46,8 @@
 ## 隐私
 
 WeClaw Send 不设自有云端存储，不会向开发者上传文件或账号信息。文件仅通过微信官方 ClawBot API 发送至用户本人的微信 ClawBot；登录凭据、偏好设置和传输记录仅保存在本机。
+
+选择 OpenClaw 登录时，WeClaw Send 只读取 `~/.openclaw/openclaw-weixin` 中当前账号和会话信息，不复制或修改这些文件，也不收取微信消息。OpenClaw 需要保持运行，以便微信回复后更新会话。
 
 ## Premiere、Final Cut Pro 与 DaVinci
 

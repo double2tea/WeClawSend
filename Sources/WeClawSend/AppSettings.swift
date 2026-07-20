@@ -32,6 +32,8 @@ enum AppSettings {
     static let migrateLaunchAtLoginKey = "MigrateLaunchAtLogin"
     static let launchMigrationCompleteKey = "LaunchAtLoginMigrationComplete"
     static let portfolioSeenVersionKey = "PortfolioSeenVersion"
+    static let weChatCredentialSourceKey = "WeChatCredentialSource"
+    static let openClawAccountIDKey = "OpenClawAccountID"
 
     static var localAPIEnabled: Bool {
         guard UserDefaults.standard.object(forKey: localAPIEnabledKey) != nil else { return false }
@@ -45,6 +47,17 @@ enum AppSettings {
 
     static var maxSendBytes: Int64 {
         sendSizeLimit.byteCount
+    }
+
+    static var weChatCredentialSource: WeChatCredentialSource {
+        guard let rawValue = UserDefaults.standard.string(forKey: weChatCredentialSourceKey) else {
+            return .weClawSend
+        }
+        return WeChatCredentialSource(rawValue: rawValue) ?? .weClawSend
+    }
+
+    static var openClawAccountID: String? {
+        UserDefaults.standard.string(forKey: openClawAccountIDKey)
     }
 
     static func outgoingFileName(_ fileName: String) -> String {

@@ -50,9 +50,13 @@ struct ServicesView: View {
             Spacer(minLength: 8)
             Button {
                 Task {
-                    async let services: Void = model.refreshServices()
+                    if model.weChatCredentialSource == .openClaw {
+                        await model.refreshOpenClawAccounts()
+                    } else {
+                        await model.refreshServices()
+                    }
                     async let updates: Void = model.refreshAllUpdateStatuses(forceRefresh: true)
-                    _ = await (services, updates)
+                    _ = await updates
                 }
             } label: {
                 Image(systemName: "arrow.clockwise")
@@ -96,7 +100,14 @@ struct ServicesView: View {
                             .truncationMode(.middle)
                     }
                     Spacer(minLength: 6)
-                    if model.isLoggingIn || model.loginQRCodeContent != nil || model.needsVerificationCode {
+                    if model.weChatCredentialSource == .openClaw {
+                        Button("刷新") {
+                            Task { await model.refreshOpenClawAccounts() }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                        .disabled(model.isLoadingOpenClawAccounts)
+                    } else if model.isLoggingIn || model.loginQRCodeContent != nil || model.needsVerificationCode {
                         Button("取消") {
                             model.cancelWeChatLogin()
                         }
@@ -111,7 +122,63 @@ struct ServicesView: View {
                     }
                 }
 
-                if let content = model.loginQRCodeContent, let image = qrCodeImage(content) {
+                Divider().opacity(0.35)
+
+                HStack(spacing: 8) {
+                    Text("登录方式")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Picker("登录方式", selection: Binding(
+                        get: { model.weChatCredentialSource },
+                        set: { model.setWeChatCredentialSource($0) }
+                    )) {
+                        ForEach(WeChatCredentialSource.allCases) { source in
+                            Text(source.title).tag(source)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 154)
+                }
+
+                if model.weChatCredentialSource == .openClaw {
+                    HStack(spacing: 8) {
+                        Text("OpenClaw 账号")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+                        if model.isLoadingOpenClawAccounts {
+                            ProgressView().controlSize(.mini)
+                        } else if model.openClawAccounts.isEmpty {
+                            Text("未发现")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(Brand.danger)
+                        } else {
+                            Picker("OpenClaw 账号", selection: Binding(
+                                get: { model.selectedOpenClawAccountID },
+                                set: { model.selectOpenClawAccount($0) }
+                            )) {
+                                ForEach(model.openClawAccounts) { account in
+                                    Text(account.userID).tag(account.id)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .controlSize(.small)
+                            .frame(maxWidth: 190)
+                        }
+                    }
+
+                    Text("登录和收取消息由 OpenClaw 管理；WeClaw Send 只共享当前账号发送文件。")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if model.weChatCredentialSource == .weClawSend,
+                   let content = model.loginQRCodeContent,
+                   let image = qrCodeImage(content) {
                     VStack(spacing: 8) {
                         Image(nsImage: image)
                             .interpolation(.none)
@@ -151,14 +218,14 @@ struct ServicesView: View {
                         }
                     }
                     .frame(maxWidth: .infinity)
-                } else if model.isLoggingIn {
+                } else if model.weChatCredentialSource == .weClawSend, model.isLoggingIn {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.mini)
                         Text(model.loginMessage.isEmpty ? "正在生成二维码…" : model.loginMessage)
                             .font(.system(size: 10.5))
                             .foregroundStyle(.secondary)
                     }
-                } else if !model.weChatStatus.isOnline {
+                } else if model.weChatCredentialSource == .weClawSend, !model.weChatStatus.isOnline {
                     Text("登录后可从菜单栏拖放文件发送到微信。")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
@@ -351,7 +418,7 @@ struct ServicesView: View {
 
     private var footer: some View {
         HStack {
-            Text("独立应用 · 无需其它后台")
+            Text(model.weChatCredentialSource == .openClaw ? "与 OpenClaw 共用微信登录" : "独立应用 · 无需其它后台")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
             Spacer()
@@ -486,7 +553,8 @@ struct ServicesView: View {
     private var weChatSubtitle: String {
         if case let .online(account) = model.weChatStatus {
             if let account, !account.isEmpty {
-                return "已登录 · \(account)"
+                let source = model.weChatCredentialSource == .openClaw ? "OpenClaw" : "已登录"
+                return "\(source) · \(account)"
             }
             return "已登录，可直接发送"
         }

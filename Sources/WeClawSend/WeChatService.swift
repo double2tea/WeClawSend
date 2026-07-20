@@ -76,7 +76,7 @@ actor WeChatService {
     private static let loginBaseURL = URL(string: "https://ilinkai.weixin.qq.com")!
     private static let cdnBaseURL = URL(string: "https://novac2c.cdn.weixin.qq.com/c2c")!
     private static let channelVersion = "2.4.6"
-    private static let botAgent = "WeClawSend/1.6.9"
+    private static let botAgent = "WeClawSend/1.6.10"
     private static let appClientVersion = "132102"
     private static let loginLogger = Logger(
         subsystem: "com.chacha.WeClawSend",
@@ -84,11 +84,14 @@ actor WeChatService {
     )
 
     private let store: WeChatCredentialStore
+    private let openClawStore: OpenClawCredentialStore
     private let session: URLSession
     private let contextRefreshTimeout: Duration
     private let submissionIntervalMilliseconds: Int64
+    private var credentialSource: WeChatCredentialSource
+    private var openClawAccountID: String?
+    private var credentialSourceRevision: UInt64 = 0
     private var credentials: WeChatCredentials?
-    private var bootstrapTask: Task<Void, Never>?
     private var credentialsValidated = false
     private var credentialLoadError: String?
     private var loginQRCode: String?
@@ -99,11 +102,17 @@ actor WeChatService {
 
     init(
         store: WeChatCredentialStore = WeChatCredentialStore(),
+        openClawStore: OpenClawCredentialStore = OpenClawCredentialStore(),
+        credentialSource: WeChatCredentialSource = AppSettings.weChatCredentialSource,
+        openClawAccountID: String? = AppSettings.openClawAccountID,
         session: URLSession = .shared,
         contextRefreshTimeout: Duration = .seconds(300),
         submissionIntervalMilliseconds: Int64 = WeChatService.submissionIntervalMilliseconds
     ) {
         self.store = store
+        self.openClawStore = openClawStore
+        self.credentialSource = credentialSource
+        self.openClawAccountID = openClawAccountID
         self.session = session
         self.contextRefreshTimeout = contextRefreshTimeout
         self.submissionIntervalMilliseconds = submissionIntervalMilliseconds
@@ -117,42 +126,72 @@ actor WeChatService {
         submissionIntervalMilliseconds: Int64 = WeChatService.submissionIntervalMilliseconds
     ) {
         self.store = store
+        self.openClawStore = OpenClawCredentialStore()
+        self.credentialSource = .weClawSend
+        self.openClawAccountID = nil
         self.session = session
         self.contextRefreshTimeout = contextRefreshTimeout
         self.submissionIntervalMilliseconds = submissionIntervalMilliseconds
         self.credentials = credentials
     }
 
-    /// 在后台线程读凭据，再回到 actor 写入；并发调用会 await 同一次加载。
+    /// OpenClaw 模式每次从它的只读状态文件刷新，独立登录模式只在尚未加载时读取。
     func bootstrapCredentials() async {
-        if credentials != nil { return }
-        if let bootstrapTask {
-            await bootstrapTask.value
-            return
-        }
+        if credentialSource == .weClawSend, credentials != nil { return }
         let store = self.store
-        let task = Task { [store] in
-            let result = await Task.detached(priority: .userInitiated) { () -> Result<WeChatCredentials?, Error> in
-                do {
+        let openClawStore = self.openClawStore
+        let source = credentialSource
+        let accountID = openClawAccountID
+        let result = await Task.detached(priority: .userInitiated) { () -> Result<WeChatCredentials?, Error> in
+            do {
+                switch source {
+                case .weClawSend:
                     if let loaded = try store.load() {
                         return .success(loaded)
                     }
                     return .success(try store.loadLegacyOnly())
-                } catch {
-                    return .failure(error)
+                case .openClaw:
+                    return .success(try openClawStore.load(accountID: accountID))
                 }
-            }.value
-            switch result {
-            case let .success(loaded):
-                self.credentials = loaded
-                self.credentialLoadError = nil
-            case let .failure(error):
-                self.credentialLoadError = error.localizedDescription
+            } catch {
+                return .failure(error)
             }
+        }.value
+        guard source == credentialSource, accountID == openClawAccountID else { return }
+        switch result {
+        case let .success(loaded):
+            if credentials != loaded {
+                credentialsValidated = false
+            }
+            credentials = loaded
+            credentialLoadError = nil
+        case let .failure(error):
+            credentials = nil
+            credentialsValidated = false
+            credentialLoadError = error.localizedDescription
         }
-        bootstrapTask = task
-        await task.value
-        bootstrapTask = nil
+    }
+
+    func setCredentialSource(
+        _ source: WeChatCredentialSource,
+        openClawAccountID: String?,
+        revision: UInt64
+    ) async {
+        guard revision >= credentialSourceRevision else { return }
+        credentialSourceRevision = revision
+        credentialSource = source
+        self.openClawAccountID = openClawAccountID
+        credentials = nil
+        credentialsValidated = false
+        credentialLoadError = nil
+        await bootstrapCredentials()
+    }
+
+    func availableOpenClawAccounts() async throws -> [OpenClawAccount] {
+        let openClawStore = self.openClawStore
+        return try await Task.detached(priority: .userInitiated) {
+            try openClawStore.accounts()
+        }.value
     }
 
     func accountID() -> String? {
@@ -193,6 +232,9 @@ actor WeChatService {
     }
 
     func startLogin() async throws -> String {
+        guard credentialSource == .weClawSend else {
+            throw WeChatError.login("OpenClaw 模式的微信登录由 OpenClaw 管理")
+        }
         await bootstrapCredentials()
         let endpoint = try Self.endpoint(
             baseURL: Self.loginBaseURL,
@@ -549,9 +591,15 @@ actor WeChatService {
     }
 
     private func waitForFreshContextToken(credentials: WeChatCredentials) async throws -> String {
-        try await withThrowingTaskGroup(of: String.self) { group in
+        let source = credentialSource
+        return try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask { [self] in
-                try await pollForFreshContextToken(credentials: credentials)
+                switch source {
+                case .weClawSend:
+                    try await pollForFreshContextToken(credentials: credentials)
+                case .openClaw:
+                    try await pollForOpenClawContextToken(credentials: credentials)
+                }
             }
             group.addTask { [contextRefreshTimeout] in
                 try await Task.sleep(for: contextRefreshTimeout)
@@ -562,6 +610,38 @@ actor WeChatService {
                 throw WeChatError.invalidResponse
             }
             return contextToken
+        }
+    }
+
+    private func pollForOpenClawContextToken(credentials: WeChatCredentials) async throws -> String {
+        let openClawStore = self.openClawStore
+        let accountID = openClawAccountID
+        while true {
+            try Task.checkCancellation()
+            let refreshed: WeChatCredentials
+            do {
+                refreshed = try await Task.detached(priority: .userInitiated) {
+                    try openClawStore.load(accountID: accountID)
+                }.value
+            } catch OpenClawCredentialsError.contextTokensBeingUpdated {
+                try await Task.sleep(for: .milliseconds(200))
+                continue
+            }
+            guard credentialSource == .openClaw,
+                  accountID == openClawAccountID,
+                  refreshed.botToken == credentials.botToken,
+                  refreshed.botID == credentials.botID,
+                  refreshed.baseURL == credentials.baseURL,
+                  refreshed.userID == credentials.userID else {
+                throw OpenClawCredentialsError.credentialsChanged
+            }
+            if let contextToken = refreshed.contextToken,
+               !contextToken.isEmpty,
+               contextToken != credentials.contextToken {
+                self.credentials = refreshed
+                return contextToken
+            }
+            try await Task.sleep(for: .seconds(1))
         }
     }
 

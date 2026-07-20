@@ -39,6 +39,10 @@ final class AppModel: ObservableObject {
     @Published var needsVerificationCode = false
     @Published var verificationCode = ""
     @Published var isLoggingIn = false
+    @Published private(set) var weChatCredentialSource = AppSettings.weChatCredentialSource
+    @Published private(set) var openClawAccounts: [OpenClawAccount] = []
+    @Published private(set) var selectedOpenClawAccountID = AppSettings.openClawAccountID ?? ""
+    @Published private(set) var isLoadingOpenClawAccounts = false
     @Published var autoRenameMP4ToM4V = UserDefaults.standard.bool(forKey: AppSettings.autoRenameMP4Key)
     @Published var sendSizeLimit = AppSettings.sendSizeLimit
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
@@ -65,6 +69,8 @@ final class AppModel: ObservableObject {
     private var serverStateTask: Task<Void, Never>?
     private var serviceMonitorTask: Task<Void, Never>?
     private var loginTask: Task<Void, Never>?
+    private var credentialSourceTask: Task<Void, Never>?
+    private var credentialSourceRevision: UInt64 = 0
     private var transientNoticeTask: Task<Void, Never>?
     private let updateManager = UpdateManager()
     private let recentTransfersKey = "recentTransfers"
@@ -99,7 +105,7 @@ final class AppModel: ObservableObject {
             await runtime.weChat.bootstrapCredentials()
             guard let self else { return }
             if let startupError = await runtime.weChat.startupError() {
-                presentedError = "无法读取微信凭据：\(startupError)。请重新扫码登录。"
+                presentedError = "无法读取微信凭据：\(startupError)"
             }
             do {
                 try LaunchAtLogin.migrateIfRequested()
@@ -107,7 +113,11 @@ final class AppModel: ObservableObject {
                 presentedError = "迁移登录时启动设置失败：\(error.localizedDescription)"
             }
             refreshLaunchAtLogin()
-            await refreshServices()
+            if weChatCredentialSource == .openClaw {
+                await refreshOpenClawAccounts()
+            } else {
+                await refreshServices()
+            }
         }
         Task { [weak self] in
             guard let self else { return }
@@ -518,6 +528,94 @@ final class AppModel: ObservableObject {
             weChatStatus = .online(await runtime.weChat.accountID())
         } catch {
             weChatStatus = .offline
+        }
+    }
+
+    func setWeChatCredentialSource(_ source: WeChatCredentialSource) {
+        guard source != weChatCredentialSource else { return }
+        credentialSourceTask?.cancel()
+        credentialSourceRevision += 1
+        let revision = credentialSourceRevision
+        cancelWeChatLogin()
+        weChatCredentialSource = source
+        UserDefaults.standard.set(source.rawValue, forKey: AppSettings.weChatCredentialSourceKey)
+        credentialSourceTask = Task { [weak self] in
+            guard let self else { return }
+            if source == .openClaw {
+                await refreshOpenClawAccounts()
+                return
+            }
+            await runtime.weChat.setCredentialSource(
+                .weClawSend,
+                openClawAccountID: nil,
+                revision: revision
+            )
+            guard !Task.isCancelled,
+                  credentialSourceRevision == revision,
+                  weChatCredentialSource == source else { return }
+            await refreshServices()
+        }
+    }
+
+    func selectOpenClawAccount(_ accountID: String) {
+        guard weChatCredentialSource == .openClaw,
+              accountID != selectedOpenClawAccountID else { return }
+        credentialSourceTask?.cancel()
+        credentialSourceRevision += 1
+        let revision = credentialSourceRevision
+        selectedOpenClawAccountID = accountID
+        UserDefaults.standard.set(accountID, forKey: AppSettings.openClawAccountIDKey)
+        credentialSourceTask = Task { [weak self] in
+            guard let self else { return }
+            await runtime.weChat.setCredentialSource(
+                .openClaw,
+                openClawAccountID: accountID,
+                revision: revision
+            )
+            guard !Task.isCancelled,
+                  credentialSourceRevision == revision,
+                  weChatCredentialSource == .openClaw,
+                  selectedOpenClawAccountID == accountID else { return }
+            await refreshServices()
+        }
+    }
+
+    func refreshOpenClawAccounts() async {
+        guard weChatCredentialSource == .openClaw else { return }
+        let revision = credentialSourceRevision
+        isLoadingOpenClawAccounts = true
+        defer { isLoadingOpenClawAccounts = false }
+        do {
+            let accounts = try await runtime.weChat.availableOpenClawAccounts()
+            guard !Task.isCancelled,
+                  credentialSourceRevision == revision,
+                  weChatCredentialSource == .openClaw else { return }
+            openClawAccounts = accounts
+            if !accounts.contains(where: { $0.id == selectedOpenClawAccountID }) {
+                if accounts.count == 1, let accountID = accounts.first?.id {
+                    selectedOpenClawAccountID = accountID
+                    UserDefaults.standard.set(accountID, forKey: AppSettings.openClawAccountIDKey)
+                } else {
+                    selectedOpenClawAccountID = ""
+                    UserDefaults.standard.removeObject(forKey: AppSettings.openClawAccountIDKey)
+                }
+            }
+            await runtime.weChat.setCredentialSource(
+                .openClaw,
+                openClawAccountID: selectedOpenClawAccountID.isEmpty ? nil : selectedOpenClawAccountID,
+                revision: revision
+            )
+            guard !Task.isCancelled,
+                  credentialSourceRevision == revision,
+                  weChatCredentialSource == .openClaw else { return }
+            await refreshServices()
+        } catch {
+            guard !Task.isCancelled,
+                  credentialSourceRevision == revision,
+                  weChatCredentialSource == .openClaw else { return }
+            openClawAccounts = []
+            weChatStatus = .offline
+            presentedError = error.localizedDescription
         }
     }
 

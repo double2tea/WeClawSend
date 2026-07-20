@@ -1,6 +1,202 @@
 import Foundation
 import Security
 
+enum WeChatCredentialSource: String, CaseIterable, Identifiable, Sendable {
+    case weClawSend
+    case openClaw
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .weClawSend: "独立登录"
+        case .openClaw: "OpenClaw"
+        }
+    }
+}
+
+struct OpenClawAccount: Identifiable, Equatable, Sendable {
+    let id: String
+    let userID: String
+}
+
+enum OpenClawCredentialsError: LocalizedError {
+    case stateNotFound
+    case noAccounts
+    case accountSelectionRequired
+    case accountNotFound(String)
+    case invalidAccount(String)
+    case contextTokensBeingUpdated
+    case credentialsChanged
+
+    var errorDescription: String? {
+        switch self {
+        case .stateNotFound:
+            "未发现 OpenClaw 微信登录，请先在 OpenClaw 中完成登录"
+        case .noAccounts:
+            "OpenClaw 中没有微信账号"
+        case .accountSelectionRequired:
+            "OpenClaw 中有多个微信账号，请选择要使用的账号"
+        case let .accountNotFound(accountID):
+            "OpenClaw 微信账号不存在：\(accountID)"
+        case let .invalidAccount(accountID):
+            "OpenClaw 微信账号文件无效：\(accountID)"
+        case .contextTokensBeingUpdated:
+            "OpenClaw 正在更新微信会话"
+        case .credentialsChanged:
+            "OpenClaw 登录信息已变化，请重新发送文件"
+        }
+    }
+}
+
+/// 只读 OpenClaw 官方微信插件的账号状态；不会复制或修改任何 OpenClaw 文件。
+struct OpenClawCredentialStore: Sendable {
+    private static let defaultBaseURL = "https://ilinkai.weixin.qq.com"
+    private let stateDirectory: URL
+
+    init(stateDirectory: URL? = nil) {
+        self.stateDirectory = stateDirectory ?? Self.resolveStateDirectory(
+            environment: ProcessInfo.processInfo.environment,
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+        )
+    }
+
+    static func resolveStateDirectory(
+        environment: [String: String],
+        homeDirectory: URL
+    ) -> URL {
+        for key in ["OPENCLAW_STATE_DIR", "CLAWDBOT_STATE_DIR"] {
+            if let path = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !path.isEmpty {
+                return URL(fileURLWithPath: path, isDirectory: true)
+            }
+        }
+        return homeDirectory.appending(path: ".openclaw", directoryHint: .isDirectory)
+    }
+
+    func accounts() throws -> [OpenClawAccount] {
+        let accountIDs = try loadAccountIDs()
+        return try accountIDs.map { accountID in
+            let stored = try loadStoredAccount(accountID)
+            guard let userID = Self.nonEmpty(stored.userID) else {
+                throw OpenClawCredentialsError.invalidAccount(accountID)
+            }
+            return OpenClawAccount(id: accountID, userID: userID)
+        }
+    }
+
+    func load(accountID selectedAccountID: String?) throws -> WeChatCredentials {
+        let accountIDs = try loadAccountIDs()
+        let accountID: String
+        if let selectedAccountID, !selectedAccountID.isEmpty {
+            guard accountIDs.contains(selectedAccountID) else {
+                throw OpenClawCredentialsError.accountNotFound(selectedAccountID)
+            }
+            accountID = selectedAccountID
+        } else if accountIDs.count == 1, let onlyAccountID = accountIDs.first {
+            accountID = onlyAccountID
+        } else {
+            throw OpenClawCredentialsError.accountSelectionRequired
+        }
+
+        let stored = try loadStoredAccount(accountID)
+        guard let token = Self.nonEmpty(stored.token),
+              let userID = Self.nonEmpty(stored.userID) else {
+            throw OpenClawCredentialsError.invalidAccount(accountID)
+        }
+        let baseURLString = Self.nonEmpty(stored.baseURL) ?? Self.defaultBaseURL
+        guard let baseURL = URL(string: baseURLString) else {
+            throw OpenClawCredentialsError.invalidAccount(accountID)
+        }
+        let contextToken = try loadContextTokens(accountID)[userID]
+        return try WeChatCredentials(
+            botToken: token,
+            botID: Self.botID(from: accountID),
+            baseURL: baseURL,
+            userID: userID,
+            contextToken: contextToken
+        ).validated()
+    }
+
+    private var pluginDirectory: URL {
+        stateDirectory.appending(path: "openclaw-weixin", directoryHint: .isDirectory)
+    }
+
+    private var accountsDirectory: URL {
+        pluginDirectory.appending(path: "accounts", directoryHint: .isDirectory)
+    }
+
+    private func loadAccountIDs() throws -> [String] {
+        let indexURL = pluginDirectory.appending(path: "accounts.json")
+        guard FileManager.default.fileExists(atPath: indexURL.path) else {
+            throw OpenClawCredentialsError.stateNotFound
+        }
+        let accountIDs = try JSONDecoder().decode([String].self, from: Data(contentsOf: indexURL))
+        guard !accountIDs.isEmpty else { throw OpenClawCredentialsError.noAccounts }
+        return accountIDs
+    }
+
+    private func loadStoredAccount(_ accountID: String) throws -> StoredOpenClawAccount {
+        let accountIDs = [accountID, Self.rawAccountID(from: accountID)].compactMap { $0 }
+        for storedAccountID in accountIDs {
+            let url = accountsDirectory.appending(path: "\(storedAccountID).json")
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            do {
+                return try JSONDecoder().decode(StoredOpenClawAccount.self, from: Data(contentsOf: url))
+            } catch {
+                throw OpenClawCredentialsError.invalidAccount(accountID)
+            }
+        }
+        throw OpenClawCredentialsError.accountNotFound(accountID)
+    }
+
+    private func loadContextTokens(_ accountID: String) throws -> [String: String] {
+        let url = accountsDirectory.appending(path: "\(accountID).context-tokens.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        do {
+            return try JSONDecoder().decode([String: String].self, from: Data(contentsOf: url))
+        } catch is DecodingError {
+            throw OpenClawCredentialsError.contextTokensBeingUpdated
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return [:]
+        }
+    }
+
+    private static func botID(from accountID: String) -> String {
+        rawAccountID(from: accountID) ?? accountID
+    }
+
+    private static func rawAccountID(from accountID: String) -> String? {
+        if accountID.hasSuffix("-im-bot") {
+            return String(accountID.dropLast("-im-bot".count)) + "@im.bot"
+        }
+        if accountID.hasSuffix("-im-wechat") {
+            return String(accountID.dropLast("-im-wechat".count)) + "@im.wechat"
+        }
+        return nil
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
+private struct StoredOpenClawAccount: Decodable {
+    let token: String?
+    let baseURL: String?
+    let userID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case token
+        case baseURL = "baseUrl"
+        case userID = "userId"
+    }
+}
+
 struct WeChatCredentials: Codable, Equatable, Sendable {
     let botToken: String
     let botID: String

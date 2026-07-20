@@ -503,6 +503,138 @@ for (previous, next) in zip(
 precondition(concurrencyResult.maxActiveTransfers == SendCoordinator.maxConcurrentTransfers)
 precondition(concurrencyResult.maxQueuedTransfers > 0)
 
+let openClawStateDirectory = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-openclaw-\(UUID())", directoryHint: .isDirectory)
+let resolvedOpenClawStateDirectory = OpenClawCredentialStore.resolveStateDirectory(
+    environment: [
+        "OPENCLAW_STATE_DIR": openClawStateDirectory.path,
+        "CLAWDBOT_STATE_DIR": "/ignored-legacy-state"
+    ],
+    homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+)
+precondition(resolvedOpenClawStateDirectory.standardizedFileURL == openClawStateDirectory.standardizedFileURL)
+let resolvedLegacyStateDirectory = OpenClawCredentialStore.resolveStateDirectory(
+    environment: ["CLAWDBOT_STATE_DIR": openClawStateDirectory.path],
+    homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+)
+precondition(resolvedLegacyStateDirectory.standardizedFileURL == openClawStateDirectory.standardizedFileURL)
+let openClawAccountsDirectory = openClawStateDirectory
+    .appending(path: "openclaw-weixin/accounts", directoryHint: .isDirectory)
+try FileManager.default.createDirectory(at: openClawAccountsDirectory, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: openClawStateDirectory) }
+let openClawAccountID = "abc123-im-bot"
+let openClawIndexURL = openClawStateDirectory.appending(path: "openclaw-weixin/accounts.json")
+let openClawAccountURL = openClawAccountsDirectory.appending(path: "\(openClawAccountID).json")
+let openClawContextURL = openClawAccountsDirectory
+    .appending(path: "\(openClawAccountID).context-tokens.json")
+try Data(#"["abc123-im-bot"]"#.utf8).write(to: openClawIndexURL)
+let openClawAccountData = Data(
+    #"{"token":"openclaw-token","savedAt":"2026-07-20T00:00:00.000Z","baseUrl":"https://mock.local","userId":"openclaw-user@im.wechat"}"#.utf8
+)
+try openClawAccountData.write(to: openClawAccountURL)
+try Data(#"{"openclaw-user@im.wechat":"stale-openclaw-context"}"#.utf8)
+    .write(to: openClawContextURL)
+
+let openClawStore = OpenClawCredentialStore(stateDirectory: openClawStateDirectory)
+let openClawAccounts = try openClawStore.accounts()
+precondition(openClawAccounts == [OpenClawAccount(id: openClawAccountID, userID: "openclaw-user@im.wechat")])
+let openClawCredentials = try openClawStore.load(accountID: nil)
+precondition(openClawCredentials.botToken == "openclaw-token")
+precondition(openClawCredentials.botID == "abc123@im.bot")
+precondition(openClawCredentials.contextToken == "stale-openclaw-context")
+let loadedOpenClawAccountData = try Data(contentsOf: openClawAccountURL)
+precondition(loadedOpenClawAccountData == openClawAccountData)
+
+let legacyOpenClawAccountURL = openClawAccountsDirectory.appending(path: "abc123@im.bot.json")
+try FileManager.default.removeItem(at: openClawAccountURL)
+try Data(#"{"token":"legacy-openclaw-token","userId":"openclaw-user@im.wechat"}"#.utf8)
+    .write(to: legacyOpenClawAccountURL)
+let legacyOpenClawCredentials = try openClawStore.load(accountID: openClawAccountID)
+precondition(legacyOpenClawCredentials.botToken == "legacy-openclaw-token")
+precondition(legacyOpenClawCredentials.baseURL.absoluteString == "https://ilinkai.weixin.qq.com")
+try FileManager.default.removeItem(at: legacyOpenClawAccountURL)
+try openClawAccountData.write(to: openClawAccountURL)
+
+try Data(#"["abc123-im-bot","second-im-bot"]"#.utf8).write(to: openClawIndexURL)
+do {
+    _ = try openClawStore.load(accountID: nil)
+    preconditionFailure("multiple OpenClaw accounts must require an explicit selection")
+} catch OpenClawCredentialsError.accountSelectionRequired {
+    // Expected.
+}
+try Data(#"["abc123-im-bot"]"#.utf8).write(to: openClawIndexURL)
+
+let openClawRefreshResult = ContextRefreshResultBox()
+MockURLProtocol.handler = { request in
+    switch request.url!.path {
+    case "/ilink/bot/getuploadurl":
+        return MockURLProtocol.response(
+            request,
+            body: #"{"ret":0,"upload_full_url":"https://mock.local/upload"}"#
+        )
+    case "/upload":
+        return MockURLProtocol.response(
+            request,
+            headers: ["x-encrypted-param": "openclaw-download-reference"],
+            body: ""
+        )
+    case "/ilink/bot/sendmessage":
+        openClawRefreshResult.sendCount += 1
+        let body = try JSONSerialization.jsonObject(with: requestBody(request)) as! [String: Any]
+        let message = body["msg"] as! [String: Any]
+        if openClawRefreshResult.sendCount == 1 {
+            precondition(message["context_token"] as? String == "stale-openclaw-context")
+            try Data("{".utf8).write(to: openClawContextURL)
+            let freshContextData = Data(
+                #"{"openclaw-user@im.wechat":"fresh-openclaw-context"}"#.utf8
+            )
+            DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(500)) {
+                try! freshContextData.write(to: openClawContextURL)
+            }
+            return MockURLProtocol.response(request, body: #"{"ret":-2}"#)
+        }
+        precondition(message["context_token"] as? String == "fresh-openclaw-context")
+        return MockURLProtocol.response(request, body: #"{"ret":0}"#)
+    case "/ilink/bot/getupdates":
+        preconditionFailure("OpenClaw mode must never poll getupdates")
+    default:
+        preconditionFailure("Unexpected OpenClaw request: \(request.url!.absoluteString)")
+    }
+}
+
+let openClawRefreshFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let service = WeChatService(
+            openClawStore: openClawStore,
+            credentialSource: .openClaw,
+            openClawAccountID: openClawAccountID,
+            session: mockSession
+        )
+        await service.setCredentialSource(
+            .openClaw,
+            openClawAccountID: openClawAccountID,
+            revision: 2
+        )
+        await service.setCredentialSource(.weClawSend, openClawAccountID: nil, revision: 1)
+        let accountIDAfterStaleSwitch = await service.accountID()
+        precondition(accountIDAfterStaleSwitch == "abc123@im.bot")
+        try await service.sendFile(at: mockFile, fileName: mockFileName) { progress in
+            openClawRefreshResult.progress.append(progress)
+        }
+    } catch {
+        openClawRefreshResult.error = error
+    }
+    openClawRefreshFinished.signal()
+}
+precondition(openClawRefreshFinished.wait(timeout: .now() + 10) == .success)
+if let error = openClawRefreshResult.error { throw error }
+precondition(openClawRefreshResult.sendCount == 2)
+precondition(openClawRefreshResult.updateCount == 0)
+precondition(openClawRefreshResult.progress.contains { $0.stage == .waitingForContext })
+let refreshedOpenClawAccountData = try Data(contentsOf: openClawAccountURL)
+precondition(refreshedOpenClawAccountData == openClawAccountData)
+
 let contextRefreshResult = ContextRefreshResultBox()
 let contextStoreURL = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-context-\(UUID()).json")
