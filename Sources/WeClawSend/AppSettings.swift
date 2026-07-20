@@ -1,9 +1,34 @@
 import Foundation
 import ServiceManagement
 
+enum SendSizeLimit: Int, CaseIterable, Identifiable, Sendable {
+    case megabytes100 = 100
+    case megabytes200 = 200
+    case megabytes500 = 500
+    case gigabyte1 = 1_024
+    case gigabytes2 = 2_048
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .megabytes100: "100 MB"
+        case .megabytes200: "200 MB"
+        case .megabytes500: "500 MB"
+        case .gigabyte1: "1 GB"
+        case .gigabytes2: "2 GB"
+        }
+    }
+
+    var byteCount: Int64 {
+        Int64(rawValue) * 1_024 * 1_024
+    }
+}
+
 enum AppSettings {
     static let autoRenameMP4Key = "AutoRenameMP4ToM4V"
     static let localAPIEnabledKey = "LocalAPIEnabled"
+    static let sendSizeLimitMegabytesKey = "SendSizeLimitMegabytes"
     static let migrateLaunchAtLoginKey = "MigrateLaunchAtLogin"
     static let launchMigrationCompleteKey = "LaunchAtLoginMigrationComplete"
     static let portfolioSeenVersionKey = "PortfolioSeenVersion"
@@ -11,6 +36,15 @@ enum AppSettings {
     static var localAPIEnabled: Bool {
         guard UserDefaults.standard.object(forKey: localAPIEnabledKey) != nil else { return false }
         return UserDefaults.standard.bool(forKey: localAPIEnabledKey)
+    }
+
+    static var sendSizeLimit: SendSizeLimit {
+        let stored = UserDefaults.standard.integer(forKey: sendSizeLimitMegabytesKey)
+        return SendSizeLimit(rawValue: stored) ?? .megabytes200
+    }
+
+    static var maxSendBytes: Int64 {
+        sendSizeLimit.byteCount
     }
 
     static func outgoingFileName(_ fileName: String) -> String {

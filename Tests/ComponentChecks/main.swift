@@ -177,6 +177,40 @@ precondition(AppSettings.outgoingFileName("成片.m4v") == "成片.m4v")
 UserDefaults.standard.set(false, forKey: AppSettings.autoRenameMP4Key)
 precondition(AppSettings.outgoingFileName("成片.mp4") == "成片.mp4")
 
+let previousSendSizeLimit = UserDefaults.standard.object(
+    forKey: AppSettings.sendSizeLimitMegabytesKey
+)
+defer {
+    if let previousSendSizeLimit {
+        UserDefaults.standard.set(
+            previousSendSizeLimit,
+            forKey: AppSettings.sendSizeLimitMegabytesKey
+        )
+    } else {
+        UserDefaults.standard.removeObject(forKey: AppSettings.sendSizeLimitMegabytesKey)
+    }
+}
+UserDefaults.standard.removeObject(forKey: AppSettings.sendSizeLimitMegabytesKey)
+precondition(AppSettings.sendSizeLimit == .megabytes200)
+precondition(AppSettings.maxSendBytes == 200 * 1_024 * 1_024)
+UserDefaults.standard.set(500, forKey: AppSettings.sendSizeLimitMegabytesKey)
+precondition(AppSettings.sendSizeLimit == .megabytes500)
+precondition(SendCoordinator.maxSendBytes == 500 * 1_024 * 1_024)
+let dynamicHealthData = try JSONEncoder().encode(
+    HealthResponse(
+        queueDepth: 0,
+        weChatConnected: true,
+        maxSendBytes: SendCoordinator.maxSendBytes,
+        lastSendAt: nil
+    )
+)
+let dynamicHealth = try JSONSerialization.jsonObject(with: dynamicHealthData) as! [String: Any]
+precondition(
+    (dynamicHealth["max_send_bytes"] as? NSNumber)?.int64Value == 500 * 1_024 * 1_024
+)
+UserDefaults.standard.set(999, forKey: AppSettings.sendSizeLimitMegabytesKey)
+precondition(AppSettings.sendSizeLimit == .megabytes200)
+
 let previousLocalAPISetting = UserDefaults.standard.object(forKey: AppSettings.localAPIEnabledKey)
 defer {
     if let previousLocalAPISetting {
@@ -212,6 +246,35 @@ let mockCredentials = WeChatCredentials(
     baseURL: URL(string: "https://mock.local")!,
     userID: "user@im.wechat"
 )
+let oversizedFile = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-oversized-\(UUID()).mov")
+FileManager.default.createFile(atPath: oversizedFile.path, contents: nil)
+let oversizedHandle = try FileHandle(forWritingTo: oversizedFile)
+try oversizedHandle.truncate(atOffset: 101 * 1_024 * 1_024)
+try oversizedHandle.close()
+defer { try? FileManager.default.removeItem(at: oversizedFile) }
+UserDefaults.standard.set(100, forKey: AppSettings.sendSizeLimitMegabytesKey)
+let oversizedResult = ResultBox()
+let oversizedFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let service = WeChatService(credentials: mockCredentials, session: mockSession)
+        let coordinator = SendCoordinator(weChat: service)
+        _ = try await coordinator.send(
+            SendRequest(filePath: oversizedFile.path, fileName: oversizedFile.lastPathComponent)
+        )
+    } catch {
+        oversizedResult.error = error
+    }
+    oversizedFinished.signal()
+}
+precondition(oversizedFinished.wait(timeout: .now() + 5) == .success)
+if case let BackendError.rejected(message)? = oversizedResult.error {
+    precondition(message.contains(formatBytes(100 * 1_024 * 1_024)))
+} else {
+    preconditionFailure("configured send size limit must reject an oversized file")
+}
+UserDefaults.standard.set(999, forKey: AppSettings.sendSizeLimitMegabytesKey)
 let legacyCredentials = try JSONDecoder().decode(
     WeChatCredentials.self,
     from: Data(#"{"botToken":"token","botID":"bot","baseURL":"https:\/\/mock.local","userID":"user"}"#.utf8)

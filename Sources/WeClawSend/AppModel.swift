@@ -40,6 +40,7 @@ final class AppModel: ObservableObject {
     @Published var verificationCode = ""
     @Published var isLoggingIn = false
     @Published var autoRenameMP4ToM4V = UserDefaults.standard.bool(forKey: AppSettings.autoRenameMP4Key)
+    @Published var sendSizeLimit = AppSettings.sendSizeLimit
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
     @Published var launchAtLoginEnabled = LaunchAtLogin.isEnabled
     @Published var launchAtLoginRequiresApproval = LaunchAtLogin.requiresApproval
@@ -286,6 +287,11 @@ final class AppModel: ObservableObject {
     func setAutoRenameMP4ToM4V(_ enabled: Bool) {
         autoRenameMP4ToM4V = enabled
         UserDefaults.standard.set(enabled, forKey: AppSettings.autoRenameMP4Key)
+    }
+
+    func setSendSizeLimit(_ limit: SendSizeLimit) {
+        sendSizeLimit = limit
+        UserDefaults.standard.set(limit.rawValue, forKey: AppSettings.sendSizeLimitMegabytesKey)
     }
 
     func setLocalAPIEnabled(_ enabled: Bool) {

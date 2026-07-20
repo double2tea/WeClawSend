@@ -17,6 +17,7 @@ plutil -lint "$ROOT/Resources/Info.plist" >/dev/null
 
 swiftc \
     -framework AppKit \
+    -framework Network \
     -framework Security \
     -framework ServiceManagement \
     -I "$ROOT/Sources/CCommonCrypto" \
@@ -30,6 +31,7 @@ swiftc \
     "$ROOT/Sources/WeClawSend/WeChatCrypto.swift" \
     "$ROOT/Sources/WeClawSend/WeChatService.swift" \
     "$ROOT/Sources/WeClawSend/SendCoordinator.swift" \
+    "$ROOT/Sources/WeClawSend/EmbeddedBridgeServer.swift" \
     "$ROOT/Tests/ComponentChecks/main.swift" \
     -o "$TEST_DIR/component-checks"
 "$TEST_DIR/component-checks"

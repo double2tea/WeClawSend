@@ -16,7 +16,7 @@ struct HealthResponse: Encodable {
     let weChatConnected: Bool
     let sendCooldownMilliseconds = SendCoordinator.sendCooldownMilliseconds
     let maxConcurrentTransfers = SendCoordinator.maxConcurrentTransfers
-    let maxSendBytes = SendCoordinator.maxSendBytes
+    let maxSendBytes: Int64
     let lastSendAt: String?
 
     enum CodingKeys: String, CodingKey {
@@ -235,6 +235,7 @@ private final class HTTPConnectionHandler: @unchecked Sendable {
                     value: HealthResponse(
                         queueDepth: snapshot.queueDepth,
                         weChatConnected: snapshot.weChatConnected,
+                        maxSendBytes: SendCoordinator.maxSendBytes,
                         lastSendAt: snapshot.lastSendAt.map(formatter.string(from:))
                     )
                 )

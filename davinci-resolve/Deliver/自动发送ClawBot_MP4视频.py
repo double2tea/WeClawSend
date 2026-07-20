@@ -20,13 +20,14 @@ import urllib.error
 import urllib.request
 
 WECLAW_SEND_URL = "http://127.0.0.1:18790/send"
+WECLAW_HEALTH_URL = "http://127.0.0.1:18790/health"
 SEND_MODE = "mp4-video"
 SEND_STATE_DIR = os.path.expanduser("~/.davinci-clawbot-postrender-state")
 SEND_STATE_RETENTION_DAYS = 30
-MAX_SEND_BYTES = 200 * 1024 * 1024
 LOG_PATH = os.path.expanduser("~/.davinci-clawbot-postrender.log")
 LOG_MAX_BYTES = 1024 * 1024
 SEND_TIMEOUT_SECONDS = 900
+HEALTH_TIMEOUT_SECONDS = 3
 SCRIPT_TIMEOUT_SECONDS = 1080
 RENDER_STATUS_WAIT_SECONDS = 120
 RENDER_STATUS_POLL_SECONDS = 2
@@ -284,16 +285,36 @@ def release_send_claim(claim):
         os.remove(lock_path)
 
 
+def current_max_send_bytes():
+    request = urllib.request.Request(WECLAW_HEALTH_URL, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=HEALTH_TIMEOUT_SECONDS) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8")
+        raise RuntimeError("读取 WeClaw Send 文件上限失败 HTTP {}: {}".format(error.code, body))
+    except urllib.error.URLError as error:
+        raise RuntimeError("无法连接 WeClaw Send: {}".format(error))
+
+    max_send_bytes = result.get("max_send_bytes")
+    if not isinstance(max_send_bytes, int) or max_send_bytes <= 0:
+        raise RuntimeError("WeClaw Send 未返回有效的文件大小上限")
+    return max_send_bytes
+
+
 def format_bytes(size):
     return "{:.1f} MB".format(size / 1024 / 1024)
 
 
-def send_file_too_large(file_path):
+def send_file_too_large(file_path, max_send_bytes):
     size = os.path.getsize(file_path)
-    if size <= MAX_SEND_BYTES:
+    if size <= max_send_bytes:
         return False
 
-    message = "文件过大，已跳过发送: {} > {}".format(format_bytes(size), format_bytes(MAX_SEND_BYTES))
+    message = "文件过大，已跳过发送: {} > {}".format(
+        format_bytes(size),
+        format_bytes(max_send_bytes),
+    )
     log(message)
     notify("DaVinci MP4 自动发送跳过", message)
     return True
@@ -356,8 +377,9 @@ def main():
 
     CURRENT_CLAIM = claim
     try:
-        if send_file_too_large(file_path):
-            complete_send_claim(claim)
+        max_send_bytes = current_max_send_bytes()
+        if send_file_too_large(file_path, max_send_bytes):
+            release_send_claim(claim)
             CURRENT_CLAIM = None
             return
 

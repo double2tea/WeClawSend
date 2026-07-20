@@ -69,7 +69,7 @@ enum TransferEvent: Sendable {
 actor SendCoordinator {
     static let maxConcurrentTransfers = 3
     static let sendCooldownMilliseconds = WeChatService.submissionIntervalMilliseconds
-    static let maxSendBytes: Int64 = 200 * 1024 * 1024
+    static var maxSendBytes: Int64 { AppSettings.maxSendBytes }
 
     nonisolated let events: AsyncStream<TransferEvent>
 
@@ -235,8 +235,9 @@ actor SendCoordinator {
         }
 
         let byteCount = Int64(values.fileSize ?? 0)
-        guard byteCount <= Self.maxSendBytes else {
-            throw BackendError.rejected("文件过大：\(formatBytes(byteCount)) > \(formatBytes(Self.maxSendBytes))")
+        let maxSendBytes = Self.maxSendBytes
+        guard byteCount <= maxSendBytes else {
+            throw BackendError.rejected("文件过大：\(formatBytes(byteCount)) > \(formatBytes(maxSendBytes))")
         }
 
         let resolvedFileName: String

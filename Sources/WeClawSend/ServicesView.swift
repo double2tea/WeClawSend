@@ -229,6 +229,38 @@ struct ServicesView: View {
                         set: { model.setAutoRenameMP4ToM4V($0) }
                     )
                 )
+
+                Divider().opacity(0.35).padding(.vertical, 6)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "externaldrive")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.primary.opacity(0.05)))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("单文件大小上限")
+                            .font(.system(size: 11.5, weight: .medium))
+                        Text("较大文件仍可能被微信服务拒绝")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer(minLength: 8)
+                    Picker("单文件大小上限", selection: Binding(
+                        get: { model.sendSizeLimit },
+                        set: { model.setSendSizeLimit($0) }
+                    )) {
+                        ForEach(SendSizeLimit.allCases) { limit in
+                            Text(limit.title).tag(limit)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                    .frame(width: 92)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 2)
             }
         }
     }

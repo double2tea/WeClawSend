@@ -158,7 +158,7 @@
     <div class="detail"><h3>安装与首次打开</h3><ol><li>打开 DMG，或解压 ZIP。</li><li>把 App 拖入“应用程序”。</li><li>打开一次，看到拦截提示后关闭提示框。</li><li>打开“系统设置 → 隐私与安全性”。</li><li>找到 WeClaw Send，点“仍要打开”，再确认“打开”。</li></ol></div>
     <div class="detail"><h3>微信登录</h3><ol><li>点击菜单栏纸飞机。</li><li>打开设置，点“扫码登录”。</li><li>用手机微信扫码并确认。</li><li>若手机显示配对码，按提示输入。</li><li>看到“已登录”后返回发送页。</li></ol></div>
     <div class="detail"><h3>发送文件</h3><ul><li>把文件直接拖到菜单栏纸飞机。</li><li>或打开面板，拖到发送区域。</li><li>也可以点击“选择文件”。</li><li>最近传输会显示准备、加密、上传和完成状态。</li></ul></div>
-    <div class="detail"><h3>设置与限制</h3><ul><li>单文件最大约 200 MB。</li><li>最多同时处理 3 个文件；加密和 CDN 上传可并行，微信消息提交保持串行且间隔约 2 秒。</li><li>会话受限时 App 会提示你给 ClawBot 发一条消息，收到后自动重试原文件。</li><li>本地接口默认关闭；仅脚本自动化、Premiere 和 DaVinci 自动发送需要开启，Final Cut Pro 不需要。</li><li>换电脑后需要重新扫码登录。</li><li>登录信息保存在当前用户的 Application Support，文件权限为 <code>0600</code>。</li></ul></div>
+    <div class="detail"><h3>设置与限制</h3><ul><li>单文件上限默认 200 MB，可在设置中选择 100 MB、200 MB、500 MB、1 GB 或 2 GB；较大文件仍可能被微信服务拒绝。</li><li>最多同时处理 3 个文件；加密和 CDN 上传可并行，微信消息提交保持串行且间隔约 2 秒。</li><li>会话受限时 App 会提示你给 ClawBot 发一条消息，收到后自动重试原文件。</li><li>本地接口默认关闭；仅脚本自动化、Premiere 和 DaVinci 自动发送需要开启，Final Cut Pro 不需要。</li><li>换电脑后需要重新扫码登录。</li><li>登录信息保存在当前用户的 Application Support，文件权限为 <code>0600</code>。</li></ul></div>
     <div class="detail"><h3>在线更新与编辑器安装</h3><ul><li>设置中的“检查并更新”会从 GitHub Release 下载 App、校验 SHA-256，并在退出后替换和重启。</li><li>App 会识别、修复或更新本地 Premiere 插件，并防止线上旧版覆盖本地新版；Premiere Pro 插件和 DaVinci Resolve Deliver 脚本均可下载、校验和安装。</li><li>App 更新要求所在目录可写；提示不可写时，请移至当前用户的“应用程序”目录。</li><li>安装编辑器集成后，重启对应编辑器。</li><li>设置页底部可打开 <a href="https://github.com/double2tea/WeClawSend">GitHub</a>、<a href="https://zeezhi.pages.dev/">个人作品集</a> 或发送邮件。</li></ul></div>
     <div class="detail"><h3>Premiere Pro 25+（可选）</h3><ol><li>在 App“设置 → 更新与编辑器集成”中点击 Premiere Pro 插件的安装、修复或更新按钮。</li><li>重新打开 Premiere，在“窗口 → 扩展 → WeClaw Send”打开面板。</li><li>从下拉框选择自动扫描到的用户或系统预设。</li><li>选择“完整序列”或“入点到出点（I/O）”；I/O 未设置或范围无效时面板会提示。</li><li>需要导出后自动发送时，先在 App 设置中开启“本地接口”。</li></ol><p>面板保持稳定的单序列导出路径，会扫描所有已安装的 Premiere 与 Adobe Media Encoder 25+ 预设并记住上次选择。重新获得焦点时会同步当前序列名，手动文件名不会被覆盖；同名输出会阻止覆盖，完成后可在 Finder 中显示。开启自动发送后，面板会先检查本机接口，渲染完成即允许继续操作并在后台发送；一个或多个发送失败时可逐个仅重试发送，不会重复渲染。修改参数时，在 Premiere 原生导出页保存预设，再回面板刷新。项目只维护 CEP 12 版本，自动发送默认关闭。</p></div>
     <div class="detail"><h3>Final Cut Pro（可选）</h3><ol><li>安装 WeClaw Send 1.6.8 或更高版本，打开并确认微信已登录。</li><li>打开“Final Cut Pro → 设置 → 目的位置（Destinations）”。</li><li>选择“导出文件（Export File）”，把“操作（Action）”设为“其他（Other）”。</li><li>选择 <code>/Applications/WeClaw Send.app</code>，返回后确认“操作”显示 WeClaw Send。</li><li>使用这个目的位置分享；Final Cut Pro 提示成功后，WeClaw Send 会弹出并开始发送。</li></ol><p>此方式使用 Final Cut Pro 的原生分享完成动作，不需要插件，也不需要开启本地接口。建议选择 H.264 或 HEVC，把单个成片控制在 200 MB 以内。若分享成功但没有新增传输记录，请确认版本不低于 1.6.8，并在“操作 → 其他”中重新选择上述 App，避免仍指向旧版本或另一份 App。</p></div>
@@ -170,7 +170,7 @@
     <div class="detail"><h3>打开后没有窗口</h3><p>这是菜单栏应用，不会固定显示在 Dock。请查看屏幕右上角 Wi‑Fi、电池附近的纸飞机图标。</p></div>
     <div class="detail"><h3>提示 App 已损坏</h3><p>删除当前 App，重新打开原始 DMG 或解压原始 ZIP，然后拖入“应用程序”并按首次打开步骤批准。不要使用来源不明的终端命令。</p></div>
     <div class="detail"><h3>扫码确认后一直等待</h3><p>先在微信里给 ClawBot 发一条任意消息；微信通常会随即完成登录确认。若仍未完成，请取消后重新扫码，并暂时关闭 VPN、代理或网络过滤工具。App 最多等待 5 分钟，不会无限转圈。</p></div>
-    <div class="detail"><h3>发送失败</h3><p>确认设置页显示微信已登录、网络可访问微信服务、文件没有超过 200 MB。若 App 提示刷新会话，请给 ClawBot 发任意消息，App 收到后会自动重试；必要时重新扫码。</p></div>
+    <div class="detail"><h3>发送失败</h3><p>确认设置页显示微信已登录、网络可访问微信服务、文件没有超过设置中的单文件上限。若 App 提示刷新会话，请给 ClawBot 发任意消息，App 收到后会自动重试；必要时重新扫码。</p></div>
     <div class="detail"><h3>脚本连接被拒绝</h3><p>本地接口默认关闭。需要自动化时，在设置中打开“启用本地接口”，地址为 <code>127.0.0.1:18790</code>。</p></div>
   </section>
 

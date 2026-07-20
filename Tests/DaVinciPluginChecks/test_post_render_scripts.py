@@ -27,6 +27,9 @@ MP4 = load_script("weclaw_davinci_mp4", "自动发送ClawBot_MP4视频.py")
 
 
 class FakeResponse:
+    def __init__(self, body=b'{"ok":true,"status":"sent"}'):
+        self.body = body
+
     def __enter__(self):
         return self
 
@@ -34,18 +37,19 @@ class FakeResponse:
         return False
 
     def read(self):
-        return b'{"ok":true,"status":"sent"}'
+        return self.body
 
 
 class PostCapture:
-    def __init__(self):
+    def __init__(self, response_body=b'{"ok":true,"status":"sent"}'):
         self.request = None
         self.timeout = None
+        self.response_body = response_body
 
     def __call__(self, request, timeout):
         self.request = request
         self.timeout = timeout
-        return FakeResponse()
+        return FakeResponse(self.response_body)
 
 
 class PostRenderScriptTests(unittest.TestCase):
@@ -167,6 +171,24 @@ class PostRenderScriptTests(unittest.TestCase):
                     {"file_path": "/tmp/output.mp4", "file_name": "output.mp4"},
                 )
 
+    def test_reads_configured_size_limit_before_copying_or_sending(self):
+        for module in (M4V, MP4):
+            with self.subTest(mode=module.SEND_MODE), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "output.mp4"
+                source.write_bytes(b"video")
+                capture = PostCapture(b'{"ok":true,"max_send_bytes":4}')
+                with mock.patch.object(module.urllib.request, "urlopen", capture):
+                    max_send_bytes = module.current_max_send_bytes()
+
+                self.assertEqual(max_send_bytes, 4)
+                self.assertEqual(capture.timeout, 3)
+                self.assertEqual(capture.request.full_url, "http://127.0.0.1:18790/health")
+                with (
+                    mock.patch.object(module, "log"),
+                    mock.patch.object(module, "notify"),
+                ):
+                    self.assertTrue(module.send_file_too_large(str(source), max_send_bytes))
+
     def test_installer_copies_both_scripts_with_expected_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             environment = os.environ.copy()
@@ -189,7 +211,7 @@ class PostRenderScriptTests(unittest.TestCase):
                 self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o644)
 
             installed_version = target / ".weclaw-send-version"
-            self.assertEqual(installed_version.read_text(encoding="utf-8"), "1.6.3\n")
+            self.assertEqual(installed_version.read_text(encoding="utf-8"), "1.6.4\n")
             self.assertEqual(stat.S_IMODE(installed_version.stat().st_mode), 0o644)
 
 
