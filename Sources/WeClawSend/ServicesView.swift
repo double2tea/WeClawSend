@@ -51,10 +51,8 @@ struct ServicesView: View {
             Button {
                 Task {
                     async let services: Void = model.refreshServices()
-                    async let appUpdate: Void = model.refreshAppUpdateStatus()
-                    await model.refreshPremierePluginStatus()
-                    await model.refreshDaVinciScriptsStatus()
-                    _ = await (services, appUpdate)
+                    async let updates: Void = model.refreshAllUpdateStatuses(forceRefresh: true)
+                    _ = await (services, updates)
                 }
             } label: {
                 Image(systemName: "arrow.clockwise")

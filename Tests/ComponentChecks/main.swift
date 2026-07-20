@@ -702,18 +702,31 @@ let updateConfiguration = URLSessionConfiguration.ephemeral
 updateConfiguration.protocolClasses = [MockURLProtocol.self]
 let updateSession = URLSession(configuration: updateConfiguration)
 let updateEndpoint = URL(string: "https://mock.local/releases/latest")!
+let updateResult = UpdateResultBox()
 MockURLProtocol.handler = { request in
     precondition(request.url == updateEndpoint)
     precondition(request.timeoutInterval == UpdateManager.metadataRequestTimeout)
     precondition(request.value(forHTTPHeaderField: "Accept") == "application/vnd.github+json")
     precondition(request.value(forHTTPHeaderField: "User-Agent") == "WeClawSend")
+    updateResult.metadataRequestCount += 1
+    if updateResult.metadataRequestCount == 1 {
+        precondition(request.value(forHTTPHeaderField: "Cache-Control") == nil)
+        precondition(request.value(forHTTPHeaderField: "Pragma") == nil)
+        return MockURLProtocol.response(
+            request,
+            body: #"{"tag_name":"v1.5.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v1.5.0","assets":[]}"#
+        )
+    }
+    precondition(updateResult.metadataRequestCount == 2)
+    precondition(request.cachePolicy == .reloadIgnoringLocalCacheData)
+    precondition(request.value(forHTTPHeaderField: "Cache-Control") == "no-cache")
+    precondition(request.value(forHTTPHeaderField: "Pragma") == "no-cache")
     return MockURLProtocol.response(
         request,
-        body: #"{"tag_name":"v1.5.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v1.5.0","assets":[]}"#
+        body: #"{"tag_name":"v1.6.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v1.6.0","assets":[]}"#
     )
 }
 let updateManager = UpdateManager(session: updateSession, latestReleaseURL: updateEndpoint)
-let updateResult = UpdateResultBox()
 let updateFinished = DispatchSemaphore(value: 0)
 Task {
     do {
@@ -721,6 +734,8 @@ Task {
         updateResult.appAvailability = try await updateManager.appUpdateAvailability(
             currentVersion: version140
         )
+        await updateManager.invalidateReleaseCache()
+        updateResult.refreshedRelease = try await updateManager.latestRelease()
     } catch {
         updateResult.error = error
     }
@@ -730,6 +745,8 @@ precondition(updateFinished.wait(timeout: .now() + 10) == .success)
 if let error = updateResult.error { throw error }
 precondition(updateResult.release?.tagName == "v1.5.0")
 precondition(updateResult.appAvailability == .updateAvailable(version150))
+precondition(updateResult.refreshedRelease?.tagName == "v1.6.0")
+precondition(updateResult.metadataRequestCount == 2)
 
 let installerRoot = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-installer-\(UUID())", directoryHint: .isDirectory)
@@ -1077,7 +1094,9 @@ final class ContextRefreshResultBox: @unchecked Sendable {
 final class UpdateResultBox: @unchecked Sendable {
     var error: Error?
     var release: GitHubRelease?
+    var refreshedRelease: GitHubRelease?
     var appAvailability: AppUpdateAvailability?
+    var metadataRequestCount = 0
 }
 
 final class UpdateInstallResultBox: @unchecked Sendable {

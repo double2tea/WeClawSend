@@ -47,11 +47,11 @@ final class AppModel: ObservableObject {
     @Published var isUpdatingApp = false
     @Published var isInstallingPremierePlugin = false
     @Published var isInstallingDaVinciScripts = false
-    @Published private(set) var isCheckingAppUpdate = true
+    @Published private(set) var isCheckingAppUpdate = false
     @Published private(set) var appUpdateAvailability: AppUpdateAvailability?
-    @Published private(set) var isCheckingPremierePlugin = true
+    @Published private(set) var isCheckingPremierePlugin = false
     @Published private(set) var premierePluginUpdateState: PremierePluginUpdateState?
-    @Published private(set) var isCheckingDaVinciScripts = true
+    @Published private(set) var isCheckingDaVinciScripts = false
     @Published private(set) var daVinciScriptsUpdateState: DaVinciScriptsUpdateState?
     @Published var updateMessage = ""
     @Published var premierePluginMessage = ""
@@ -111,10 +111,7 @@ final class AppModel: ObservableObject {
         }
         Task { [weak self] in
             guard let self else { return }
-            async let appUpdate: Void = refreshAppUpdateStatus()
-            await refreshPremierePluginStatus()
-            await refreshDaVinciScriptsStatus()
-            _ = await appUpdate
+            await refreshAllUpdateStatuses()
         }
     }
 
@@ -165,7 +162,10 @@ final class AppModel: ObservableObject {
     }
 
     var isAppUpdateBusy: Bool {
-        isCheckingAppUpdate || isUpdatingApp
+        isCheckingAppUpdate
+            || isCheckingPremierePlugin
+            || isCheckingDaVinciScripts
+            || isUpdatingApp
     }
 
     var hasAppUpdate: Bool {
@@ -331,7 +331,12 @@ final class AppModel: ObservableObject {
     }
 
     func updateApp() {
-        guard !isUpdateOperationInProgress, !isCheckingAppUpdate else { return }
+        guard
+            !isUpdateOperationInProgress,
+            !isCheckingAppUpdate,
+            !isCheckingPremierePlugin,
+            !isCheckingDaVinciScripts
+        else { return }
         guard !hasActiveTransfers else {
             presentedError = "当前有正在处理的文件，请发送完成后再更新 App"
             return
@@ -345,6 +350,7 @@ final class AppModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
+                await updateManager.invalidateReleaseCache()
                 let result = try await updateManager.prepareAppUpdate(
                     currentVersion: currentVersion,
                     appURL: Bundle.main.bundleURL,
@@ -366,6 +372,22 @@ final class AppModel: ObservableObject {
                 presentedError = "App 更新失败：\(error.localizedDescription)"
             }
         }
+    }
+
+    func refreshAllUpdateStatuses(forceRefresh: Bool = false) async {
+        guard
+            !isUpdateOperationInProgress,
+            !isCheckingAppUpdate,
+            !isCheckingPremierePlugin,
+            !isCheckingDaVinciScripts
+        else { return }
+        if forceRefresh {
+            await updateManager.invalidateReleaseCache()
+        }
+        async let appUpdate: Void = refreshAppUpdateStatus()
+        async let premiere: Void = refreshPremierePluginStatus()
+        async let daVinci: Void = refreshDaVinciScriptsStatus()
+        _ = await (appUpdate, premiere, daVinci)
     }
 
     func refreshAppUpdateStatus() async {

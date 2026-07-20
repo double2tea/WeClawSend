@@ -205,7 +205,9 @@ actor UpdateManager {
     private let homeDirectory: URL
     private let defaultsExecutablePath: String
     private var cachedRelease: (release: GitHubRelease, date: Date)?
-    private var latestReleaseTask: Task<GitHubRelease, Error>?
+    private var releaseCacheGeneration = 0
+    private var ignoresCacheForNextMetadataRequest = false
+    private var latestReleaseTask: (generation: Int, task: Task<GitHubRelease, Error>)?
     private var cachedComponents: [String: ReleaseComponents] = [:]
 
     init(
@@ -220,6 +222,15 @@ actor UpdateManager {
         self.latestReleaseURL = latestReleaseURL
         self.homeDirectory = homeDirectory
         self.defaultsExecutablePath = defaultsExecutablePath
+    }
+
+    func invalidateReleaseCache() {
+        releaseCacheGeneration &+= 1
+        cachedRelease = nil
+        cachedComponents.removeAll()
+        ignoresCacheForNextMetadataRequest = true
+        latestReleaseTask?.task.cancel()
+        latestReleaseTask = nil
     }
 
     func prepareAppUpdate(
@@ -437,10 +448,19 @@ actor UpdateManager {
            Date().timeIntervalSince(cachedRelease.date) < Self.releaseCacheDuration {
             return cachedRelease.release
         }
-        if let latestReleaseTask { return try await latestReleaseTask.value }
+        let generation = releaseCacheGeneration
+        if let latestReleaseTask, latestReleaseTask.generation == generation {
+            return try await latestReleaseTask.task.value
+        }
 
         let session = self.session
-        let request = request(for: latestReleaseURL, timeoutInterval: Self.metadataRequestTimeout)
+        let ignoresCache = ignoresCacheForNextMetadataRequest
+        ignoresCacheForNextMetadataRequest = false
+        let request = request(
+            for: latestReleaseURL,
+            timeoutInterval: Self.metadataRequestTimeout,
+            ignoresCache: ignoresCache
+        )
         let task = Task<GitHubRelease, Error> {
             let (data, response) = try await session.data(for: request)
             guard let response = response as? HTTPURLResponse else {
@@ -455,11 +475,22 @@ actor UpdateManager {
                 throw UpdateManagerError.invalidResponse
             }
         }
-        latestReleaseTask = task
-        defer { latestReleaseTask = nil }
-        let release = try await task.value
-        cachedRelease = (release, Date())
-        return release
+        latestReleaseTask = (generation, task)
+        do {
+            let release = try await task.value
+            if generation == releaseCacheGeneration {
+                cachedRelease = (release, Date())
+                if latestReleaseTask?.generation == generation {
+                    latestReleaseTask = nil
+                }
+            }
+            return release
+        } catch {
+            if latestReleaseTask?.generation == generation {
+                latestReleaseTask = nil
+            }
+            throw error
+        }
     }
 
     nonisolated static func checksum(for assetName: String, in manifest: String) throws -> String {
@@ -664,9 +695,18 @@ actor UpdateManager {
         return destinationURL
     }
 
-    private func request(for url: URL, timeoutInterval: TimeInterval) -> URLRequest {
+    private func request(
+        for url: URL,
+        timeoutInterval: TimeInterval,
+        ignoresCache: Bool = false
+    ) -> URLRequest {
         var request = URLRequest(url: url)
         request.timeoutInterval = timeoutInterval
+        if ignoresCache {
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+        }
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("WeClawSend", forHTTPHeaderField: "User-Agent")
         return request
