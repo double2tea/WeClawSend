@@ -86,6 +86,18 @@ precondition(sendFailureMessage(URLError(.cancelled)) == "发送已取消")
 precondition(isSendCancellation(CancellationError()))
 precondition(isSendCancellation(URLError(.cancelled)))
 
+let loginStart = Date(timeIntervalSince1970: 1_000)
+precondition(!WeChatLoginPollingPolicy.hasTimedOut(
+    startedAt: loginStart,
+    now: loginStart.addingTimeInterval(299)
+))
+precondition(WeChatLoginPollingPolicy.hasTimedOut(
+    startedAt: loginStart,
+    now: loginStart.addingTimeInterval(300)
+))
+precondition(WeChatLoginPollingPolicy.timeoutMessage(hasScanned: true).contains("ClawBot"))
+precondition(WeChatLoginPollingPolicy.timeoutMessage(hasScanned: false).contains("重新生成二维码"))
+
 let autoCloseStart = Date(timeIntervalSince1970: 1_000)
 var autoClosePolicy = PopoverAutoClosePolicy()
 autoClosePolicy.opened(at: autoCloseStart)

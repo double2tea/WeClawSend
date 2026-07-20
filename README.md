@@ -70,6 +70,8 @@ Deliver 后渲染脚本会在渲染完成后自动发送成片，可选择 `.m4v
 
 微信 iLink 会限制主动发送的会话窗口和消息额度。遇到 `ret=-2` 时，App 会提示你给 ClawBot 发一条消息；收到新上下文后自动续传，不需要重新选择文件。
 
+如果扫码并在手机确认后仍停在等待状态，可以先给 ClawBot 发一条任意消息，促使微信完成登录确认。登录等待最多持续 5 分钟，之后 App 会停止轮询并给出重试建议。
+
 刷新通知会自行淡出。如果 5 分钟内没有收到新消息，任务会结束并显示失败。相关背景见 [会话限制反馈](https://github.com/Tencent/openclaw-weixin/issues/202) 和 [`ret=-2` 反馈](https://github.com/Tencent/openclaw-weixin/issues/225)。
 
 ## 给本机脚本调用

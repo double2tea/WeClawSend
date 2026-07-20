@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 enum WeChatError: LocalizedError {
     case notLoggedIn
@@ -54,14 +55,33 @@ struct WeChatSendProgress: Sendable {
     let totalBytes: Int64
 }
 
+struct WeChatLoginPollingPolicy {
+    static let timeout: TimeInterval = 5 * 60
+
+    static func hasTimedOut(startedAt: Date, now: Date = Date()) -> Bool {
+        now.timeIntervalSince(startedAt) >= timeout
+    }
+
+    static func timeoutMessage(hasScanned: Bool) -> String {
+        if hasScanned {
+            return "扫码已完成，但微信没有返回登录确认。请给 ClawBot 发一条消息后重新扫码；若仍失败，请检查网络或 VPN。"
+        }
+        return "等待微信扫码超时，请检查网络或 VPN 后重新生成二维码。"
+    }
+}
+
 actor WeChatService {
     static let submissionIntervalMilliseconds: Int64 = 2_000
 
     private static let loginBaseURL = URL(string: "https://ilinkai.weixin.qq.com")!
     private static let cdnBaseURL = URL(string: "https://novac2c.cdn.weixin.qq.com/c2c")!
     private static let channelVersion = "2.4.6"
-    private static let botAgent = "WeClawSend/1.6.6"
+    private static let botAgent = "WeClawSend/1.6.7"
     private static let appClientVersion = "132102"
+    private static let loginLogger = Logger(
+        subsystem: "com.chacha.WeClawSend",
+        category: "WeChatLogin"
+    )
 
     private let store: WeChatCredentialStore
     private let session: URLSession
@@ -73,6 +93,7 @@ actor WeChatService {
     private var credentialLoadError: String?
     private var loginQRCode: String?
     private var loginPollingBaseURL = loginBaseURL
+    private var lastLoginStatus: String?
     private var submissionSlotLocked = false
     private var submissionWaiters: [SubmissionWaiter] = []
 
@@ -189,6 +210,8 @@ actor WeChatService {
         }
         loginQRCode = response.qrcode
         loginPollingBaseURL = Self.loginBaseURL
+        lastLoginStatus = nil
+        Self.loginLogger.info("微信扫码登录已开始")
         return response.qrcodeImageContent
     }
 
@@ -209,7 +232,13 @@ actor WeChatService {
         do {
             response = try await get(endpoint, timeout: 40)
         } catch let error as URLError where error.code == .timedOut {
+            Self.loginLogger.debug("微信登录状态长轮询超时，将继续等待")
             return .waiting
+        }
+
+        if response.status != lastLoginStatus {
+            Self.loginLogger.info("微信登录状态：\(response.status, privacy: .public)")
+            lastLoginStatus = response.status
         }
 
         switch response.status {
@@ -230,9 +259,11 @@ actor WeChatService {
                 throw WeChatError.login("微信已绑定，但本机没有可用凭据，请解除旧绑定后重试")
             }
             self.loginQRCode = nil
+            lastLoginStatus = nil
             return .confirmed(credentials)
         case "expired":
             self.loginQRCode = nil
+            lastLoginStatus = nil
             throw WeChatError.login("微信登录二维码已过期，请重新生成")
         case "verify_code_blocked":
             throw WeChatError.login("配对码错误次数过多，请稍后重新登录")
@@ -243,6 +274,7 @@ actor WeChatService {
             credentialsValidated = false
             credentialLoadError = nil
             self.loginQRCode = nil
+            lastLoginStatus = nil
             return .confirmed(confirmed)
         default:
             throw WeChatError.login("未知的微信登录状态：\(response.status)")

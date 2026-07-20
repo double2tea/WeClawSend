@@ -712,15 +712,25 @@ final class AppModel: ObservableObject {
 
     private func pollLogin(runtime: AppRuntime, verificationCode: String?) async {
         var code = verificationCode
+        let startedAt = Date()
+        var hasScanned = false
         do {
             while !Task.isCancelled {
+                if WeChatLoginPollingPolicy.hasTimedOut(startedAt: startedAt) {
+                    throw WeChatError.login(
+                        WeChatLoginPollingPolicy.timeoutMessage(hasScanned: hasScanned)
+                    )
+                }
                 let update = try await runtime.weChat.pollLogin(verificationCode: code)
                 switch update {
                 case .waiting:
-                    loginMessage = "等待扫码确认…"
+                    loginMessage = hasScanned
+                        ? "已扫码，等待微信确认；仍未完成可给 ClawBot 发一条消息"
+                        : "等待扫码确认…"
                 case .scanned:
+                    hasScanned = true
                     code = nil
-                    loginMessage = "已扫码，等待手机确认…"
+                    loginMessage = "已扫码，等待手机确认；若已确认仍未完成，请给 ClawBot 发一条消息"
                 case .needsVerification:
                     needsVerificationCode = true
                     loginMessage = "请输入手机微信显示的配对码"
@@ -740,6 +750,8 @@ final class AppModel: ObservableObject {
             }
         } catch is CancellationError {
             // cancelled by user
+        } catch let error as URLError where error.code == .cancelled && Task.isCancelled {
+            // URLSession can surface task cancellation as URLError.cancelled.
         } catch {
             finishLogin(error: error)
         }
