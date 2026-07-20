@@ -1,0 +1,54 @@
+name: Deploy website
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "website/**"
+      - ".github/workflows/pages.yml"
+  workflow_run:
+    workflows:
+      - Release
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: cloudflare-pages-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Prepare static website
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p _site/downloads
+          cp -R website/. _site/
+          gh release download \
+            --pattern 'WeClaw-Send.dmg' \
+            --pattern 'WeClaw-Send.zip' \
+            --dir _site/downloads
+          test -s _site/downloads/WeClaw-Send.dmg
+          test -s _site/downloads/WeClaw-Send.zip
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy _site --project-name=weclaw-send --branch=main
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}

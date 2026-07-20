@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/double2tea/WeClawSend/releases">下载最新版</a> ·
+  <a href="https://weclaw-send.pages.dev/">作品页</a> ·
   <a href="docs/使用说明.md">使用说明</a> ·
   <a href="docs/INTEGRATION.md">本地接口</a>
 </p>

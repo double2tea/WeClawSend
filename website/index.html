@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="WeClaw Send 是一款原生 macOS 菜单栏工具，把 Mac、Premiere Pro、Final Cut Pro 和 DaVinci Resolve 的文件直接发到微信。">
+    <meta name="theme-color" content="#101820">
+    <meta property="og:title" content="WeClaw Send — 成片落地，微信就收到">
+    <meta property="og:description" content="从 Mac 和常用剪辑软件，把文件直接发到自己的微信。">
+    <meta property="og:image" content="/assets/brand-mark.png">
+    <title>WeClaw Send — 成片落地，微信就收到</title>
+    <link rel="icon" href="/assets/brand-mark.png">
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script src="/assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到正文</a>
+    <header class="site-header" data-header>
+      <a class="brand" href="/" aria-label="WeClaw Send 首页">
+        <img src="/assets/brand-mark.png" alt="" width="36" height="36">
+        <span>WeClaw Send</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="打开导航" aria-expanded="false" data-nav-toggle>
+        <span></span><span></span>
+      </button>
+      <nav class="site-nav" aria-label="主导航" data-nav>
+        <a href="#film">产品演示</a>
+        <a href="#editors">剪辑软件</a>
+        <a href="#privacy">隐私</a>
+        <a href="/guide.html">使用说明</a>
+        <a href="/support.html">赞赏</a>
+        <a class="nav-download" href="/downloads/WeClaw-Send.dmg">下载</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero section-shell">
+        <div class="hero-copy reveal">
+          <p class="eyebrow"><span></span> 原生 macOS 菜单栏应用</p>
+          <h1>成片落地<br><em>微信就收到</em></h1>
+          <p class="hero-lede">把 Mac 和剪辑软件里的文件，直接发到自己的微信。</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="/downloads/WeClaw-Send.dmg">
+              <span>下载 macOS 版</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v10m0 0 4-4m-4 4L6 8M3 15v2h14v-2"/></svg>
+            </a>
+            <a class="button button-quiet" href="/guide.html">查看使用说明 <span aria-hidden="true">↗</span></a>
+          </div>
+          <p class="hero-meta">macOS 14+ · Apple 芯片与 Intel · MIT 开源</p>
+        </div>
+
+        <div class="hero-visual reveal" data-delay="1" aria-label="WeClaw Send 应用界面展示">
+          <div class="signal signal-one"></div>
+          <div class="signal signal-two"></div>
+          <div class="route" aria-hidden="true">
+            <svg viewBox="0 0 520 520"><path d="M30 420C115 210 205 440 310 205S470 110 505 42"/></svg>
+          </div>
+          <div class="plane-mark" aria-hidden="true">
+            <svg viewBox="0 0 40 40"><path d="M4 27 35 5 24 36l-7-12-13 3Zm13-3L35 5"/></svg>
+          </div>
+          <div class="app-window">
+            <div class="window-bar"><span></span><span></span><span></span><b>菜单栏 · 已登录</b></div>
+            <img src="/assets/app-main.png" alt="WeClaw Send 主面板，支持拖入或选择文件">
+          </div>
+          <div class="delivery-card">
+            <span class="delivery-icon">✓</span>
+            <div><b>成片-最终版.m4v</b><small>已发送到微信</small></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="film" id="film">
+        <div class="section-shell film-grid">
+          <div class="film-copy reveal">
+            <p class="eyebrow"><span></span> 27 秒产品短片</p>
+            <h2>从发不了<br>到拖进去就发</h2>
+            <p>从导出完成到微信收到，完整流程都在这条短片里。</p>
+            <div class="film-meta"><span>含声音</span><span>真实界面</span></div>
+          </div>
+          <div class="film-stage reveal" data-delay="1">
+            <video controls playsinline preload="metadata" poster="/assets/weclawsend-promo-poster.jpg" aria-label="WeClaw Send 27 秒产品宣传片">
+              <source src="/assets/weclawsend-promo.mp4" type="video/mp4">
+              你的浏览器暂不支持视频播放。
+            </video>
+            <span class="film-index">FILM / 01</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="workflow section-shell" id="workflow">
+        <div class="section-heading reveal">
+          <p class="eyebrow"><span></span> 从时间线到微信</p>
+          <h2>把交付链路<br>缩成三个动作</h2>
+          <p>选好文件，其余步骤交给 WeClaw Send。</p>
+        </div>
+        <ol class="steps">
+          <li class="step reveal">
+            <span class="step-number">01</span>
+            <h3>导出</h3>
+            <p>完成剪辑，导出到 Mac。</p>
+          </li>
+          <li class="step reveal" data-delay="1">
+            <span class="step-number">02</span>
+            <h3>交给 WeClaw</h3>
+            <p>拖到菜单栏纸飞机，或让剪辑软件在导出完成后自动提交。</p>
+          </li>
+          <li class="step reveal" data-delay="2">
+            <span class="step-number">03</span>
+            <h3>微信收到</h3>
+            <p>失败可重试，发送记录保留在本机。</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="editors" id="editors">
+        <div class="section-shell">
+          <div class="section-heading section-heading-light reveal">
+            <p class="eyebrow"><span></span> 不打断创作节奏</p>
+            <h2>你的剪辑台<br>多一条直达微信的出口</h2>
+          </div>
+          <div class="editor-grid">
+            <article class="editor-card reveal">
+              <div class="editor-top"><span class="editor-index">01</span><small>PREMIERE PRO · 导出面板</small></div>
+              <h3>导出完成 后台发送</h3>
+              <p>选择完整序列或 I/O 范围，沿用 Adobe 导出预设。发送中可继续下一个序列。</p>
+              <ul><li>记住预设与输出目录</li><li>失败只重试发送，不重新渲染</li></ul>
+            </article>
+            <article class="editor-card reveal" data-delay="1">
+              <div class="editor-top"><span class="editor-index">02</span><small>FINAL CUT PRO · 分享动作</small></div>
+              <h3>原生分享动作 无需插件</h3>
+              <p>把 WeClaw Send 设为导出完成动作，分享结束后自动进入发送队列。</p>
+              <ul><li>不需要开启本地接口</li><li>可单独建立“导出并发送微信”目的位置</li></ul>
+            </article>
+            <article class="editor-card reveal" data-delay="2">
+              <div class="editor-top"><span class="editor-index">03</span><small>DAVINCI RESOLVE · DELIVER</small></div>
+              <h3>Deliver 页面一键接力</h3>
+              <p>渲染完成后自动交给本机接口，可选视频或附件方式发送。</p>
+              <ul><li>App 设置中一键安装</li><li>脚本仅访问 127.0.0.1</li></ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="product-detail section-shell">
+        <div class="detail-visual reveal">
+          <div class="detail-frame"><img src="/assets/app-settings.png" alt="WeClaw Send 设置页，包含本地接口与编辑器集成"></div>
+        </div>
+        <div class="detail-copy reveal" data-delay="1">
+          <p class="eyebrow"><span></span> 本机菜单栏工作流</p>
+          <h2>安静留在菜单栏<br>需要时再出现</h2>
+          <div class="detail-list">
+            <article><span>01</span><div><h3>进度看得见</h3><p>准备、加密、上传和提交逐步呈现，支持取消、排队与重试。</p></div></article>
+            <article><span>02</span><div><h3>专为成片优化</h3><p>单文件上限可调至 2 GB；微信内可显示为 .m4v，本地文件不变。</p></div></article>
+            <article><span>03</span><div><h3>组件独立更新</h3><p>App、Premiere 面板和 DaVinci 脚本都能从设置页检查与更新。</p></div></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="privacy" id="privacy">
+        <div class="section-shell privacy-grid">
+          <div class="privacy-copy reveal">
+            <p class="eyebrow"><span></span> 本地优先</p>
+            <h2>文件不绕路<br>账号不离开这台 Mac</h2>
+            <p>WeClaw Send 不设自有云端存储。文件经微信通道发送到你的微信；登录凭据、偏好和记录只保存在本机。</p>
+            <a class="text-link" href="/guide.html#privacy">了解本机数据与接口边界 <span>→</span></a>
+          </div>
+          <div class="privacy-map reveal" data-delay="1" aria-label="文件传输路径：Mac 通过微信通道发送到自己的微信">
+            <div class="map-node"><span>01</span><b>你的 Mac</b><small>文件与凭据</small></div>
+            <div class="map-line"><i></i><small>加密传输</small></div>
+            <div class="map-node map-node-accent"><span>02</span><b>微信通道</b><small>没有开发者服务器</small></div>
+            <div class="map-line"><i></i><small>附件消息</small></div>
+            <div class="map-node"><span>03</span><b>你的微信</b><small>接收会话</small></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="faq section-shell">
+        <div class="section-heading reveal"><p class="eyebrow"><span></span> 开始之前</p><h2>常见问题</h2></div>
+        <div class="faq-list">
+          <details class="reveal"><summary>是否需要安装 WeClaw 或其它后台<span>+</span></summary><p>不需要。WeClaw Send 是独立原生应用，不依赖 WeClaw、OpenClaw、Node 或 Go 后台。</p></details>
+          <details class="reveal"><summary>首次打开被 macOS 拦截<span>+</span></summary><p>先尝试打开一次，再到“系统设置 → 隐私与安全性”选择“仍要打开”。</p></details>
+          <details class="reveal"><summary>文件大小与并发限制<span>+</span></summary><p>默认单文件上限 200 MB，可在设置中调到 2 GB；最多同时处理 3 个文件。</p></details>
+        </div>
+      </section>
+
+      <section class="support-invite section-shell reveal" aria-labelledby="support-invite-title">
+        <div>
+          <p class="eyebrow"><span></span> 自愿赞赏</p>
+          <h2 id="support-invite-title">项目会继续免费开源</h2>
+          <p>若 WeClaw Send 帮你省下时间，可以自愿赞赏。</p>
+        </div>
+        <a class="button button-primary" href="/support.html">前往赞赏 <span aria-hidden="true">↗</span></a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-brand"><img src="/assets/brand-mark.png" alt="" width="32" height="32"><span>WeClaw Send</span></div>
+      <nav aria-label="页脚导航"><a href="/guide.html">使用说明</a><a href="/support.html">赞赏</a><a href="https://github.com/double2tea/WeClawSend">GitHub</a><a href="mailto:double_tea@foxmail.com">联系作者</a></nav>
+      <small>© 2026 WeClaw Send · MIT License</small>
+    </footer>
+  </body>
+</html>
