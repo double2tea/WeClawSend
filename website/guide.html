@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="WeClaw Send 安装、扫码登录、发送文件以及 Premiere Pro、Final Cut Pro、DaVinci Resolve 集成说明。">
+    <meta name="description" content="WeClaw Send 安装、独立扫码或复用 OpenClaw 登录、发送文件以及剪辑软件集成说明。">
     <meta name="theme-color" content="#101820">
     <title>使用说明 — WeClaw Send</title>
     <link rel="icon" href="/assets/brand-mark.png">
@@ -23,11 +23,11 @@
         <div>
           <p class="eyebrow"><span></span> 使用说明</p>
           <h1>从安装到<br><em>第一次发送</em></h1>
-          <p>不需要命令行，按下面步骤即可完成安装和首次发送。</p>
+          <p>不需要命令行。可独立扫码，也可只读复用现有 OpenClaw。</p>
         </div>
         <div class="quick-card">
           <p>三步快速开始</p>
-          <ol><li><span>1</span>把 WeClaw Send 拖进“应用程序”</li><li><span>2</span>在隐私与安全性中允许首次打开</li><li><span>3</span>扫码或复用 OpenClaw 登录，然后拖入文件</li></ol>
+          <ol><li><span>1</span>把 WeClaw Send 拖进“应用程序”</li><li><span>2</span>在隐私与安全性中允许首次打开</li><li><span>3</span>选择独立扫码或 OpenClaw，然后拖入文件</li></ol>
           <a class="button button-primary" href="/downloads/WeClaw-Send.dmg">下载 DMG</a>
         </div>
       </section>
@@ -47,10 +47,12 @@
           </section>
 
           <section id="first-use">
-            <span class="chapter">02</span><h2>微信登录</h2>
+            <span class="chapter">02</span><h2>选择登录方式</h2>
+            <p>两种方式二选一：直接扫码，或只读复用这台 Mac 已登录的 OpenClaw。</p>
             <div class="guide-media"><img src="/assets/app-settings.png" alt="WeClaw Send 设置页"></div>
+            <h3>独立扫码</h3>
             <ol class="instruction-list"><li><span>1</span><p>点击菜单栏纸飞机，打开<strong>设置</strong>。</p></li><li><span>2</span><p>点击<strong>扫码登录</strong>，使用手机微信扫码并在手机上确认。</p></li><li><span>3</span><p>如手机显示配对码，把数字填入应用并确认。</p></li><li><span>4</span><p>显示“已登录”后返回发送页。</p></li></ol>
-            <div class="callout callout-blue"><b>已经使用 OpenClaw</b><p>把登录方式切换为 OpenClaw，即可只读使用当前微信账号和会话，无需再次扫码。多账号需要手动选择，发送时请保持 OpenClaw 运行。</p></div>
+            <div class="callout callout-blue"><b>复用 OpenClaw</b><p>在“设置 → 登录方式”选择 OpenClaw。单账号会自动选中，多账号请明确选择。WeClaw Send 仅读取当前账号与会话；发送时请保持 OpenClaw 运行。</p></div>
             <div class="callout callout-blue"><b>扫码后一直等待</b><p>先在微信里给 ClawBot 发一条消息。仍无反应时，取消并重新扫码，同时暂时关闭代理或网络过滤工具。</p></div>
           </section>
 
@@ -89,12 +91,12 @@
 
           <section id="privacy">
             <span class="chapter">07</span><h2>隐私与安全</h2>
-            <ul class="check-list"><li>不设开发者自有云端存储，文件通过微信通道发到你自己的 ClawBot。</li><li>独立登录的凭据、偏好和传输记录保存在 <code>~/Library/Application Support/WeClawSend/</code>。</li><li>选择 OpenClaw 登录时，只读使用其当前账号和会话，不复制或修改 OpenClaw 文件，也不收取微信消息。</li><li>可选本地接口默认关闭，只监听 <code>127.0.0.1:18790</code>，不会向局域网开放。</li><li>普通菜单栏发送不依赖本地接口。</li></ul>
+            <ul class="check-list"><li>不设开发者自有云端存储，文件通过微信通道发到你自己的 ClawBot。</li><li>独立登录的凭据、偏好和传输记录保存在 <code>~/Library/Application Support/WeClawSend/</code>。</li><li>选择 OpenClaw 登录时，只读使用其本机状态目录中的当前账号与会话，不复制或修改 OpenClaw 文件，也不收取微信消息。</li><li>可选本地接口默认关闭，只监听 <code>127.0.0.1:18790</code>，不会向局域网开放。</li><li>普通菜单栏发送不依赖本地接口。</li></ul>
           </section>
 
           <section id="uninstall">
             <span class="chapter">08</span><h2>退出与卸载</h2>
-            <p><strong>退出：</strong>菜单栏纸飞机 → 设置 → 退出。</p><p><strong>卸载：</strong>退出后，把“应用程序”中的 WeClaw Send 移到废纸篓。若要同时清除登录数据，再删除 <code>~/Library/Application Support/WeClawSend</code>。</p>
+            <p><strong>退出：</strong>菜单栏纸飞机 → 设置 → 退出。</p><p><strong>卸载：</strong>退出后，把“应用程序”中的 WeClaw Send 移到废纸篓。若要同时清除独立登录数据，再删除 <code>~/Library/Application Support/WeClawSend</code>；不会影响 OpenClaw 的本机数据。</p>
           </section>
         </article>
       </div>

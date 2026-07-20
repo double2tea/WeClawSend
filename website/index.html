@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="WeClaw Send 是一款原生 macOS 菜单栏工具，把 Mac、Premiere Pro、Final Cut Pro 和 DaVinci Resolve 的文件直接发到微信。">
+    <meta name="description" content="WeClaw Send 是原生 macOS 菜单栏工具，可独立扫码，也可只读复用 OpenClaw 登录，把文件直接发到自己的微信。">
     <meta name="theme-color" content="#101820">
     <meta property="og:title" content="WeClaw Send — 成片落地，微信就收到">
-    <meta property="og:description" content="从 Mac 和常用剪辑软件，把文件直接发到自己的微信。">
+    <meta property="og:description" content="独立扫码，或只读复用 OpenClaw 登录；从 Mac 和常用剪辑软件直接发到自己的微信。">
     <meta property="og:image" content="/assets/brand-mark.png">
     <title>WeClaw Send — 成片落地，微信就收到</title>
     <link rel="icon" href="/assets/brand-mark.png">
@@ -46,7 +46,7 @@
             </a>
             <a class="button button-quiet" href="/guide.html">查看使用说明 <span aria-hidden="true">↗</span></a>
           </div>
-          <p class="hero-meta">macOS 14+ · Apple 芯片与 Intel · MIT 开源</p>
+          <p class="hero-meta">独立扫码 · 可选复用 OpenClaw · MIT 开源</p>
         </div>
 
         <div class="hero-visual reveal" data-delay="1" aria-label="WeClaw Send 应用界面展示">
@@ -141,17 +141,17 @@
         </div>
       </section>
 
-      <section class="product-detail section-shell">
+      <section class="product-detail section-shell" id="openclaw">
         <div class="detail-visual reveal">
           <div class="detail-frame"><img src="/assets/app-settings.png" alt="WeClaw Send 设置页，包含本地接口与编辑器集成"></div>
         </div>
         <div class="detail-copy reveal" data-delay="1">
-          <p class="eyebrow"><span></span> 本机菜单栏工作流</p>
-          <h2>安静留在菜单栏<br>需要时再出现</h2>
+          <p class="eyebrow"><span></span> 一套发送流程 两种登录方式</p>
+          <h2>独立扫码<br>也可复用 OpenClaw</h2>
           <div class="detail-list">
-            <article><span>01</span><div><h3>进度看得见</h3><p>准备、加密、上传和提交逐步呈现，支持取消、排队与重试。</p></div></article>
-            <article><span>02</span><div><h3>专为成片优化</h3><p>单文件上限可调至 2 GB；微信内可显示为 .m4v，本地文件不变。</p></div></article>
-            <article><span>03</span><div><h3>组件独立更新</h3><p>App、Premiere 面板和 DaVinci 脚本都能从设置页检查与更新。</p></div></article>
+            <article><span>01</span><div><h3>独立登录</h3><p>不使用 OpenClaw，也能在设置里扫码登录。</p></div></article>
+            <article><span>02</span><div><h3>复用登录</h3><p>已有 OpenClaw 时，选择账号即可复用当前微信登录和会话。</p></div></article>
+            <article><span>03</span><div><h3>各司其职</h3><p>WeClaw Send 只发文件；OpenClaw 继续负责登录和收消息。</p></div></article>
           </div>
         </div>
       </section>
@@ -160,12 +160,12 @@
         <div class="section-shell privacy-grid">
           <div class="privacy-copy reveal">
             <p class="eyebrow"><span></span> 本地优先</p>
-            <h2>文件不绕路<br>账号不离开这台 Mac</h2>
-            <p>WeClaw Send 不设自有云端存储。文件经微信通道发送到你的微信；登录凭据、偏好和记录只保存在本机。</p>
+            <h2>文件不绕路<br>登录留在这台 Mac</h2>
+            <p>文件经微信通道发送到自己的微信，不经过开发者自有服务器。独立登录的数据留在本机；复用 OpenClaw 时，只读当前账号与会话。</p>
             <a class="text-link" href="/guide.html#privacy">了解本机数据与接口边界 <span>→</span></a>
           </div>
           <div class="privacy-map reveal" data-delay="1" aria-label="文件传输路径：Mac 通过微信通道发送到自己的微信">
-            <div class="map-node"><span>01</span><b>你的 Mac</b><small>文件与凭据</small></div>
+            <div class="map-node"><span>01</span><b>你的 Mac</b><small>文件与登录</small></div>
             <div class="map-line"><i></i><small>加密传输</small></div>
             <div class="map-node map-node-accent"><span>02</span><b>微信通道</b><small>没有开发者服务器</small></div>
             <div class="map-line"><i></i><small>附件消息</small></div>
@@ -177,7 +177,8 @@
       <section class="faq section-shell">
         <div class="section-heading reveal"><p class="eyebrow"><span></span> 开始之前</p><h2>常见问题</h2></div>
         <div class="faq-list">
-          <details class="reveal"><summary>是否需要安装 WeClaw 或其它后台<span>+</span></summary><p>不需要。WeClaw Send 可以独立扫码登录；如果已经使用 OpenClaw，也可以只读复用它的微信登录，无需再次扫码。</p></details>
+          <details class="reveal"><summary>一定要安装 OpenClaw 吗<span>+</span></summary><p>不需要。WeClaw Send 可直接扫码；已有 OpenClaw 时，才可选择只读复用它的微信登录和会话。</p></details>
+          <details class="reveal"><summary>复用 OpenClaw 时需要保持它运行吗<span>+</span></summary><p>需要。登录与收消息仍由 OpenClaw 管理；WeClaw Send 只用当前账号和会话来发送文件。</p></details>
           <details class="reveal"><summary>首次打开被 macOS 拦截<span>+</span></summary><p>先尝试打开一次，再到“系统设置 → 隐私与安全性”选择“仍要打开”。</p></details>
           <details class="reveal"><summary>文件大小与并发限制<span>+</span></summary><p>默认单文件上限 200 MB，可在设置中调到 2 GB；最多同时处理 3 个文件。</p></details>
         </div>
