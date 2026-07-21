@@ -1,0 +1,7 @@
+name = "weclaw-send"
+compatibility_date = "2026-07-21"
+pages_build_output_dir = "_site"
+
+[[analytics_engine_datasets]]
+binding = "DOWNLOADS"
+dataset = "weclawsend_downloads"

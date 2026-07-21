@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "website/**"
+      - "wrangler.toml"
       - ".github/workflows/pages.yml"
   workflow_run:
     workflows:
