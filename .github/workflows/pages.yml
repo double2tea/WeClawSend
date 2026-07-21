@@ -38,7 +38,9 @@ jobs:
         run: |
           mkdir -p _site/downloads
           cp -R website/. _site/
-          gh release download \
+          latest_tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')"
+          gh release download "$latest_tag" \
+            --repo "$GITHUB_REPOSITORY" \
             --pattern 'WeClaw-Send.dmg' \
             --pattern 'WeClaw-Send.zip' \
             --dir _site/downloads

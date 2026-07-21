@@ -8,4 +8,4 @@
   Cache-Control: public, max-age=3600, must-revalidate
 
 /downloads/*
-  Cache-Control: public, max-age=3600
+  Cache-Control: no-cache
