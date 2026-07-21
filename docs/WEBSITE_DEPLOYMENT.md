@@ -36,8 +36,10 @@ python3 -m http.server 4173 --directory website
 ## 访问与下载统计
 
 - 访问量、页面、来源、设备、浏览器和国家/地区：在 Cloudflare Pages 项目 `weclaw-send` 的 **Metrics → Web Analytics → Enable** 开启。下次部署后会自动注入无 Cookie 统计脚本。
-- 下载发起次数：页面链接指向 `/dl/dmg` 与 `/dl/zip`；`website/functions/dl/[file].js` 匿名记录后 302 到真实安装包。数据写入 Analytics Engine 数据集 `weclawsend_downloads`（绑定名 `DOWNLOADS`，见根目录 `wrangler.toml`）。
+- 下载发起次数：页面链接指向 `/dl/dmg` 与 `/dl/zip`；优先由 `website/functions/dl/[file].js` 匿名记录后 302 到真实安装包。数据写入 Analytics Engine 数据集 `weclawsend_downloads`（绑定名 `DOWNLOADS`，见根目录 `wrangler.toml`）。
+- 若 Function / Analytics 绑定不可用，`website/_redirects` 会把 `/dl/dmg` 与 `/dl/zip` 静态 302 到 `/downloads/WeClaw-Send.*`，保证下载不中断。
 - Functions 仅匹配 `/dl/*`（见 `website/_routes.json`），其余静态资源不走 Functions 计费路径。
+- 部署命令使用 `wrangler pages deploy`（读取 `wrangler.toml` 的 `pages_build_output_dir` 与 bindings），产物目录为 `_site/`。
 - 查询下载数据示例：
 
 ```sh

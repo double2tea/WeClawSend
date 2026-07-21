@@ -10,12 +10,16 @@ export async function onRequestGet(context) {
     return new Response("Not Found", { status: 404 });
   }
 
-  const country = context.request.cf?.country || "ZZ";
-  context.env.DOWNLOADS.writeDataPoint({
-    blobs: [key, country],
-    doubles: [1],
-    indexes: [key],
-  });
+  try {
+    const country = context.request.cf?.country || "ZZ";
+    context.env.DOWNLOADS?.writeDataPoint?.({
+      blobs: [key, country],
+      doubles: [1],
+      indexes: [key],
+    });
+  } catch {
+    // Analytics must never block downloads.
+  }
 
   const target = new URL(`/downloads/${name}`, context.request.url);
   target.searchParams.set("download", "latest");

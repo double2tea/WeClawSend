@@ -54,5 +54,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: "4"
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy _site --project-name=weclaw-send --branch=main
+          # Use pages_build_output_dir from wrangler.toml so Pages Functions
+          # and Analytics Engine bindings are applied. Directory is prepared as _site/.
+          command: pages deploy --project-name=weclaw-send --branch=main
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
