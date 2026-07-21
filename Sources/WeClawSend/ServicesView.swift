@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ServicesView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,6 +15,7 @@ struct ServicesView: View {
                     settingsSection
                     localAPISection
                     updatesAndIntegrationsSection
+                    feedbackSection
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -440,6 +442,26 @@ struct ServicesView: View {
                     isWorking: model.isDaVinciScriptsBusy,
                     isDisabled: model.isDaVinciScriptsActionDisabled,
                     action: model.installDaVinciScripts
+                )
+            }
+        }
+    }
+
+    private var feedbackSection: some View {
+        compactCard {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("反馈")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 6)
+
+                integrationActionRow(
+                    icon: "bubble.left.and.bubble.right",
+                    title: "产品交流与反馈",
+                    subtitle: "打开飞书文档，提交问题、建议或查看更新说明",
+                    buttonTitle: "打开",
+                    isWorking: false,
+                    action: { openURL(Brand.feedbackURL) }
                 )
             }
         }
