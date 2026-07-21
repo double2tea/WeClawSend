@@ -941,6 +941,15 @@ code {
   background: var(--blue-soft);
   content: "";
 }
+
+.support-invite-actions,
+.guide-ending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
 .guide-ending {
   display: grid;
   grid-template-columns: auto 1fr auto;
