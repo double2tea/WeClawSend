@@ -659,7 +659,15 @@ final class AppModel: ObservableObject {
         打开 https://www.python.org/downloads/macos/
         下载 macOS 安装程序并双击安装，完成后再次执行 python3 --version。
 
-        注意：WeClaw Send 不会替你卸载系统或 Homebrew 的 Python，以免误清环境。
+        注意：WeClaw Send 不会替你安装或卸载系统 / Homebrew 的 Python，以免误清环境。
+
+        自行卸载（可选）：
+        Homebrew：brew uninstall --ignore-dependencies python
+        或：brew uninstall --ignore-dependencies python@3.12
+        然后：brew cleanup
+        官网安装包：删除“应用程序”中的 Python 3.x，并按需清理
+        /Library/Frameworks/Python.framework/Versions/3.x
+        不要删除 macOS 自带的 /usr/bin/python3。
         """
         let alert = NSAlert()
         alert.messageText = "Python 3 安装指南"

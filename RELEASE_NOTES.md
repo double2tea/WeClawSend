@@ -1,9 +1,10 @@
 # v1.7.1
 
 - 设置页为 Premiere 插件与 DaVinci 脚本增加「卸载」。
-- DaVinci 旁增加 Python 3 检测、「重新检测」与「安装指南」（打开官网 / 复制 `brew install python`）。
-- App 只引导安装 Python，不会卸载系统或 Homebrew Python，避免误清环境。
-- 完善 README、使用说明与 DaVinci 文档中的 Python 3.11/3.12 安装步骤，以及卸载说明。
+- DaVinci 旁增加 Python 3 检测、「重新检测」与「安装指南」（打开官网 / 复制 Homebrew 安装命令）。
+- App 只引导安装 Python，不会替你安装或卸载系统 / Homebrew Python，避免误清环境。
+- 完善 README、使用说明与 DaVinci 文档中的完整 Python 安装步骤：检查 `python3 --version`、Homebrew（含首次安装 Homebrew）与官方安装包；推荐 3.11/3.12。
+- 使用说明补充自行卸载 Python 的方式：Homebrew `brew uninstall` 与官网安装包清理路径，并明确不要删除 macOS 自带 `/usr/bin/python3`。
 
 # v1.7.0
 

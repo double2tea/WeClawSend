@@ -212,7 +212,8 @@
                     <li><strong>完全退出并重新打开</strong> DaVinci Resolve（<code>Cmd + Q</code>），脚本只在启动时扫描。</li>
                     <li>在 Deliver 页“在渲染作业结束时触发脚本”中选择对应脚本。</li>
                   </ol>
-                  <p>脚本只写入当前用户的 Deliver 脚本目录，不修改项目或导出预设。没有 Python 3 时，后渲染脚本可能无法运行。</p>
+                  <p>脚本只写入当前用户的 Deliver 脚本目录，不修改项目或导出预设。没有 Python 3 时，后渲染脚本可能无法运行。App 不会替你安装或卸载 Python。</p>
+                  <p><strong>自行卸载 Python（可选）：</strong>Homebrew 执行 <code>brew uninstall --ignore-dependencies python</code>（或 <code>python@3.12</code>）后 <code>brew cleanup</code>；官网安装包把“应用程序”中的 Python 3.x 移到废纸篓，并按需删除 <code>/Library/Frameworks/Python.framework/Versions/3.x</code>。不要删除 macOS 自带的 <code>/usr/bin/python3</code>。若也不再使用脚本，请在设置页点“卸载”。</p>
                 </div>
               </article>
             </div>

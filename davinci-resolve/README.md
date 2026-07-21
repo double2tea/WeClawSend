@@ -62,7 +62,34 @@ brew link --overwrite python
 2. 下载 macOS 安装程序并双击安装
 3. 安装后再次执行 `python3 --version` 确认
 
-App 设置页可检测 Python 并打开安装指南；**不会**替你卸载系统或 Homebrew 的 Python。
+App 设置页可检测 Python 并打开安装指南；**不会**替你安装或卸载系统 / Homebrew 的 Python。
+
+### 卸载 Python（可选，自行操作）
+
+先确认安装来源，**不要删除** macOS 自带的 `/usr/bin/python3`。
+
+**Homebrew：**
+
+```sh
+brew list | grep -Ei '^python(@|$)' || true
+brew uninstall --ignore-dependencies python
+# 或指定版本：brew uninstall --ignore-dependencies python@3.12
+brew cleanup
+python3 --version
+```
+
+**官网安装包：**
+
+1. 把「应用程序」中的 `Python 3.x` 移到废纸篓
+2. 按本机版本删除框架与命令（示例为 3.12）：
+
+```sh
+sudo rm -rf /Library/Frameworks/Python.framework/Versions/3.12
+sudo rm -f /usr/local/bin/python3 /usr/local/bin/pip3
+python3 --version
+```
+
+卸载 Python 不会删除 WeClaw Send 或已安装的 Deliver 脚本；不再使用脚本时，请在 App 设置页点「卸载」。
 
 ### 安装 WeClaw Send 脚本
 
