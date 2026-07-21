@@ -84,7 +84,7 @@ Final Cut Pro 可以在分享完成后直接把成片交给 WeClaw Send，不需
 
 ### DaVinci Resolve
 
-Deliver 后渲染脚本会在渲染完成后自动发送成片，可选择 `.m4v` 文件或 `.mp4` 视频模式。在 App 设置中一键安装，并开启“本地接口”即可使用。
+Deliver 后渲染脚本会在渲染完成后自动发送成片，可选择 `.m4v` 文件或 `.mp4` 视频模式。需要本机 Python 3.6+；在 App 设置中安装后会显示路径并可在 Finder 中打开，开启“本地接口”并重启 DaVinci Resolve 后即可使用。
 
 手动安装、日志和发送模式见 [DaVinci 插件文档](davinci-resolve/README.md)。
 

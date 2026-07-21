@@ -434,15 +434,7 @@ struct ServicesView: View {
 
                 Divider().opacity(0.35).padding(.vertical, 6)
 
-                integrationActionRow(
-                    icon: "wand.and.stars",
-                    title: "DaVinci Resolve 脚本",
-                    subtitle: model.daVinciScriptsSubtitle,
-                    buttonTitle: model.daVinciScriptsButtonTitle,
-                    isWorking: model.isDaVinciScriptsBusy,
-                    isDisabled: model.isDaVinciScriptsActionDisabled,
-                    action: model.installDaVinciScripts
-                )
+                daVinciScriptsIntegrationRow
             }
         }
     }
@@ -544,6 +536,48 @@ struct ServicesView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
                     .disabled(model.isUpdateOperationInProgress || isDisabled)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var daVinciScriptsIntegrationRow: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.primary.opacity(0.05)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("DaVinci Resolve 脚本")
+                    .font(.system(size: 11.5, weight: .medium))
+                Text(model.daVinciScriptsSubtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if model.isDaVinciScriptsBusy {
+                ProgressView()
+                    .controlSize(.mini)
+                    .padding(.top, 4)
+            } else {
+                HStack(spacing: 6) {
+                    if model.canRevealDaVinciScripts {
+                        Button("显示路径") {
+                            model.revealDaVinciScripts()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                        .disabled(model.isUpdateOperationInProgress)
+                    }
+                    Button(model.daVinciScriptsButtonTitle) {
+                        model.installDaVinciScripts()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .disabled(model.isUpdateOperationInProgress || model.isDaVinciScriptsActionDisabled)
+                }
             }
         }
         .frame(maxWidth: .infinity)

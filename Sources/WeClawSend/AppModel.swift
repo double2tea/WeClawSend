@@ -506,13 +506,48 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             do {
                 let version = try await updateManager.installDaVinciScripts()
+                let directoryURL = await updateManager.daVinciScriptsDirectoryURL()
                 daVinciScriptsUpdateState = .current(version)
-                daVinciScriptsMessage = "已安装 \(version)，请重启 DaVinci Resolve"
+                daVinciScriptsMessage =
+                    "已安装 v\(version)，请重启 DaVinci Resolve。路径：\(Self.displayPath(directoryURL))"
                 isInstallingDaVinciScripts = false
             } catch {
                 isInstallingDaVinciScripts = false
                 daVinciScriptsMessage = "安装失败"
                 presentedError = "DaVinci 脚本安装失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    var canRevealDaVinciScripts: Bool {
+        if isDaVinciScriptsBusy { return false }
+        switch daVinciScriptsUpdateState {
+        case .current?, .updateAvailable?, .localNewer?, .repairRequired?:
+            return true
+        case .notInstalled?, nil:
+            return false
+        }
+    }
+
+    func revealDaVinciScripts() {
+        guard canRevealDaVinciScripts else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let directoryURL = await updateManager.daVinciScriptsDirectoryURL()
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue
+            else {
+                presentedError = "未找到 DaVinci 脚本目录：\(Self.displayPath(directoryURL))"
+                return
+            }
+            let scriptURLs = UpdateManager.daVinciScriptNames.map {
+                directoryURL.appendingPathComponent($0)
+            }.filter { FileManager.default.fileExists(atPath: $0.path) }
+            if scriptURLs.isEmpty {
+                NSWorkspace.shared.activateFileViewerSelecting([directoryURL])
+            } else {
+                NSWorkspace.shared.activateFileViewerSelecting(scriptURLs)
             }
         }
     }
@@ -747,6 +782,16 @@ final class AppModel: ObservableObject {
 
     func revealTransfer(_ transfer: TransferRecord) {
         NSWorkspace.shared.activateFileViewerSelecting([transfer.fileURL])
+    }
+
+    private static func displayPath(_ url: URL) -> String {
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let path = url.path
+        if path == homePath { return "~" }
+        if path.hasPrefix(homePath + "/") {
+            return "~" + path.dropFirst(homePath.count)
+        }
+        return path
     }
 
     func retry(_ transfer: TransferRecord) {

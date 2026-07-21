@@ -162,6 +162,7 @@ enum UpdateManagerError: LocalizedError {
     case invalidArchive(String)
     case premierePluginDowngradeNotAllowed(installed: ReleaseVersion, available: ReleaseVersion)
     case daVinciScriptsDowngradeNotAllowed(installed: ReleaseVersion, available: ReleaseVersion)
+    case daVinciScriptsInstallIncomplete(String)
     case currentAppNotWritable(String)
     case commandFailed(String)
 
@@ -189,6 +190,8 @@ enum UpdateManagerError: LocalizedError {
             "已安装的 Premiere 插件 v\(installed) 高于在线版本 v\(available)，已阻止降级"
         case let .daVinciScriptsDowngradeNotAllowed(installed, available):
             "已安装的 DaVinci 脚本 v\(installed) 高于在线版本 v\(available)，已阻止降级"
+        case let .daVinciScriptsInstallIncomplete(path):
+            "DaVinci 脚本安装后校验失败，目标目录缺少完整文件：\(path)"
         case let .currentAppNotWritable(path):
             "当前 App 所在目录不可写：\(path)。请将 App 移至当前用户可写的“应用程序”目录后重试。"
         case let .commandFailed(message):
@@ -474,7 +477,12 @@ actor UpdateManager {
             to: targetDirectory.appendingPathComponent(Self.daVinciInstalledVersionFileName),
             options: .atomic
         )
+        try verifyInstalledDaVinciScripts(expectedVersion: releaseVersion)
         return releaseVersion
+    }
+
+    func daVinciScriptsDirectoryURL() -> URL {
+        daVinciScriptsURL
     }
 
     func latestRelease() async throws -> GitHubRelease {
@@ -685,6 +693,25 @@ actor UpdateManager {
             guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
                 throw UpdateManagerError.invalidArchive(Self.daVinciArchiveName)
             }
+        }
+    }
+
+    private func verifyInstalledDaVinciScripts(expectedVersion: ReleaseVersion) throws {
+        let target = daVinciScriptsURL
+        for name in Self.daVinciScriptNames {
+            var isDirectory: ObjCBool = false
+            let path = target.appendingPathComponent(name).path
+            guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                throw UpdateManagerError.daVinciScriptsInstallIncomplete(target.path)
+            }
+        }
+        let versionURL = target.appendingPathComponent(Self.daVinciInstalledVersionFileName)
+        guard
+            let versionText = try? String(contentsOf: versionURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            ReleaseVersion(tag: versionText) == expectedVersion
+        else {
+            throw UpdateManagerError.daVinciScriptsInstallIncomplete(target.path)
         }
     }
 

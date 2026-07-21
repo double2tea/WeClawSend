@@ -1100,6 +1100,21 @@ let installedDaVinciVersion = try String(
     encoding: .utf8
 ).trimmingCharacters(in: .whitespacesAndNewlines)
 precondition(installedDaVinciVersion == "9.1.0")
+let verifiedDaVinciBox = UpdateInstallResultBox()
+let verifiedDaVinciFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        verifiedDaVinciBox.daVinciVersion = try await installerManager.installedDaVinciScriptsVersion()
+        verifiedDaVinciBox.daVinciDirectory = await installerManager.daVinciScriptsDirectoryURL()
+    } catch {
+        verifiedDaVinciBox.error = error
+    }
+    verifiedDaVinciFinished.signal()
+}
+precondition(verifiedDaVinciFinished.wait(timeout: .now() + 10) == .success)
+precondition(verifiedDaVinciBox.error == nil)
+precondition(verifiedDaVinciBox.daVinciVersion?.description == "9.1.0")
+precondition(verifiedDaVinciBox.daVinciDirectory?.path == existingDaVinci.path)
 
 try Data("10.0.0\n".utf8).write(
     to: existingDaVinci.appending(path: UpdateManager.daVinciInstalledVersionFileName),
@@ -1284,6 +1299,7 @@ final class UpdateInstallResultBox: @unchecked Sendable {
     var premiereVersion: ReleaseVersion?
     var daVinciState: DaVinciScriptsUpdateState?
     var daVinciVersion: ReleaseVersion?
+    var daVinciDirectory: URL?
 }
 
 final class RequestConcurrencyTracker: @unchecked Sendable {

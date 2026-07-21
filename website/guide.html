@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="WeClaw Send 的安装、登录、会话绑定、发送文件和剪辑软件接入说明。">
-    <meta name="theme-color" content="#101820">
+    <meta name="theme-color" content="#f6f5f2">
     <title>使用说明 | WeClaw Send</title>
     <link rel="icon" href="/assets/brand-mark.png">
     <link rel="stylesheet" href="/assets/styles.css">
@@ -13,21 +13,37 @@
   <body class="guide-page">
     <a class="skip-link" href="#guide-main">跳到正文</a>
     <header class="site-header" data-header>
-      <a class="brand" href="/" aria-label="WeClaw Send 首页"><img src="/assets/brand-mark.png" alt="" width="36" height="36"><span>WeClaw Send</span></a>
-      <button class="nav-toggle" type="button" aria-label="打开导航" aria-expanded="false" data-nav-toggle><span></span><span></span></button>
-      <nav class="site-nav" aria-label="主导航" data-nav><a href="/">作品页</a><a href="#install">安装</a><a href="#editors-guide">剪辑软件</a><a href="#troubleshooting">故障排查</a><a href="/support.html">赞赏</a><a class="nav-download" href="/dl/dmg">下载</a></nav>
+      <a class="brand" href="/" aria-label="WeClaw Send 首页">
+        <img src="/assets/brand-mark.png" alt="" width="32" height="32">
+        <span>WeClaw Send</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-label="打开导航" aria-expanded="false" data-nav-toggle>
+        <span></span><span></span>
+      </button>
+      <nav class="site-nav" aria-label="主导航" data-nav>
+        <a href="/">作品页</a>
+        <a href="#install">安装</a>
+        <a href="#editors-guide">剪辑软件</a>
+        <a href="#troubleshooting">故障排查</a>
+        <a href="/support.html">赞赏</a>
+        <a class="nav-download" href="/dl/dmg">下载</a>
+      </nav>
     </header>
 
     <main id="guide-main">
       <section class="guide-hero section-shell">
         <div>
-          <p class="eyebrow"><span></span> 使用说明</p>
-          <h1>从安装到<br><em>第一次发送</em></h1>
+          <p class="section-kicker">使用说明</p>
+          <h1>从安装到<br>第一次发送</h1>
           <p>不用命令行。扫码后完成会话绑定，或复用这台 Mac 已登录的 OpenClaw。</p>
         </div>
         <div class="quick-card">
           <p>快速开始</p>
-          <ol><li><span>1</span>把 WeClaw Send 拖进“应用程序”</li><li><span>2</span>在隐私与安全性中允许首次打开</li><li><span>3</span>完成连接后，拖入文件</li></ol>
+          <ol>
+            <li><span>1</span>把 WeClaw Send 拖进“应用程序”</li>
+            <li><span>2</span>在隐私与安全性中允许首次打开</li>
+            <li><span>3</span>完成连接后，拖入文件</li>
+          </ol>
           <a class="button button-primary" href="/dl/dmg">下载 DMG</a>
         </div>
       </section>
@@ -35,74 +51,235 @@
       <div class="guide-layout section-shell">
         <aside class="guide-nav" aria-label="说明目录">
           <p>目录</p>
-          <a href="#install">安装</a><a href="#first-use">微信登录</a><a href="#send">发送文件</a><a href="#settings">常用设置</a><a href="#editors-guide">剪辑软件</a><a href="#troubleshooting">故障排查</a><a href="#privacy">隐私与安全</a><a href="#uninstall">退出与卸载</a>
+          <a href="#install">安装</a>
+          <a href="#first-use">微信登录</a>
+          <a href="#send">发送文件</a>
+          <a href="#settings">常用设置</a>
+          <a href="#editors-guide">剪辑软件</a>
+          <a href="#troubleshooting">故障排查</a>
+          <a href="#privacy">隐私与安全</a>
+          <a href="#uninstall">退出与卸载</a>
         </aside>
 
         <article class="guide-content">
           <section id="install">
-            <span class="chapter">01</span><h2>安装</h2>
-            <div class="requirement"><b>系统要求</b><span>macOS 14 或更新 · Apple 芯片 / Intel 芯片</span></div>
-            <ol class="instruction-list"><li><span>1</span><p>下载并打开 <code>WeClaw-Send.dmg</code>；也可以<a class="inline-link" href="/dl/zip">下载 ZIP</a> 后解压。</p></li><li><span>2</span><p>把 <strong>WeClaw Send</strong> 拖进“应用程序”文件夹，然后双击打开。</p></li><li><span>3</span><p>如果系统提示无法验证开发者，先关闭提示，再前往 <strong>系统设置 → 隐私与安全性</strong>。</p></li><li><span>4</span><p>找到 WeClaw Send 被阻止的提示，点击<strong>仍要打开</strong>并确认。</p></li><li><span>5</span><p>屏幕右上角出现纸飞机图标即安装完成。应用不会固定显示在程序坞。</p></li></ol>
-            <div class="callout"><b>为什么需要手动允许</b><p>当前发布包未使用 Apple Developer ID 签名，首次打开需由 Mac 所有者确认。</p></div>
+            <span class="chapter">01</span>
+            <h2>安装</h2>
+            <div class="requirement">
+              <b>系统要求</b>
+              <span>macOS 14 或更新 · Apple 芯片 / Intel 芯片</span>
+            </div>
+            <ol class="instruction-list">
+              <li><span>1</span><p>下载并打开 <code>WeClaw-Send.dmg</code>；也可以<a class="inline-link" href="/dl/zip">下载 ZIP</a> 后解压。</p></li>
+              <li><span>2</span><p>把 <strong>WeClaw Send</strong> 拖进“应用程序”文件夹，然后双击打开。</p></li>
+              <li><span>3</span><p>如果系统提示无法验证开发者，先关闭提示，再前往 <strong>系统设置 → 隐私与安全性</strong>。</p></li>
+              <li><span>4</span><p>找到 WeClaw Send 被阻止的提示，点击<strong>仍要打开</strong>并确认。</p></li>
+              <li><span>5</span><p>屏幕右上角出现纸飞机图标即安装完成。应用不会固定显示在程序坞。</p></li>
+            </ol>
+            <div class="callout">
+              <b>为什么需要手动允许</b>
+              <p>当前发布包未使用 Apple Developer ID 签名，首次打开需由 Mac 所有者确认。</p>
+            </div>
           </section>
 
           <section id="first-use">
-            <span class="chapter">02</span><h2>选择登录方式</h2>
+            <span class="chapter">02</span>
+            <h2>选择登录方式</h2>
             <p>有两种方式：独立扫码，或复用这台 Mac 已登录的 OpenClaw。</p>
-            <div class="guide-media"><img src="/assets/app-settings.png" alt="WeClaw Send 设置页"></div>
+            <div class="guide-media">
+              <img src="/assets/app-settings.png" alt="WeClaw Send 设置页">
+            </div>
             <h3>独立扫码</h3>
-            <ol class="instruction-list"><li><span>1</span><p>点击菜单栏纸飞机，打开<strong>设置</strong>，再点击<strong>扫码登录</strong>。</p></li><li><span>2</span><p>使用手机微信扫码并确认。如手机显示配对码，按提示填入并确认。</p></li><li><span>3</span><p>在微信里给 ClawBot 发任意消息。应用取得可发送文件的会话后会显示“已连接”。</p></li></ol>
-            <div class="callout callout-blue"><b>复用 OpenClaw</b><p>在“设置 → 登录方式”选择 OpenClaw。单账号会自动选中，多账号请手动选择。WeClaw Send 只读取当前账号和会话，发送时请保持 OpenClaw 运行。</p></div>
-            <div class="callout callout-blue"><b>扫码后没有连接</b><p>扫码确认不代表连接完成。先在微信里给 ClawBot 发一条消息。仍无反应时，取消后重新扫码，并暂时关闭代理或网络过滤工具。</p></div>
+            <ol class="instruction-list">
+              <li><span>1</span><p>点击菜单栏纸飞机，打开<strong>设置</strong>，再点击<strong>扫码登录</strong>。</p></li>
+              <li><span>2</span><p>使用手机微信扫码并确认。如手机显示配对码，按提示填入并确认。</p></li>
+              <li><span>3</span><p>在微信里给 ClawBot 发任意消息。应用取得可发送文件的会话后会显示“已连接”。</p></li>
+            </ol>
+            <div class="callout callout-blue">
+              <b>复用 OpenClaw</b>
+              <p>在“设置 → 登录方式”选择 OpenClaw。单账号会自动选中，多账号请手动选择。WeClaw Send 只读取当前账号和会话，发送时请保持 OpenClaw 运行。</p>
+            </div>
+            <div class="callout callout-blue">
+              <b>扫码后没有连接</b>
+              <p>扫码确认不代表连接完成。先在微信里给 ClawBot 发一条消息。仍无反应时，取消后重新扫码，并暂时关闭代理或网络过滤工具。</p>
+            </div>
           </section>
 
           <section id="send">
-            <span class="chapter">03</span><h2>发送文件</h2>
+            <span class="chapter">03</span>
+            <h2>发送文件</h2>
             <p>可以从这三处开始发送：</p>
-            <div class="method-grid"><article><span>↗</span><h3>拖到菜单栏</h3><p>把 Finder 中的文件拖到右上角纸飞机。</p></article><article><span>＋</span><h3>面板选择</h3><p>点开纸飞机，选择一个或多个文件。</p></article><article><span>↓</span><h3>拖到面板</h3><p>把文件拖入面板中的虚线区域。</p></article></div>
-            <div class="guide-media wide"><img src="/assets/app-main.png" alt="WeClaw Send 发送面板"></div>
-            <p>“最近传输”会显示准备、加密、上传和完成。失败项可以直接重新发送。</p>
-            <table><thead><tr><th>项目</th><th>限制</th></tr></thead><tbody><tr><td>单文件大小</td><td>默认 200 MB，可选 100 MB、500 MB、1 GB 或 2 GB</td></tr><tr><td>并行处理</td><td>最多 3 个文件</td></tr><tr><td>消息提交</td><td>保持顺序，相邻两条至少间隔 2 秒</td></tr><tr><td>最近记录</td><td>保留 20 条，只存在本机</td></tr></tbody></table>
+            <div class="method-grid">
+              <article>
+                <span>↗</span>
+                <h3>拖到菜单栏</h3>
+                <p>把 Finder 中的文件拖到右上角纸飞机。</p>
+              </article>
+              <article>
+                <span>＋</span>
+                <h3>面板选择</h3>
+                <p>点开纸飞机，选择一个或多个文件。</p>
+              </article>
+              <article>
+                <span>↓</span>
+                <h3>剪辑软件导出</h3>
+                <p>Premiere、Final Cut 或 DaVinci 导出完成后自动发送。</p>
+              </article>
+            </div>
+            <table class="limits">
+              <tbody>
+                <tr><th>单文件上限</th><td>默认 200 MB，设置中可调到 2 GB</td></tr>
+                <tr><th>并发处理</th><td>最多 3 个并行任务</td></tr>
+                <tr><th>自动发送</th><td>可按导出顺序，相邻两条至少间隔 2 秒</td></tr>
+                <tr><th>最近记录</th><td>保留 20 条，只存在本机</td></tr>
+              </tbody>
+            </table>
           </section>
 
           <section id="settings">
-            <span class="chapter">04</span><h2>常用设置</h2>
-            <div class="setting-list"><article><h3>登录时自动启动</h3><p>开机后自动出现在菜单栏，无需手动打开。</p></article><article><h3>.mp4 显示为 .m4v</h3><p>只改变微信附件的显示名，不修改 Mac 上的原文件。</p></article><article><h3>单文件大小上限</h3><p>调整应用本地校验。较大文件最终是否送达仍由微信服务决定。</p></article><article><h3>本地接口</h3><p>供 Premiere、DaVinci 和本机脚本调用，默认无需开启。</p></article><article><h3>在线更新</h3><p>发现新版本时会先显示更新内容。关闭后当前版本不再提醒。</p></article></div>
+            <span class="chapter">04</span>
+            <h2>常用设置</h2>
+            <div class="setting-list">
+              <article>
+                <h3>登录时自动启动</h3>
+                <p>开机后自动出现在菜单栏，无需手动打开。</p>
+              </article>
+              <article>
+                <h3>.mp4 显示为 .m4v</h3>
+                <p>只改变微信附件的显示名，不修改 Mac 上的原文件。</p>
+              </article>
+              <article>
+                <h3>单文件大小上限</h3>
+                <p>调整应用本地校验。较大文件最终是否送达仍由微信服务决定。</p>
+              </article>
+              <article>
+                <h3>本地接口</h3>
+                <p>供 Premiere、DaVinci 和本机脚本调用，默认无需开启。</p>
+              </article>
+              <article>
+                <h3>在线更新</h3>
+                <p>发现新版本时会先显示更新内容。关闭后当前版本不再提醒。</p>
+              </article>
+            </div>
           </section>
 
           <section id="editors-guide">
-            <span class="chapter">05</span><h2>剪辑软件接入</h2>
+            <span class="chapter">05</span>
+            <h2>剪辑软件接入</h2>
             <div class="editor-guide">
-              <article><span class="editor-sequence">01</span><div><h3>Premiere Pro</h3><ol><li>WeClaw Send 设置 → Premiere Pro 插件 → 一键安装。</li><li>重启 Premiere，从“窗口 → 扩展 → WeClaw Send”打开。</li><li>选择导出预设和完整序列或 I/O 范围。</li><li>自动发送时，先在 App 设置中开启“本地接口”。</li></ol><p>发送失败只重试发送，不重新渲染。</p></div></article>
-              <article><span class="editor-sequence">02</span><div><h3>Final Cut Pro</h3><ol><li>打开“Final Cut Pro → 设置 → 目的位置”。</li><li>选择“导出文件”，把“操作”设为“其他”。</li><li>选择 <code>/Applications/WeClaw Send.app</code>。</li><li>使用该目的位置分享项目，完成后会自动发送。</li></ol><img class="inline-shot" src="/assets/final-cut-settings.jpg" alt="Final Cut Pro 目的位置设置"></div></article>
-              <article><span class="editor-sequence">03</span><div><h3>DaVinci Resolve</h3><ol><li>WeClaw Send 设置 → DaVinci Resolve 脚本 → 一键安装。</li><li>在设置中开启“本地接口”。</li><li>重启 Resolve，在 Deliver 页面使用自动发送脚本。</li></ol><p>脚本只写入当前用户的 Deliver 脚本目录，不修改项目或导出预设。</p></div></article>
+              <article>
+                <span class="editor-sequence">01</span>
+                <div>
+                  <h3>Premiere Pro</h3>
+                  <ol>
+                    <li>WeClaw Send 设置 → Premiere Pro 插件 → 一键安装。</li>
+                    <li>重启 Premiere，从“窗口 → 扩展 → WeClaw Send”打开。</li>
+                    <li>选择导出预设和完整序列或 I/O 范围。</li>
+                    <li>自动发送时，先在 App 设置中开启“本地接口”。</li>
+                  </ol>
+                  <p>发送失败只重试发送，不重新渲染。</p>
+                </div>
+              </article>
+              <article>
+                <span class="editor-sequence">02</span>
+                <div>
+                  <h3>Final Cut Pro</h3>
+                  <ol>
+                    <li>打开“Final Cut Pro → 设置 → 目的位置”。</li>
+                    <li>选择“导出文件”，把“操作”设为“其他”。</li>
+                    <li>选择 <code>/Applications/WeClaw Send.app</code>。</li>
+                    <li>使用该目的位置分享项目，完成后会自动发送。</li>
+                  </ol>
+                  <img class="inline-shot" src="/assets/final-cut-settings.jpg" alt="Final Cut Pro 目的位置设置">
+                </div>
+              </article>
+              <article>
+                <span class="editor-sequence">03</span>
+                <div>
+                  <h3>DaVinci Resolve</h3>
+                  <ol>
+                    <li>WeClaw Send 设置 → DaVinci Resolve 脚本 → 一键安装。</li>
+                    <li>在设置中开启“本地接口”。</li>
+                    <li>重启 Resolve，在 Deliver 页面使用自动发送脚本。</li>
+                  </ol>
+                  <p>脚本只写入当前用户的 Deliver 脚本目录，不修改项目或导出预设。</p>
+                </div>
+              </article>
             </div>
           </section>
 
           <section id="troubleshooting">
-            <span class="chapter">06</span><h2>故障排查</h2>
-            <details open><summary>提示“无法验证开发者”</summary><p>先尝试打开一次应用，然后到“系统设置 → 隐私与安全性”，找到拦截提示并点击“仍要打开”。</p></details>
-            <details><summary>提示“已损坏，无法打开”</summary><p>删除当前 App，重新打开原始 DMG 或重新解压 ZIP，再拖入“应用程序”。不要使用来源不明的终端命令绕过系统检查。</p></details>
-            <details><summary>双击后没有窗口</summary><p>这是菜单栏应用。查看 Wi‑Fi 和电池附近是否有纸飞机；菜单栏图标过多时，先展开隐藏项目。</p></details>
-            <details><summary>能打开，但发不了</summary><p>确认设置中显示“已连接”，检查文件是否超过上限。若使用 OpenClaw 登录，确认 OpenClaw 正在运行；若提示会话需要刷新，请给 ClawBot 发一条消息，应用取得新上下文后会自动重试。</p></details>
-            <details><summary>发送一直排队</summary><p>同时处理数已满 3 个时会排队；大文件的加密和上传也需要时间。请在“最近传输”查看当前阶段。</p></details>
-            <details><summary>Final Cut 显示分享成功，但没有发送</summary><p>确认已安装当前发布版，并重新选择 <code>/Applications/WeClaw Send.app</code>，避免目的位置仍指向旧安装。</p></details>
+            <span class="chapter">06</span>
+            <h2>故障排查</h2>
+            <details open>
+              <summary>提示“无法验证开发者”</summary>
+              <p>先尝试打开一次应用，然后到“系统设置 → 隐私与安全性”，找到拦截提示并点击“仍要打开”。</p>
+            </details>
+            <details>
+              <summary>提示“已损坏，无法打开”</summary>
+              <p>删除当前 App，重新打开原始 DMG 或重新解压 ZIP，再拖入“应用程序”。不要使用来源不明的终端命令绕过系统检查。</p>
+            </details>
+            <details>
+              <summary>双击后没有窗口</summary>
+              <p>这是菜单栏应用。查看 Wi‑Fi 和电池附近是否有纸飞机；菜单栏图标过多时，先展开隐藏项目。</p>
+            </details>
+            <details>
+              <summary>能打开，但发不了</summary>
+              <p>确认设置中显示“已连接”，检查文件是否超过上限。若使用 OpenClaw 登录，确认 OpenClaw 正在运行；若提示会话需要刷新，请给 ClawBot 发一条消息，应用取得新上下文后会自动重试。</p>
+            </details>
+            <details>
+              <summary>发送一直排队</summary>
+              <p>同时处理数已满 3 个时会排队；大文件的加密和上传也需要时间。请在“最近传输”查看当前阶段。</p>
+            </details>
+            <details>
+              <summary>Final Cut 显示分享成功，但没有发送</summary>
+              <p>确认已安装当前发布版，并重新选择 <code>/Applications/WeClaw Send.app</code>，避免目的位置仍指向旧安装。</p>
+            </details>
           </section>
 
           <section id="privacy">
-            <span class="chapter">07</span><h2>隐私与安全</h2>
-            <ul class="check-list"><li>不设开发者自有云端存储，文件通过微信通道发到你自己的 ClawBot。</li><li>独立登录的凭据、偏好和传输记录保存在 <code>~/Library/Application Support/WeClawSend/</code>。</li><li>选择 OpenClaw 登录时，只读使用其本机状态目录中的当前账号与会话，不复制或修改 OpenClaw 文件，也不收取微信消息。</li><li>可选本地接口默认关闭，只监听 <code>127.0.0.1:18790</code>，不会向局域网开放。</li><li>普通菜单栏发送不依赖本地接口。</li></ul>
+            <span class="chapter">07</span>
+            <h2>隐私与安全</h2>
+            <ul class="check-list">
+              <li>不设开发者自有云端存储，文件通过微信通道发到你自己的 ClawBot。</li>
+              <li>独立登录的凭据、偏好和传输记录保存在 <code>~/Library/Application Support/WeClawSend/</code>。</li>
+              <li>选择 OpenClaw 登录时，只读使用其本机状态目录中的当前账号与会话，不复制或修改 OpenClaw 文件，也不收取微信消息。</li>
+              <li>可选本地接口默认关闭，只监听 <code>127.0.0.1:18790</code>，不会向局域网开放。</li>
+              <li>普通菜单栏发送不依赖本地接口。</li>
+            </ul>
           </section>
 
           <section id="uninstall">
-            <span class="chapter">08</span><h2>退出与卸载</h2>
-            <p><strong>退出：</strong>菜单栏纸飞机 → 设置 → 退出。</p><p><strong>卸载：</strong>退出后，把“应用程序”中的 WeClaw Send 移到废纸篓。若要同时清除独立登录数据，再删除 <code>~/Library/Application Support/WeClawSend</code>；不会影响 OpenClaw 的本机数据。</p>
+            <span class="chapter">08</span>
+            <h2>退出与卸载</h2>
+            <p><strong>退出：</strong>菜单栏纸飞机 → 设置 → 退出。</p>
+            <p><strong>卸载：</strong>退出后，把“应用程序”中的 WeClaw Send 移到废纸篓。若要同时清除独立登录数据，再删除 <code>~/Library/Application Support/WeClawSend</code>；不会影响 OpenClaw 的本机数据。</p>
           </section>
         </article>
       </div>
 
-      <section class="guide-ending section-shell"><img src="/assets/brand-mark.png" alt="" width="72" height="72"><div><h2>现在就试一次</h2><p>下载 WeClaw Send，发出第一个文件。</p></div><a class="button button-primary" href="/dl/dmg">下载 macOS 版</a></section>
+      <section class="guide-ending section-shell">
+        <img src="/assets/brand-mark.png" alt="" width="56" height="56">
+        <div>
+          <h2>现在就试一次</h2>
+          <p>下载 WeClaw Send，发出第一个文件。</p>
+        </div>
+        <a class="button button-primary" href="/dl/dmg">下载 macOS 版</a>
+      </section>
     </main>
-    <footer class="site-footer"><div class="footer-brand"><img src="/assets/brand-mark.png" alt="" width="32" height="32"><span>WeClaw Send</span></div><nav aria-label="页脚导航"><a href="/">作品页</a><a href="/support.html">赞赏</a><a href="https://github.com/double2tea/WeClawSend">GitHub</a><a href="mailto:double_tea@foxmail.com">联系作者</a></nav><small>© 2026 WeClaw Send · MIT License</small></footer>
+
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <img src="/assets/brand-mark.png" alt="" width="28" height="28">
+        <span>WeClaw Send</span>
+      </div>
+      <nav aria-label="页脚导航">
+        <a href="/">作品页</a>
+        <a href="/support.html">赞赏</a>
+        <a href="https://github.com/double2tea/WeClawSend">GitHub</a>
+        <a href="mailto:double_tea@foxmail.com">联系作者</a>
+      </nav>
+      <small>© 2026 WeClaw Send · MIT License</small>
+    </footer>
   </body>
 </html>

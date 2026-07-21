@@ -15,8 +15,12 @@ for name in \
     "自动发送ClawBot_MP4视频.py"
 do
     install -m 0644 "$SOURCE_DIR/$name" "$TARGET_DIR/$name"
+    [[ -f "$TARGET_DIR/$name" ]]
 done
 install -m 0644 "$VERSION_FILE" "$TARGET_DIR/.weclaw-send-version"
+[[ -f "$TARGET_DIR/.weclaw-send-version" ]]
 
 print -r -- "已安装 DaVinci Resolve 自动发送脚本：$TARGET_DIR"
-print -r -- "请在 WeClaw Send 设置中启用本地接口，并重启 DaVinci Resolve。"
+print -r -- "请确认目录中存在两个 自动发送ClawBot_*.py 文件。"
+print -r -- "需要 Python 3.6+（python3 --version）。"
+print -r -- "请在 WeClaw Send 设置中启用本地接口，并完全退出后重启 DaVinci Resolve。"
