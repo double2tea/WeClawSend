@@ -50,3 +50,37 @@ curl -X POST "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_
 
 区域粒度为国家级。统计的是“发起下载”，不能证明文件已完整下载完成。
 
+## 私有数据页
+
+地址：`https://weclaw-send.pages.dev/stats`
+
+- **不出现在导航、sitemap**；`robots.txt` 已禁止抓取。
+- 需要密钥：`STATS_ACCESS_KEY`
+- 查询下载统计还需要：
+  - `CLOUDFLARE_ACCOUNT_ID`
+  - `CLOUDFLARE_API_TOKEN`（Account 权限至少能读 Analytics Engine SQL）
+
+在 Cloudflare Dashboard → **Workers & Pages** → `weclaw-send` → **Settings → Environment variables** 添加上述变量（Production）。
+
+或用 CLI：
+
+```sh
+npx wrangler pages secret put STATS_ACCESS_KEY --project-name=weclaw-send
+npx wrangler pages secret put CLOUDFLARE_API_TOKEN --project-name=weclaw-send
+npx wrangler pages secret put CLOUDFLARE_ACCOUNT_ID --project-name=weclaw-send
+```
+
+打开方式：
+
+```text
+https://weclaw-send.pages.dev/stats?key=你的密钥
+```
+
+验证通过后会写入仅用于 `/stats` 的 HttpOnly cookie，后续可直接打开 `/stats`。
+
+说明：
+
+- 只统计 `/dl/dmg`、`/dl/zip` 发起次数
+- 直接访问 `/downloads/*` 不计入
+- 页面展示最近 30 天汇总
+
