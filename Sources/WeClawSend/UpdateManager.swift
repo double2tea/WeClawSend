@@ -232,9 +232,19 @@ actor UpdateManager {
         "js/protocol.js",
         "jsx/host.jsx"
     ]
+    /// Both Deliver entries are installed by default so users can pick in Resolve.
     nonisolated static let daVinciScriptNames = [
+        "WeClawSend_Lua.lua",
+        "WeClawSend_Python.py"
+    ]
+    /// Previous entry names cleaned up on install/uninstall.
+    nonisolated static let daVinciLegacyScriptNames = [
+        "WeClawSend.lua",
+        "weclaw_postrender_send.py",
         "自动发送ClawBot_M4V文件.py",
-        "自动发送ClawBot_MP4视频.py"
+        "自动发送ClawBot_MP4视频.py",
+        "自动发送ClawBot_M4V文件.lua",
+        "自动发送ClawBot_MP4视频.lua"
     ]
     nonisolated static let daVinciVersionFileName = "VERSION"
     nonisolated static let daVinciInstalledVersionFileName = ".weclaw-send-version"
@@ -433,7 +443,7 @@ actor UpdateManager {
     }
 
     func installedDaVinciScriptsVersion() throws -> ReleaseVersion? {
-        let target = daVinciScriptsURL
+        let target = daVinciUserScriptsURL
         let existingScripts = Self.daVinciScriptNames.filter {
             fileManager.fileExists(atPath: target.appendingPathComponent($0).path)
         }
@@ -481,65 +491,67 @@ actor UpdateManager {
         let sourceRoot = extractedDirectory.appendingPathComponent("davinci-resolve", isDirectory: true)
         try validateDaVinciScripts(at: sourceRoot, version: releaseVersion)
         let sourceDirectory = sourceRoot.appendingPathComponent("Deliver", isDirectory: true)
-        let targetDirectory = daVinciScriptsURL
-        try fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
 
-        for name in Self.daVinciScriptNames {
-            let source = sourceDirectory.appendingPathComponent(name)
-            guard fileManager.fileExists(atPath: source.path) else {
-                throw UpdateManagerError.invalidArchive(Self.daVinciArchiveName)
+        // User directory is required; system directory is best-effort (may need elevated write).
+        var installedTargets: [URL] = []
+        for targetDirectory in daVinciInstallTargetURLs {
+            let isUserTarget = targetDirectory.path == daVinciUserScriptsURL.path
+            do {
+                try fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+                for name in Self.daVinciScriptNames {
+                    let source = sourceDirectory.appendingPathComponent(name)
+                    guard fileManager.fileExists(atPath: source.path) else {
+                        throw UpdateManagerError.invalidArchive(Self.daVinciArchiveName)
+                    }
+                    try replaceItem(at: targetDirectory.appendingPathComponent(name), with: source)
+                }
+                try Data("\(releaseVersion)\n".utf8).write(
+                    to: targetDirectory.appendingPathComponent(Self.daVinciInstalledVersionFileName),
+                    options: .atomic
+                )
+                try removeDaVinciLegacyScripts(in: targetDirectory)
+                installedTargets.append(targetDirectory)
+            } catch {
+                if isUserTarget { throw error }
             }
-            try replaceItem(at: targetDirectory.appendingPathComponent(name), with: source)
         }
-        try Data("\(releaseVersion)\n".utf8).write(
-            to: targetDirectory.appendingPathComponent(Self.daVinciInstalledVersionFileName),
-            options: .atomic
-        )
+        guard installedTargets.contains(where: { $0.path == daVinciUserScriptsURL.path }) else {
+            throw UpdateManagerError.daVinciScriptsInstallIncomplete(daVinciUserScriptsURL.path)
+        }
         try verifyInstalledDaVinciScripts(expectedVersion: releaseVersion)
         return releaseVersion
     }
 
     func uninstallDaVinciScripts() throws {
-        let target = daVinciScriptsURL
-        let removable = Self.daVinciScriptNames + [Self.daVinciInstalledVersionFileName]
-        let existing = removable.filter {
-            fileManager.fileExists(atPath: target.appendingPathComponent($0).path)
+        let removable = Self.daVinciScriptNames
+            + Self.daVinciLegacyScriptNames
+            + [Self.daVinciInstalledVersionFileName]
+        var removedAny = false
+        for target in daVinciInstallTargetURLs {
+            let existing = removable.filter {
+                fileManager.fileExists(atPath: target.appendingPathComponent($0).path)
+            }
+            if existing.isEmpty { continue }
+            for name in existing {
+                try fileManager.removeItem(at: target.appendingPathComponent(name))
+            }
+            removedAny = true
         }
-        guard !existing.isEmpty else {
+        guard removedAny else {
             throw UpdateManagerError.daVinciScriptsNotInstalled
-        }
-        for name in existing {
-            try fileManager.removeItem(at: target.appendingPathComponent(name))
         }
     }
 
     func daVinciScriptsDirectoryURL() -> URL {
-        daVinciScriptsURL
+        daVinciUserScriptsURL
     }
 
-    func detectedPython3Version() throws -> String? {
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3", "--version"]
-        process.standardOutput = output
-        process.standardError = output
-        do {
-            try process.run()
-        } catch {
-            return nil
+    func daVinciInstalledDirectoryURLs() -> [URL] {
+        daVinciInstallTargetURLs.filter { target in
+            Self.daVinciScriptNames.contains {
+                fileManager.fileExists(atPath: target.appendingPathComponent($0).path)
+            }
         }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        let text = String(
-            data: output.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !text.isEmpty else { return nil }
-        if text.lowercased().hasPrefix("python ") {
-            return String(text.dropFirst("Python ".count))
-        }
-        return text
     }
 
     func latestRelease() async throws -> GitHubRelease {
@@ -689,11 +701,26 @@ actor UpdateManager {
             .appendingPathComponent(Self.premiereExtensionID, isDirectory: true)
     }
 
-    private var daVinciScriptsURL: URL {
+    private var daVinciUserScriptsURL: URL {
         homeDirectory.appendingPathComponent(
             "Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Deliver",
             isDirectory: true
         )
+    }
+
+    private var daVinciSystemScriptsURL: URL {
+        URL(fileURLWithPath: "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Deliver", isDirectory: true)
+    }
+
+    private var daVinciInstallTargetURLs: [URL] {
+        var urls = [daVinciUserScriptsURL]
+        // Mirror to system Deliver only for the real user home (not unit-test fixtures).
+        if homeDirectory.standardizedFileURL
+            == FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        {
+            urls.append(daVinciSystemScriptsURL)
+        }
+        return urls
     }
 
     private func releaseComponents(in release: GitHubRelease) async throws -> ReleaseComponents {
@@ -754,7 +781,7 @@ actor UpdateManager {
     }
 
     private func verifyInstalledDaVinciScripts(expectedVersion: ReleaseVersion) throws {
-        let target = daVinciScriptsURL
+        let target = daVinciUserScriptsURL
         for name in Self.daVinciScriptNames {
             var isDirectory: ObjCBool = false
             let path = target.appendingPathComponent(name).path
@@ -769,6 +796,15 @@ actor UpdateManager {
             ReleaseVersion(tag: versionText) == expectedVersion
         else {
             throw UpdateManagerError.daVinciScriptsInstallIncomplete(target.path)
+        }
+    }
+
+    private func removeDaVinciLegacyScripts(in targetDirectory: URL) throws {
+        for name in Self.daVinciLegacyScriptNames {
+            let url = targetDirectory.appendingPathComponent(name)
+            if fileManager.fileExists(atPath: url.path) {
+                try fileManager.removeItem(at: url)
+            }
         }
     }
 

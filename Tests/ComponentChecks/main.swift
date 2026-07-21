@@ -1,6 +1,20 @@
 import AppKit
 import Foundation
 
+var singleSuccessBatch = SendResultNotificationBatch()
+singleSuccessBatch.recordSuccess(fileName: "a.mp4")
+precondition(singleSuccessBatch.body == "发送完成：a.mp4")
+
+var multiSuccessBatch = SendResultNotificationBatch()
+multiSuccessBatch.recordSuccess(fileName: "a.mp4")
+multiSuccessBatch.recordSuccess(fileName: "b.mp4")
+precondition(multiSuccessBatch.body == "已发送 2 个文件")
+
+var mixedBatch = SendResultNotificationBatch()
+mixedBatch.recordSuccess(fileName: "a.mp4")
+mixedBatch.recordFailure(fileName: "b.mp4", message: "网络错误")
+precondition(mixedBatch.body == "发送完成 1 个，失败 1 个")
+
 precondition(WeChatCrypto.md5Hex(Data("abc".utf8)) == "900150983cd24fb0d6963f7d28e17f72")
 
 let aesKey = Data(hex: "2b7e151628aed2a6abf7158809cf4f3c")!
@@ -1124,7 +1138,6 @@ Task {
         try await installerManager.uninstallPremierePlugin()
         uninstallBox.daVinciVersion = try await installerManager.installedDaVinciScriptsVersion()
         uninstallBox.installedPremiereVersion = try await installerManager.installedPremierePluginVersion()
-        uninstallBox.pythonVersion = try await installerManager.detectedPython3Version()
     } catch {
         uninstallBox.error = error
     }
@@ -1138,8 +1151,6 @@ for name in UpdateManager.daVinciScriptNames {
     precondition(!FileManager.default.fileExists(atPath: existingDaVinci.appending(path: name).path))
 }
 precondition(!FileManager.default.fileExists(atPath: existingPremiere.path))
-// detectedPython3Version may be nil in restricted environments; just ensure call succeeds
-_ = uninstallBox.pythonVersion
 
 // reinstall for subsequent downgrade/repair checks
 let reinstallBox = UpdateInstallResultBox()
@@ -1342,7 +1353,6 @@ final class UpdateInstallResultBox: @unchecked Sendable {
     var daVinciState: DaVinciScriptsUpdateState?
     var daVinciVersion: ReleaseVersion?
     var daVinciDirectory: URL?
-    var pythonVersion: String?
 }
 
 final class RequestConcurrencyTracker: @unchecked Sendable {

@@ -68,8 +68,8 @@ COPYFILE_DISABLE=1 ditto --norsrc --noextattr -c -k "$PREMIERE_PACKAGE" "$PREMIE
 
 mkdir -p "$DAVINCI_PACKAGE/davinci-resolve/Deliver" "$DAVINCI_PACKAGE/scripts"
 for name in \
-    "自动发送ClawBot_M4V文件.py" \
-    "自动发送ClawBot_MP4视频.py"
+    "WeClawSend_Lua.lua" \
+    "WeClawSend_Python.py"
 do
     cp "$ROOT/davinci-resolve/Deliver/$name" "$DAVINCI_PACKAGE/davinci-resolve/Deliver/$name"
 done
@@ -95,7 +95,8 @@ if ! grep -qx 'CSXS/manifest.xml' <<<"$PREMIERE_CONTENTS" \
 fi
 
 DAVINCI_CONTENTS="$(LC_ALL=C zipinfo -1 "$DAVINCI_ZIP")"
-if ! grep -q '^davinci-resolve/Deliver/.*\.py$' <<<"$DAVINCI_CONTENTS" \
+if ! grep -qx 'davinci-resolve/Deliver/WeClawSend_Lua.lua' <<<"$DAVINCI_CONTENTS" \
+    || ! grep -qx 'davinci-resolve/Deliver/WeClawSend_Python.py' <<<"$DAVINCI_CONTENTS" \
     || ! grep -qx 'davinci-resolve/VERSION' <<<"$DAVINCI_CONTENTS" \
     || ! grep -qx 'scripts/install-davinci-plugin.sh' <<<"$DAVINCI_CONTENTS"; then
     print -u2 "DaVinci 发布包缺少脚本"

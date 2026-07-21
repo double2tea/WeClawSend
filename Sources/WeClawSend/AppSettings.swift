@@ -28,6 +28,7 @@ enum SendSizeLimit: Int, CaseIterable, Identifiable, Sendable {
 enum AppSettings {
     static let autoRenameMP4Key = "AutoRenameMP4ToM4V"
     static let localAPIEnabledKey = "LocalAPIEnabled"
+    static let sendResultNotificationsEnabledKey = "SendResultNotificationsEnabled"
     static let sendSizeLimitMegabytesKey = "SendSizeLimitMegabytes"
     static let migrateLaunchAtLoginKey = "MigrateLaunchAtLogin"
     static let launchMigrationCompleteKey = "LaunchAtLoginMigrationComplete"
@@ -39,6 +40,14 @@ enum AppSettings {
     static var localAPIEnabled: Bool {
         guard UserDefaults.standard.object(forKey: localAPIEnabledKey) != nil else { return false }
         return UserDefaults.standard.bool(forKey: localAPIEnabledKey)
+    }
+
+    /// Default on: users can turn off system banners for send results.
+    static var sendResultNotificationsEnabled: Bool {
+        guard UserDefaults.standard.object(forKey: sendResultNotificationsEnabledKey) != nil else {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: sendResultNotificationsEnabledKey)
     }
 
     static var sendSizeLimit: SendSizeLimit {

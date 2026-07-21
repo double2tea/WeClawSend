@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UserNotifications
 
 enum ServiceStatus: Equatable {
     case checking
@@ -53,6 +54,7 @@ final class AppModel: ObservableObject {
     @Published var autoRenameMP4ToM4V = UserDefaults.standard.bool(forKey: AppSettings.autoRenameMP4Key)
     @Published var sendSizeLimit = AppSettings.sendSizeLimit
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
+    @Published var sendResultNotificationsEnabled = AppSettings.sendResultNotificationsEnabled
     @Published var launchAtLoginEnabled = LaunchAtLogin.isEnabled
     @Published var launchAtLoginRequiresApproval = LaunchAtLogin.requiresApproval
     @Published var isUpdatingApp = false
@@ -60,8 +62,6 @@ final class AppModel: ObservableObject {
     @Published var isUninstallingPremierePlugin = false
     @Published var isInstallingDaVinciScripts = false
     @Published var isUninstallingDaVinciScripts = false
-    @Published private(set) var python3VersionText: String?
-    @Published private(set) var isCheckingPython3 = false
     @Published private(set) var isCheckingAppUpdate = false
     @Published private(set) var appUpdateAvailability: AppUpdateAvailability?
     @Published private(set) var appUpdateNotice: AppUpdateNotice?
@@ -84,9 +84,12 @@ final class AppModel: ObservableObject {
     private var credentialSourceTask: Task<Void, Never>?
     private var credentialSourceRevision: UInt64 = 0
     private var transientNoticeTask: Task<Void, Never>?
+    private var sendResultNotificationTask: Task<Void, Never>?
+    private var sendResultNotificationBatch = SendResultNotificationBatch()
     private let updateManager = UpdateManager()
     private let recentTransfersKey = "recentTransfers"
     private let legacyRecentTransferKey = "recentTransfer"
+    private let sendResultNotificationIdentifier = "weclaw-send-result"
     private var contextRefreshTransfers: Set<UUID> = []
     private var retriedTransferIDs: Set<UUID> = []
 
@@ -303,14 +306,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    var python3Subtitle: String {
-        if isCheckingPython3 { return "正在检测本机 Python 3…" }
-        if let python3VersionText {
-            return "已检测到 Python \(python3VersionText)。推荐 3.11/3.12；点“安装指南”查看 Homebrew 或官网安装方式。"
-        }
-        return "未检测到 python3。DaVinci 脚本运行需要 Python 3.6+；点“安装指南”查看安装方式。"
-    }
-
     var isDaVinciScriptsActionDisabled: Bool {
         if isUpdateOperationInProgress || isCheckingDaVinciScripts { return true }
         if case .localNewer? = daVinciScriptsUpdateState { return true }
@@ -359,6 +354,25 @@ final class AppModel: ObservableObject {
         } else {
             bridgeStatus = .offline
             runtime.server.stop()
+        }
+    }
+
+    func setSendResultNotificationsEnabled(_ enabled: Bool) {
+        sendResultNotificationsEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.sendResultNotificationsEnabledKey)
+        if enabled {
+            Task {
+                _ = try? await UNUserNotificationCenter.current()
+                    .requestAuthorization(options: [.alert, .sound])
+            }
+        } else {
+            sendResultNotificationTask?.cancel()
+            sendResultNotificationTask = nil
+            sendResultNotificationBatch = SendResultNotificationBatch()
+            UNUserNotificationCenter.current()
+                .removeDeliveredNotifications(withIdentifiers: [sendResultNotificationIdentifier])
+            UNUserNotificationCenter.current()
+                .removePendingNotificationRequests(withIdentifiers: [sendResultNotificationIdentifier])
         }
     }
 
@@ -456,8 +470,7 @@ final class AppModel: ObservableObject {
         async let appUpdate: Void = refreshAppUpdateStatus()
         async let premiere: Void = refreshPremierePluginStatus()
         async let daVinci: Void = refreshDaVinciScriptsStatus()
-        async let python: Void = refreshPython3Status()
-        _ = await (appUpdate, premiere, daVinci, python)
+        _ = await (appUpdate, premiere, daVinci)
     }
 
     func refreshAppUpdateStatus() async {
@@ -563,9 +576,17 @@ final class AppModel: ObservableObject {
             do {
                 let version = try await updateManager.installDaVinciScripts()
                 let directoryURL = await updateManager.daVinciScriptsDirectoryURL()
+                let installedDirs = await updateManager.daVinciInstalledDirectoryURLs()
+                let localAPIHint = localAPIEnabled
+                    ? "本地接口已启用。"
+                    : "请在设置中启用「本地接口」。"
+                let systemInstalled = installedDirs.contains {
+                    $0.path.hasPrefix("/Library/Application Support/")
+                }
+                let dualHint = systemInstalled ? "已安装到用户与系统 Deliver 目录。" : "已安装到用户 Deliver 目录。"
                 daVinciScriptsUpdateState = .current(version)
                 daVinciScriptsMessage =
-                    "已安装 v\(version)，请重启 DaVinci Resolve。路径：\(Self.displayPath(directoryURL))"
+                    "已安装 v\(version)：WeClawSend_Lua / WeClawSend_Python。\(dualHint)\(localAPIHint)请完全退出并重启 Resolve，在触发脚本中二选一。路径：\(Self.displayPath(directoryURL))"
                 isInstallingDaVinciScripts = false
             } catch {
                 isInstallingDaVinciScripts = false
@@ -624,73 +645,6 @@ final class AppModel: ObservableObject {
             } else {
                 NSWorkspace.shared.activateFileViewerSelecting(scriptURLs)
             }
-        }
-    }
-
-    func refreshPython3Status() async {
-        isCheckingPython3 = true
-        do {
-            python3VersionText = try await updateManager.detectedPython3Version()
-        } catch {
-            python3VersionText = nil
-        }
-        isCheckingPython3 = false
-    }
-
-    func openPythonInstallGuide() {
-        let versionNote = python3VersionText.map { "当前检测到 Python \($0)。\n\n" } ?? "当前未检测到 python3。\n\n"
-        let message = versionNote + """
-        DaVinci 脚本需要 Python 3.6+（64-bit），推荐 3.11 或 3.12。
-
-        先检查：
-        python3 --version
-
-        方式 1：Homebrew（推荐）
-        1) 若还没有 Homebrew：
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        2) 安装 Python 3：
-        brew install python
-        3) 再检查：
-        python3 --version
-        4) 可选：
-        brew link --overwrite python
-
-        方式 2：官网安装包
-        打开 https://www.python.org/downloads/macos/
-        下载 macOS 安装程序并双击安装，完成后再次执行 python3 --version。
-
-        注意：WeClaw Send 不会替你安装或卸载系统 / Homebrew 的 Python，以免误清环境。
-
-        自行卸载（可选）：
-        Homebrew：brew uninstall --ignore-dependencies python
-        或：brew uninstall --ignore-dependencies python@3.12
-        然后：brew cleanup
-        官网安装包：删除“应用程序”中的 Python 3.x，并按需清理
-        /Library/Frameworks/Python.framework/Versions/3.x
-        不要删除 macOS 自带的 /usr/bin/python3。
-        """
-        let alert = NSAlert()
-        alert.messageText = "Python 3 安装指南"
-        alert.informativeText = message
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "打开官网")
-        alert.addButton(withTitle: "复制安装命令")
-        alert.addButton(withTitle: "关闭")
-        let response = alert.runModal()
-        switch response {
-        case .alertFirstButtonReturn:
-            NSWorkspace.shared.open(Brand.pythonDownloadURL)
-        case .alertSecondButtonReturn:
-            let commands = """
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-            brew install python
-            python3 --version
-            """
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(commands, forType: .string)
-            transientNotice = "已复制 Homebrew 安装命令"
-        default:
-            break
         }
     }
 
@@ -983,10 +937,12 @@ final class AppModel: ObservableObject {
                     if contextRefreshTransfers.remove(record.id) != nil {
                         showTransientNotice("微信会话已刷新，文件已自动重新发送")
                     }
+                    noteSendResultForNotification(success: true, record: record)
                 case let .failed(record):
                     insertTransfer(record)
                     persistTransfers()
                     contextRefreshTransfers.remove(record.id)
+                    noteSendResultForNotification(success: false, record: record)
                 }
             }
         }
@@ -1047,6 +1003,80 @@ final class AppModel: ObservableObject {
             guard let self, transientNotice == message else { return }
             transientNotice = nil
             transientNoticeTask = nil
+        }
+    }
+
+    private func noteSendResultForNotification(success: Bool, record: TransferRecord) {
+        guard sendResultNotificationsEnabled else { return }
+        if !success, record.message == "发送已取消" { return }
+
+        if success {
+            sendResultNotificationBatch.recordSuccess(fileName: record.fileName)
+        } else {
+            sendResultNotificationBatch.recordFailure(
+                fileName: record.fileName,
+                message: record.message
+            )
+        }
+        scheduleSendResultNotificationFlush()
+    }
+
+    private func scheduleSendResultNotificationFlush() {
+        sendResultNotificationTask?.cancel()
+        sendResultNotificationTask = Task { [weak self] in
+            // Coalesce rapid multi-file completions into one stacked banner.
+            do {
+                try await Task.sleep(for: .milliseconds(1_200))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+
+            var idleWaitRounds = 0
+            while hasActiveTransfers, idleWaitRounds < 40, !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return
+                }
+                idleWaitRounds += 1
+            }
+            guard !Task.isCancelled else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await flushSendResultNotification()
+        }
+    }
+
+    private func flushSendResultNotification() async {
+        let batch = sendResultNotificationBatch
+        guard !batch.isEmpty else { return }
+        sendResultNotificationBatch = SendResultNotificationBatch()
+        sendResultNotificationTask = nil
+
+        let center = UNUserNotificationCenter.current()
+        do {
+            let granted = try await center.requestAuthorization(options: [.alert, .sound])
+            guard granted, sendResultNotificationsEnabled else { return }
+            // Same identifier replaces the previous banner (stack / coalesce).
+            center.removeDeliveredNotifications(withIdentifiers: [sendResultNotificationIdentifier])
+            let content = UNMutableNotificationContent()
+            content.title = Brand.name
+            content.body = batch.body
+            content.sound = .default
+            try await center.add(
+                UNNotificationRequest(
+                    identifier: sendResultNotificationIdentifier,
+                    content: content,
+                    trigger: nil
+                )
+            )
+        } catch {
+            // Notification delivery is best-effort; transfer list remains source of truth.
         }
     }
 

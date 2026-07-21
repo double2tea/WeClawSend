@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DaVinci Resolve 后渲染脚本：发送 MP4 渲染结果到 WeClaw Send。
+DaVinci Resolve 后渲染脚本（Python 版）：WeClawSend_Python
 
-本脚本只负责：
-1. 从 DaVinci 后渲染环境读取 job/status/error
-2. 通过 Resolve API 定位渲染输出文件
-3. 调用 WeClaw Send 本地接口发送 MP4
+在 Resolve 内直接运行。需要本机 Python 3.6+，且 Resolve 能枚举/执行 .py。
+MP4/M4V 显示名由 WeClaw Send App「发送时 .mp4 显示为 .m4v」处理。
 """
+
+from __future__ import print_function
 
 import hashlib
 import json
@@ -21,7 +21,7 @@ import urllib.request
 
 WECLAW_SEND_URL = "http://127.0.0.1:18790/send"
 WECLAW_HEALTH_URL = "http://127.0.0.1:18790/health"
-SEND_MODE = "mp4-video"
+SEND_MODE = "file"
 SEND_STATE_DIR = os.path.expanduser("~/.davinci-clawbot-postrender-state")
 SEND_STATE_RETENTION_DAYS = 30
 LOG_PATH = os.path.expanduser("~/.davinci-clawbot-postrender.log")
@@ -55,6 +55,8 @@ def rotate_log():
 
 
 def cleanup_send_state():
+    if not os.path.isdir(SEND_STATE_DIR):
+        return
     cutoff = time.time() - SEND_STATE_RETENTION_DAYS * 24 * 60 * 60
     for name in os.listdir(SEND_STATE_DIR):
         if not name.endswith(".sent"):
@@ -95,25 +97,14 @@ def start_watchdog():
     def watchdog():
         time.sleep(SCRIPT_TIMEOUT_SECONDS)
         message = "脚本超时 {} 秒，强制退出".format(SCRIPT_TIMEOUT_SECONDS)
-        log("发送 MP4 到 WeClaw Send 失败: {}".format(message))
+        log("发送到 WeClaw Send 失败: {}".format(message))
         if CURRENT_CLAIM is not None:
             release_send_claim(CURRENT_CLAIM)
-        notify("DaVinci MP4 自动发送超时", message)
+        notify("DaVinci 自动发送超时", message)
         os._exit(124)
 
     thread = threading.Thread(target=watchdog, daemon=True)
     thread.start()
-
-
-def current_project():
-    if "resolve" not in globals():
-        raise RuntimeError("DaVinci Resolve API 不可用：未找到 resolve 全局变量")
-
-    project_manager = globals()["resolve"].GetProjectManager()
-    project = project_manager.GetCurrentProject()
-    if project is None:
-        raise RuntimeError("未找到当前项目")
-    return project
 
 
 def completed(status, completion):
@@ -140,6 +131,17 @@ def failed(status):
         "取消",
         "错误",
     }
+
+
+def current_project():
+    if "resolve" not in globals():
+        raise RuntimeError("DaVinci Resolve API 不可用：未找到 resolve 全局变量")
+
+    project_manager = globals()["resolve"].GetProjectManager()
+    project = project_manager.GetCurrentProject()
+    if project is None:
+        raise RuntimeError("未找到当前项目")
+    return project
 
 
 def render_output_path(project, job_id):
@@ -316,14 +318,8 @@ def send_file_too_large(file_path, max_send_bytes):
         format_bytes(max_send_bytes),
     )
     log(message)
-    notify("DaVinci MP4 自动发送跳过", message)
+    notify("DaVinci 自动发送跳过", message)
     return True
-
-
-def mp4_video_file(file_path):
-    if os.path.splitext(file_path)[1].lower() != ".mp4":
-        raise RuntimeError("MP4 视频版只支持 .mp4 输出: {}".format(file_path))
-    return file_path, os.path.basename(file_path)
 
 
 def post_to_weclaw_send(file_path, file_name):
@@ -358,7 +354,7 @@ def main():
     global CURRENT_CLAIM
 
     start_watchdog()
-    log("DaVinci MP4 自动发送到 WeClaw Send 启动")
+    log("DaVinci 自动发送到 WeClaw Send 启动（Python 版）")
 
     job_id = globals().get("job")
     if not job_id:
@@ -369,6 +365,7 @@ def main():
 
     project = current_project()
     file_path = render_output_path(project, job_id)
+    send_name = os.path.basename(file_path)
     log("输出文件: {}".format(file_path))
 
     claim = claim_send(file_path)
@@ -383,9 +380,7 @@ def main():
             CURRENT_CLAIM = None
             return
 
-        send_path, send_name = mp4_video_file(file_path)
-        log("发送用 MP4 视频文件: {}".format(send_path))
-        result = post_to_weclaw_send(send_path, send_name)
+        result = post_to_weclaw_send(file_path, send_name)
         complete_send_claim(claim)
         CURRENT_CLAIM = None
     except Exception:
@@ -393,14 +388,14 @@ def main():
         CURRENT_CLAIM = None
         raise
 
-    log("WeClaw Send MP4 发送完成: {}".format(result.get("status", "sent")))
-    notify("DaVinci MP4 自动发送完成", send_name)
+    log("WeClaw Send 发送完成: {}".format(result.get("status", "sent")))
+    notify("DaVinci 自动发送完成", send_name)
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        log("发送 MP4 到 WeClaw Send 失败: {}".format(exc))
-        notify("DaVinci MP4 自动发送失败", str(exc))
+        log("发送到 WeClaw Send 失败: {}".format(exc))
+        notify("DaVinci 自动发送失败", str(exc))
         sys.exit(1)

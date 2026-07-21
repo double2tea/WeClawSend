@@ -84,28 +84,26 @@ Final Cut Pro 可以在分享完成后直接把成片交给 WeClaw Send，不需
 
 ### DaVinci Resolve
 
-Deliver 后渲染脚本会在渲染完成后自动发送成片，可选择 `.m4v` 文件或 `.mp4` 视频模式。
+Deliver 后渲染提供两个入口（默认同装，推荐优先用 Lua）：
+
+| 入口 | 说明 |
+|---|---|
+| **WeClawSend_Lua**（推荐） | 用 macOS `curl` 调本地接口，**不需要 Python** |
+| **WeClawSend_Python**（可选） | Resolve 内直接跑 Python，仅在你明确要用 `.py` 时选择 |
+
+MP4/M4V 显示名由设置「发送时 .mp4 显示为 .m4v」处理。
 
 **使用前准备**
 
-1. 安装 **Python 3.6+（64-bit）**，推荐 3.11 或 3.12。终端执行 `python3 --version` 检查；若未安装：
-   - **Homebrew（推荐）**：先安装 Homebrew（若还没有），再执行 `brew install python`；可选 `brew link --overwrite python`
-   - **官方安装包**：从 [python.org/downloads/macos](https://www.python.org/downloads/macos/) 下载并安装
-   - App 设置页可检测 Python 并打开「安装指南」；**不会**替你安装或卸载系统 / Homebrew 的 Python
-   - 自行卸载（可选）：Homebrew 用 `brew uninstall --ignore-dependencies python`（或 `python@3.12`）后 `brew cleanup`；官网安装包删除「应用程序」中的 Python 3.x，并按需清理 `/Library/Frameworks/Python.framework/Versions/3.x`。不要删除 `/usr/bin/python3`
-2. 在 App **设置 → 更新与编辑器集成 → DaVinci Resolve 脚本** 中安装 / 修复 / 更新；不需要时可点「卸载」。Premiere 插件同样支持卸载。
-3. 安装成功后，设置页会显示安装路径；可点「显示路径」在 Finder 中确认两个 `自动发送ClawBot_*.py` 文件存在。
-4. 开启「本地接口」。
-5. **完全退出并重新打开** DaVinci Resolve（`Cmd + Q`），脚本只在启动时扫描。
-6. 在 Deliver 页「在渲染作业结束时触发脚本」中选择对应脚本；也可在菜单 `工作区 → 脚本 → Deliver` 确认是否已加载。
-
-脚本安装到当前用户目录，不会写入系统目录：
+1. 在 App **设置 → 更新与编辑器集成 → DaVinci Resolve 脚本** 安装；或 `./scripts/install-davinci-plugin.sh both`。会清理旧 `自动发送ClawBot_*` 等。
+2. 确认目录中有 `WeClawSend_Lua.lua`（以及可选的 `WeClawSend_Python.py`）。
+3. 开启「本地接口」。隔离导致接口未起：`xattr -dr com.apple.quarantine "/Applications/WeClaw Send.app"`。
+4. **完全退出并重启** DaVinci Resolve。
+5. Deliver →「渲染作业结束时触发脚本」优先选 **WeClawSend_Lua**。
 
 ```text
 ~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Deliver/
 ```
-
-若脚本下拉只有「无」：先点「显示路径」确认文件存在，再彻底重启 Resolve，并确认安装脚本与打开 Resolve 使用的是同一个 macOS 用户。
 
 手动安装、日志和发送模式见 [DaVinci 插件文档](davinci-resolve/README.md)。
 

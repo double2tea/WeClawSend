@@ -1,3 +1,11 @@
+# v1.7.2
+
+- DaVinci Resolve 后渲染双入口：`WeClawSend_Lua`（推荐，curl，无需 Python）与 `WeClawSend_Python`（可选）。
+- 移除设置页「Python 为 DaVinci 运行依赖」的检测与安装引导；默认不再把 Python 当作必装项。
+- 安装默认 dual，自动清理旧 `自动发送ClawBot_*` 与过渡脚本名；支持用户/系统 Deliver 双目录；CLI 支持 `both|lua|python|auto`。
+- MP4/M4V 显示名由 App「发送时 .mp4 显示为 .m4v」处理，脚本不再分模式。
+- 设置增加「发送结果通知」开关；多文件发送结果合并为一条系统通知（同标识替换，不逐条刷屏）。
+
 # v1.7.1
 
 - 设置页为 Premiere 插件与 DaVinci 脚本增加「卸载」。
