@@ -84,7 +84,24 @@ Final Cut Pro 可以在分享完成后直接把成片交给 WeClaw Send，不需
 
 ### DaVinci Resolve
 
-Deliver 后渲染脚本会在渲染完成后自动发送成片，可选择 `.m4v` 文件或 `.mp4` 视频模式。需要本机 Python 3.6+；在 App 设置中安装后会显示路径并可在 Finder 中打开，开启“本地接口”并重启 DaVinci Resolve 后即可使用。
+Deliver 后渲染脚本会在渲染完成后自动发送成片，可选择 `.m4v` 文件或 `.mp4` 视频模式。
+
+**使用前准备**
+
+1. 安装 **Python 3.6+（64-bit）**。终端执行 `python3 --version` 检查；若未安装，从 [python.org/downloads/macos](https://www.python.org/downloads/macos/) 安装官方 Python 3，或执行 `brew install python`。
+2. 在 App **设置 → 更新与编辑器集成 → DaVinci Resolve 脚本** 中安装 / 修复 / 更新。
+3. 安装成功后，设置页会显示安装路径；可点「显示路径」在 Finder 中确认两个 `自动发送ClawBot_*.py` 文件存在。
+4. 开启「本地接口」。
+5. **完全退出并重新打开** DaVinci Resolve（`Cmd + Q`），脚本只在启动时扫描。
+6. 在 Deliver 页「在渲染作业结束时触发脚本」中选择对应脚本；也可在菜单 `工作区 → 脚本 → Deliver` 确认是否已加载。
+
+脚本安装到当前用户目录，不会写入系统目录：
+
+```text
+~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Deliver/
+```
+
+若脚本下拉只有「无」：先点「显示路径」确认文件存在，再彻底重启 Resolve，并确认安装脚本与打开 Resolve 使用的是同一个 macOS 用户。
 
 手动安装、日志和发送模式见 [DaVinci 插件文档](davinci-resolve/README.md)。
 
