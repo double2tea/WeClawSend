@@ -1,5 +1,7 @@
 # v1.7.2
 
+- 网站 `/dl/dmg`、`/dl/zip` 下载链路修复，避免点下载却回到首页；并补充静态重定向兜底。
+- 网站导航增加飞书「更新与反馈」入口，便于查看版本日志与讨论。
 - DaVinci Resolve 后渲染双入口：`WeClawSend_Lua`（推荐，curl，无需 Python）与 `WeClawSend_Python`（可选）。
 - 移除设置页「Python 为 DaVinci 运行依赖」的检测与安装引导；默认不再把 Python 当作必装项。
 - 安装默认 dual，自动清理旧 `自动发送ClawBot_*` 与过渡脚本名；支持用户/系统 Deliver 双目录；CLI 支持 `both|lua|python|auto`。

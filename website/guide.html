@@ -148,7 +148,11 @@
               </article>
               <article>
                 <h3>.mp4 显示为 .m4v</h3>
-                <p>只改变微信附件的显示名，不修改 Mac 上的原文件。</p>
+                <p>只改变微信附件的显示名，不修改 Mac 上的原文件。DaVinci 脚本不再单独区分 MP4/M4V 模式。</p>
+              </article>
+              <article>
+                <h3>发送结果通知</h3>
+                <p>开启后，发送完成或失败会弹出系统通知；多文件结果合并为一条，不逐条刷屏。</p>
               </article>
               <article>
                 <h3>单文件大小上限</h3>
@@ -201,21 +205,15 @@
                   <h3>DaVinci Resolve</h3>
                   <ol>
                     <li>
-                      推荐使用 <strong>WeClawSend_Lua</strong> 入口（无需 Python）；可选 <strong>WeClawSend_Python</strong>。
-                      <ul>
-                        <li>检查：终端执行 <code>python3 --version</code>。</li>
-                        <li>Homebrew（推荐）：若未安装 Homebrew，先执行 <code>/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"</code>；再执行 <code>brew install python</code>；然后再次检查 <code>python3 --version</code>。可选：<code>brew link --overwrite python</code>。</li>
-                        <li>官方安装包：打开 <a href="https://www.python.org/downloads/macos/">python.org/downloads/macos</a>，下载 macOS 安装程序并双击安装，完成后再次检查版本。</li>
-                      </ul>
+                      推荐使用 <strong>WeClawSend_Lua</strong>（无需 Python，依赖 macOS curl）；可选 <strong>WeClawSend_Python</strong>。
                     </li>
-                    <li>WeClaw Send 设置 → DaVinci Resolve 脚本 → 一键安装 / 修复 / 更新。</li>
-                    <li>安装成功后，设置页会显示安装路径；可点“显示路径”确认 <code>WeClawSend_Lua.lua</code> 存在。新版安装会自动清理旧脚本入口。</li>
+                    <li>WeClaw Send 设置 → DaVinci Resolve 脚本 → 一键安装 / 修复 / 更新；不需要时可卸载。</li>
+                    <li>安装成功后，设置页会显示安装路径；可点“显示路径”确认 <code>WeClawSend_Lua.lua</code>（及可选的 <code>WeClawSend_Python.py</code>）。新版安装会自动清理旧的 <code>自动发送ClawBot_*</code> 入口。</li>
                     <li>在设置中开启“本地接口”。</li>
                     <li><strong>完全退出并重新打开</strong> DaVinci Resolve（<code>Cmd + Q</code>），脚本只在启动时扫描。</li>
                     <li>在 Deliver 页“在渲染作业结束时触发脚本”中优先选择 <code>WeClawSend_Lua</code>。MP4/M4V 显示名由设置“发送时 .mp4 显示为 .m4v”处理。</li>
                   </ol>
-                  <p>默认提供 Lua / Python 两个入口；推荐 Lua（curl，无需 Python）。脚本写入用户 Deliver 目录，系统目录可写时也会同步。</p>
-                  <p><strong>自行卸载 Python（可选）：</strong>Homebrew 执行 <code>brew uninstall --ignore-dependencies python</code>（或 <code>python@3.12</code>）后 <code>brew cleanup</code>；官网安装包把“应用程序”中的 Python 3.x 移到废纸篓，并按需删除 <code>/Library/Frameworks/Python.framework/Versions/3.x</code>。不要删除 macOS 自带的 <code>/usr/bin/python3</code>。若也不再使用脚本，请在设置页点“卸载”。</p>
+                  <p>默认 dual 安装 Lua / Python 两个入口，日常推荐 Lua。脚本写入用户 Deliver 目录，系统目录可写时也会同步。</p>
                 </div>
               </article>
             </div>
