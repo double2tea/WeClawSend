@@ -1116,6 +1116,48 @@ precondition(verifiedDaVinciBox.error == nil)
 precondition(verifiedDaVinciBox.daVinciVersion?.description == "9.1.0")
 precondition(verifiedDaVinciBox.daVinciDirectory?.path == existingDaVinci.path)
 
+let uninstallBox = UpdateInstallResultBox()
+let uninstallFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        try await installerManager.uninstallDaVinciScripts()
+        try await installerManager.uninstallPremierePlugin()
+        uninstallBox.daVinciVersion = try await installerManager.installedDaVinciScriptsVersion()
+        uninstallBox.installedPremiereVersion = try await installerManager.installedPremierePluginVersion()
+        uninstallBox.pythonVersion = try await installerManager.detectedPython3Version()
+    } catch {
+        uninstallBox.error = error
+    }
+    uninstallFinished.signal()
+}
+precondition(uninstallFinished.wait(timeout: .now() + 10) == .success)
+precondition(uninstallBox.error == nil)
+precondition(uninstallBox.daVinciVersion == nil)
+precondition(uninstallBox.installedPremiereVersion == nil)
+for name in UpdateManager.daVinciScriptNames {
+    precondition(!FileManager.default.fileExists(atPath: existingDaVinci.appending(path: name).path))
+}
+precondition(!FileManager.default.fileExists(atPath: existingPremiere.path))
+// detectedPython3Version may be nil in restricted environments; just ensure call succeeds
+_ = uninstallBox.pythonVersion
+
+// reinstall for subsequent downgrade/repair checks
+let reinstallBox = UpdateInstallResultBox()
+let reinstallFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        reinstallBox.premiereVersion = try await installerManager.installPremierePlugin()
+        reinstallBox.daVinciVersion = try await installerManager.installDaVinciScripts()
+    } catch {
+        reinstallBox.error = error
+    }
+    reinstallFinished.signal()
+}
+precondition(reinstallFinished.wait(timeout: .now() + 10) == .success)
+precondition(reinstallBox.error == nil)
+precondition(reinstallBox.premiereVersion?.description == "9.0.0")
+precondition(reinstallBox.daVinciVersion?.description == "9.1.0")
+
 try Data("10.0.0\n".utf8).write(
     to: existingDaVinci.appending(path: UpdateManager.daVinciInstalledVersionFileName),
     options: .atomic
@@ -1300,6 +1342,7 @@ final class UpdateInstallResultBox: @unchecked Sendable {
     var daVinciState: DaVinciScriptsUpdateState?
     var daVinciVersion: ReleaseVersion?
     var daVinciDirectory: URL?
+    var pythonVersion: String?
 }
 
 final class RequestConcurrencyTracker: @unchecked Sendable {

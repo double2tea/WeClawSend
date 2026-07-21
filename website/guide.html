@@ -198,11 +198,21 @@
                 <div>
                   <h3>DaVinci Resolve</h3>
                   <ol>
-                    <li>WeClaw Send 设置 → DaVinci Resolve 脚本 → 一键安装。</li>
+                    <li>
+                      先安装 <strong>Python 3.6+（64-bit）</strong>，推荐 3.11 或 3.12。
+                      <ul>
+                        <li>检查：终端执行 <code>python3 --version</code>。</li>
+                        <li>Homebrew（推荐）：若未安装 Homebrew，先执行 <code>/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"</code>；再执行 <code>brew install python</code>；然后再次检查 <code>python3 --version</code>。可选：<code>brew link --overwrite python</code>。</li>
+                        <li>官方安装包：打开 <a href="https://www.python.org/downloads/macos/">python.org/downloads/macos</a>，下载 macOS 安装程序并双击安装，完成后再次检查版本。</li>
+                      </ul>
+                    </li>
+                    <li>WeClaw Send 设置 → DaVinci Resolve 脚本 → 一键安装 / 修复 / 更新。</li>
+                    <li>安装成功后，设置页会显示安装路径；可点“显示路径”确认两个 <code>自动发送ClawBot_*.py</code> 文件存在。</li>
                     <li>在设置中开启“本地接口”。</li>
-                    <li>重启 Resolve，在 Deliver 页面使用自动发送脚本。</li>
+                    <li><strong>完全退出并重新打开</strong> DaVinci Resolve（<code>Cmd + Q</code>），脚本只在启动时扫描。</li>
+                    <li>在 Deliver 页“在渲染作业结束时触发脚本”中选择对应脚本。</li>
                   </ol>
-                  <p>脚本只写入当前用户的 Deliver 脚本目录，不修改项目或导出预设。</p>
+                  <p>脚本只写入当前用户的 Deliver 脚本目录，不修改项目或导出预设。没有 Python 3 时，后渲染脚本可能无法运行。</p>
                 </div>
               </article>
             </div>
@@ -234,6 +244,10 @@
             <details>
               <summary>Final Cut 显示分享成功，但没有发送</summary>
               <p>确认已安装当前发布版，并重新选择 <code>/Applications/WeClaw Send.app</code>，避免目的位置仍指向旧安装。</p>
+            </details>
+            <details>
+              <summary>DaVinci 脚本下拉只有“无”，或渲染后没有发送</summary>
+              <p>先确认本机已安装 Python 3.6+（终端执行 <code>python3 --version</code>）。再在设置页点“显示路径”确认脚本文件存在，并彻底重启 Resolve。脚本与 Resolve 需使用同一个 macOS 用户。</p>
             </details>
           </section>
 

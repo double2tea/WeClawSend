@@ -57,7 +57,11 @@ final class AppModel: ObservableObject {
     @Published var launchAtLoginRequiresApproval = LaunchAtLogin.requiresApproval
     @Published var isUpdatingApp = false
     @Published var isInstallingPremierePlugin = false
+    @Published var isUninstallingPremierePlugin = false
     @Published var isInstallingDaVinciScripts = false
+    @Published var isUninstallingDaVinciScripts = false
+    @Published private(set) var python3VersionText: String?
+    @Published private(set) var isCheckingPython3 = false
     @Published private(set) var isCheckingAppUpdate = false
     @Published private(set) var appUpdateAvailability: AppUpdateAvailability?
     @Published private(set) var appUpdateNotice: AppUpdateNotice?
@@ -157,7 +161,11 @@ final class AppModel: ObservableObject {
     }
 
     var isUpdateOperationInProgress: Bool {
-        isUpdatingApp || isInstallingPremierePlugin || isInstallingDaVinciScripts
+        isUpdatingApp
+            || isInstallingPremierePlugin
+            || isUninstallingPremierePlugin
+            || isInstallingDaVinciScripts
+            || isUninstallingDaVinciScripts
     }
 
     var appUpdateSubtitle: String {
@@ -227,7 +235,17 @@ final class AppModel: ObservableObject {
     }
 
     var isPremierePluginBusy: Bool {
-        isCheckingPremierePlugin || isInstallingPremierePlugin
+        isCheckingPremierePlugin || isInstallingPremierePlugin || isUninstallingPremierePlugin
+    }
+
+    var canUninstallPremierePlugin: Bool {
+        if isPremierePluginBusy || isUpdateOperationInProgress { return false }
+        switch premierePluginUpdateState {
+        case .current?, .updateAvailable?, .localNewer?, .repairRequired?:
+            return true
+        case .notInstalled?, nil:
+            return false
+        }
     }
 
     var isPremierePluginActionDisabled: Bool {
@@ -272,7 +290,25 @@ final class AppModel: ObservableObject {
     }
 
     var isDaVinciScriptsBusy: Bool {
-        isCheckingDaVinciScripts || isInstallingDaVinciScripts
+        isCheckingDaVinciScripts || isInstallingDaVinciScripts || isUninstallingDaVinciScripts
+    }
+
+    var canUninstallDaVinciScripts: Bool {
+        if isDaVinciScriptsBusy || isUpdateOperationInProgress { return false }
+        switch daVinciScriptsUpdateState {
+        case .current?, .updateAvailable?, .localNewer?, .repairRequired?:
+            return true
+        case .notInstalled?, nil:
+            return false
+        }
+    }
+
+    var python3Subtitle: String {
+        if isCheckingPython3 { return "正在检测本机 Python 3…" }
+        if let python3VersionText {
+            return "已检测到 Python \(python3VersionText)。推荐 3.11/3.12；点“安装指南”查看 Homebrew 或官网安装方式。"
+        }
+        return "未检测到 python3。DaVinci 脚本运行需要 Python 3.6+；点“安装指南”查看安装方式。"
     }
 
     var isDaVinciScriptsActionDisabled: Bool {
@@ -420,7 +456,8 @@ final class AppModel: ObservableObject {
         async let appUpdate: Void = refreshAppUpdateStatus()
         async let premiere: Void = refreshPremierePluginStatus()
         async let daVinci: Void = refreshDaVinciScriptsStatus()
-        _ = await (appUpdate, premiere, daVinci)
+        async let python: Void = refreshPython3Status()
+        _ = await (appUpdate, premiere, daVinci, python)
     }
 
     func refreshAppUpdateStatus() async {
@@ -478,6 +515,25 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func uninstallPremierePlugin() {
+        guard canUninstallPremierePlugin else { return }
+        isUninstallingPremierePlugin = true
+        premierePluginMessage = "正在卸载…"
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await updateManager.uninstallPremierePlugin()
+                premierePluginMessage = "已卸载 Premiere 插件，请重启 Premiere Pro"
+                await refreshPremierePluginStatus()
+                isUninstallingPremierePlugin = false
+            } catch {
+                isUninstallingPremierePlugin = false
+                premierePluginMessage = "卸载失败"
+                presentedError = "Premiere 插件卸载失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
     func refreshPremierePluginStatus() async {
         guard !isInstallingPremierePlugin else { return }
         isCheckingPremierePlugin = true
@@ -519,6 +575,25 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func uninstallDaVinciScripts() {
+        guard canUninstallDaVinciScripts else { return }
+        isUninstallingDaVinciScripts = true
+        daVinciScriptsMessage = "正在卸载…"
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await updateManager.uninstallDaVinciScripts()
+                daVinciScriptsMessage = "已卸载 DaVinci 脚本，请重启 DaVinci Resolve"
+                await refreshDaVinciScriptsStatus()
+                isUninstallingDaVinciScripts = false
+            } catch {
+                isUninstallingDaVinciScripts = false
+                daVinciScriptsMessage = "卸载失败"
+                presentedError = "DaVinci 脚本卸载失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
     var canRevealDaVinciScripts: Bool {
         if isDaVinciScriptsBusy { return false }
         switch daVinciScriptsUpdateState {
@@ -549,6 +624,65 @@ final class AppModel: ObservableObject {
             } else {
                 NSWorkspace.shared.activateFileViewerSelecting(scriptURLs)
             }
+        }
+    }
+
+    func refreshPython3Status() async {
+        isCheckingPython3 = true
+        do {
+            python3VersionText = try await updateManager.detectedPython3Version()
+        } catch {
+            python3VersionText = nil
+        }
+        isCheckingPython3 = false
+    }
+
+    func openPythonInstallGuide() {
+        let versionNote = python3VersionText.map { "当前检测到 Python \($0)。\n\n" } ?? "当前未检测到 python3。\n\n"
+        let message = versionNote + """
+        DaVinci 脚本需要 Python 3.6+（64-bit），推荐 3.11 或 3.12。
+
+        先检查：
+        python3 --version
+
+        方式 1：Homebrew（推荐）
+        1) 若还没有 Homebrew：
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        2) 安装 Python 3：
+        brew install python
+        3) 再检查：
+        python3 --version
+        4) 可选：
+        brew link --overwrite python
+
+        方式 2：官网安装包
+        打开 https://www.python.org/downloads/macos/
+        下载 macOS 安装程序并双击安装，完成后再次执行 python3 --version。
+
+        注意：WeClaw Send 不会替你卸载系统或 Homebrew 的 Python，以免误清环境。
+        """
+        let alert = NSAlert()
+        alert.messageText = "Python 3 安装指南"
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "打开官网")
+        alert.addButton(withTitle: "复制安装命令")
+        alert.addButton(withTitle: "关闭")
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            NSWorkspace.shared.open(Brand.pythonDownloadURL)
+        case .alertSecondButtonReturn:
+            let commands = """
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            brew install python
+            python3 --version
+            """
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(commands, forType: .string)
+            transientNotice = "已复制 Homebrew 安装命令"
+        default:
+            break
         }
     }
 

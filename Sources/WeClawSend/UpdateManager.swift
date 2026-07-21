@@ -163,6 +163,8 @@ enum UpdateManagerError: LocalizedError {
     case premierePluginDowngradeNotAllowed(installed: ReleaseVersion, available: ReleaseVersion)
     case daVinciScriptsDowngradeNotAllowed(installed: ReleaseVersion, available: ReleaseVersion)
     case daVinciScriptsInstallIncomplete(String)
+    case premierePluginNotInstalled
+    case daVinciScriptsNotInstalled
     case currentAppNotWritable(String)
     case commandFailed(String)
 
@@ -192,6 +194,10 @@ enum UpdateManagerError: LocalizedError {
             "已安装的 DaVinci 脚本 v\(installed) 高于在线版本 v\(available)，已阻止降级"
         case let .daVinciScriptsInstallIncomplete(path):
             "DaVinci 脚本安装后校验失败，目标目录缺少完整文件：\(path)"
+        case .premierePluginNotInstalled:
+            "未安装 Premiere 插件，无需卸载"
+        case .daVinciScriptsNotInstalled:
+            "未安装 DaVinci 脚本，无需卸载"
         case let .currentAppNotWritable(path):
             "当前 App 所在目录不可写：\(path)。请将 App 移至当前用户可写的“应用程序”目录后重试。"
         case let .commandFailed(message):
@@ -397,6 +403,18 @@ actor UpdateManager {
         return try Self.validatePremierePlugin(at: target, fileManager: fileManager)
     }
 
+    func uninstallPremierePlugin() throws {
+        let target = premierePluginURL
+        guard fileManager.fileExists(atPath: target.path) else {
+            throw UpdateManagerError.premierePluginNotInstalled
+        }
+        try fileManager.removeItem(at: target)
+    }
+
+    func premierePluginDirectoryURL() -> URL {
+        premierePluginURL
+    }
+
     func daVinciScriptsUpdateState() async throws -> DaVinciScriptsUpdateState {
         let installedVersion: ReleaseVersion?
         let requiresRepair: Bool
@@ -481,8 +499,47 @@ actor UpdateManager {
         return releaseVersion
     }
 
+    func uninstallDaVinciScripts() throws {
+        let target = daVinciScriptsURL
+        let removable = Self.daVinciScriptNames + [Self.daVinciInstalledVersionFileName]
+        let existing = removable.filter {
+            fileManager.fileExists(atPath: target.appendingPathComponent($0).path)
+        }
+        guard !existing.isEmpty else {
+            throw UpdateManagerError.daVinciScriptsNotInstalled
+        }
+        for name in existing {
+            try fileManager.removeItem(at: target.appendingPathComponent(name))
+        }
+    }
+
     func daVinciScriptsDirectoryURL() -> URL {
         daVinciScriptsURL
+    }
+
+    func detectedPython3Version() throws -> String? {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["python3", "--version"]
+        process.standardOutput = output
+        process.standardError = output
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let text = String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !text.isEmpty else { return nil }
+        if text.lowercased().hasPrefix("python ") {
+            return String(text.dropFirst("Python ".count))
+        }
+        return text
     }
 
     func latestRelease() async throws -> GitHubRelease {

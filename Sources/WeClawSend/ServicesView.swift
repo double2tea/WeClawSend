@@ -422,19 +422,15 @@ struct ServicesView: View {
 
                 Divider().opacity(0.35).padding(.vertical, 6)
 
-                integrationActionRow(
-                    icon: "film",
-                    title: "Premiere Pro 插件",
-                    subtitle: model.premierePluginSubtitle,
-                    buttonTitle: model.premierePluginButtonTitle,
-                    isWorking: model.isPremierePluginBusy,
-                    isDisabled: model.isPremierePluginActionDisabled,
-                    action: model.installPremierePlugin
-                )
+                premierePluginIntegrationRow
 
                 Divider().opacity(0.35).padding(.vertical, 6)
 
                 daVinciScriptsIntegrationRow
+
+                Divider().opacity(0.35).padding(.vertical, 6)
+
+                pythonRuntimeIntegrationRow
             }
         }
     }
@@ -541,6 +537,48 @@ struct ServicesView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private var premierePluginIntegrationRow: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "film")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.primary.opacity(0.05)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Premiere Pro 插件")
+                    .font(.system(size: 11.5, weight: .medium))
+                Text(model.premierePluginSubtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if model.isPremierePluginBusy {
+                ProgressView()
+                    .controlSize(.mini)
+                    .padding(.top, 4)
+            } else {
+                HStack(spacing: 6) {
+                    if model.canUninstallPremierePlugin {
+                        Button("卸载") {
+                            model.uninstallPremierePlugin()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                        .disabled(model.isUpdateOperationInProgress)
+                    }
+                    Button(model.premierePluginButtonTitle) {
+                        model.installPremierePlugin()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .disabled(model.isUpdateOperationInProgress || model.isPremierePluginActionDisabled)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     private var daVinciScriptsIntegrationRow: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "wand.and.stars")
@@ -571,12 +609,60 @@ struct ServicesView: View {
                         .controlSize(.mini)
                         .disabled(model.isUpdateOperationInProgress)
                     }
+                    if model.canUninstallDaVinciScripts {
+                        Button("卸载") {
+                            model.uninstallDaVinciScripts()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                        .disabled(model.isUpdateOperationInProgress)
+                    }
                     Button(model.daVinciScriptsButtonTitle) {
                         model.installDaVinciScripts()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
                     .disabled(model.isUpdateOperationInProgress || model.isDaVinciScriptsActionDisabled)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var pythonRuntimeIntegrationRow: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.primary.opacity(0.05)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Python 3（DaVinci 运行依赖）")
+                    .font(.system(size: 11.5, weight: .medium))
+                Text(model.python3Subtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if model.isCheckingPython3 {
+                ProgressView()
+                    .controlSize(.mini)
+                    .padding(.top, 4)
+            } else {
+                HStack(spacing: 6) {
+                    Button("重新检测") {
+                        Task { await model.refreshPython3Status() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .disabled(model.isUpdateOperationInProgress)
+                    Button("安装指南") {
+                        model.openPythonInstallGuide()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .disabled(model.isUpdateOperationInProgress)
                 }
             }
         }

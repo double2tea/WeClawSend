@@ -22,5 +22,5 @@ install -m 0644 "$VERSION_FILE" "$TARGET_DIR/.weclaw-send-version"
 
 print -r -- "已安装 DaVinci Resolve 自动发送脚本：$TARGET_DIR"
 print -r -- "请确认目录中存在两个 自动发送ClawBot_*.py 文件。"
-print -r -- "需要 Python 3.6+（python3 --version）。"
+print -r -- "需要 Python 3.6+（推荐 3.11/3.12）。检查：python3 --version；安装：brew install python 或 python.org。"
 print -r -- "请在 WeClaw Send 设置中启用本地接口，并完全退出后重启 DaVinci Resolve。"

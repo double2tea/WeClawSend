@@ -88,8 +88,11 @@ Deliver 后渲染脚本会在渲染完成后自动发送成片，可选择 `.m4v
 
 **使用前准备**
 
-1. 安装 **Python 3.6+（64-bit）**。终端执行 `python3 --version` 检查；若未安装，从 [python.org/downloads/macos](https://www.python.org/downloads/macos/) 安装官方 Python 3，或执行 `brew install python`。
-2. 在 App **设置 → 更新与编辑器集成 → DaVinci Resolve 脚本** 中安装 / 修复 / 更新。
+1. 安装 **Python 3.6+（64-bit）**，推荐 3.11 或 3.12。终端执行 `python3 --version` 检查；若未安装：
+   - **Homebrew（推荐）**：先安装 Homebrew（若还没有），再执行 `brew install python`；可选 `brew link --overwrite python`
+   - **官方安装包**：从 [python.org/downloads/macos](https://www.python.org/downloads/macos/) 下载并安装
+   - App 设置页可检测 Python 并打开「安装指南」；**不会**卸载系统或 Homebrew 的 Python
+2. 在 App **设置 → 更新与编辑器集成 → DaVinci Resolve 脚本** 中安装 / 修复 / 更新；不需要时可点「卸载」。Premiere 插件同样支持卸载。
 3. 安装成功后，设置页会显示安装路径；可点「显示路径」在 Finder 中确认两个 `自动发送ClawBot_*.py` 文件存在。
 4. 开启「本地接口」。
 5. **完全退出并重新打开** DaVinci Resolve（`Cmd + Q`），脚本只在启动时扫描。

@@ -10,6 +10,7 @@ enum Brand {
     static let portfolioURL = URL(string: "https://zeezhi.pages.dev/")!
     static let supportEmailURL = URL(string: "mailto:double_tea@foxmail.com")!
     static let feedbackURL = URL(string: "https://my.feishu.cn/docx/ZBq3dUnj1o55Q3xfJrpc9hfRnlh")!
+    static let pythonDownloadURL = URL(string: "https://www.python.org/downloads/macos/")!
 
     /// 主强调：深墨，随深浅色微调
     static let accent = adaptiveColor(
