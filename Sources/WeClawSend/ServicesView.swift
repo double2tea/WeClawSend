@@ -13,6 +13,7 @@ struct ServicesView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     weChatSection
                     settingsSection
+                    shelfSettingsSection
                     localAPISection
                     updatesAndIntegrationsSection
                     feedbackSection
@@ -412,6 +413,145 @@ struct ServicesView: View {
                     .padding(.top, 6)
             }
         }
+    }
+
+    private var shelfSettingsSection: some View {
+        compactCard {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("文件篮")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 6)
+
+                settingRow(
+                    icon: "tray.full",
+                    title: "启用文件篮",
+                    subtitle: "用多个悬浮篮收集文件，再批量发送或拖出",
+                    isOn: Binding(
+                        get: { model.shelfEnabled },
+                        set: { model.setShelfEnabled($0) }
+                    )
+                )
+
+                if model.shelfEnabled {
+                    shelfSettingsGroupLabel("唤出方式")
+
+                    settingRow(
+                        icon: "command",
+                        title: "全局快捷键",
+                        subtitle: "⌥⌘S 显示或隐藏最近使用的文件篮",
+                        isOn: Binding(
+                            get: { model.shelfGlobalShortcutEnabled },
+                            set: { model.setShelfGlobalShortcutEnabled($0) }
+                        )
+                    )
+
+                    Divider().opacity(0.35).padding(.vertical, 6)
+
+                    settingRow(
+                        icon: "arrow.left.and.right",
+                        title: "拖拽摇晃新建",
+                        subtitle: "拖着文件左右摇晃，在鼠标附近新建文件篮",
+                        isOn: Binding(
+                            get: { model.shelfShakeToOpenEnabled },
+                            set: { model.setShelfShakeToOpenEnabled($0) }
+                        )
+                    )
+
+                    if model.shelfShakeToOpenEnabled {
+                        HStack(spacing: 8) {
+                            Image(systemName: "dial.medium")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 22, height: 22)
+                                .background(Circle().fill(Color.primary.opacity(0.05)))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("灵敏度")
+                                    .font(.system(size: 11.5, weight: .medium))
+                                Text("越高越容易触发")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer(minLength: 8)
+                            Picker("摇晃灵敏度", selection: Binding(
+                                get: { model.shelfShakeSensitivity },
+                                set: { model.setShelfShakeSensitivity($0) }
+                            )) {
+                                ForEach(ShelfShakeSensitivity.allCases) { sensitivity in
+                                    Text(sensitivity.title).tag(sensitivity)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(width: 100)
+                        }
+                        .padding(.top, 6)
+                    }
+
+                    shelfSettingsGroupLabel("文件篮与窗口")
+
+                    settingRow(
+                        icon: "pin",
+                        title: "新文件篮默认置顶",
+                        subtitle: "之后可在每个文件篮中独立切换",
+                        isOn: Binding(
+                            get: { model.shelfAlwaysOnTop },
+                            set: { model.setShelfAlwaysOnTop($0) }
+                        )
+                    )
+
+                    Divider().opacity(0.35).padding(.vertical, 6)
+
+                    settingRow(
+                        icon: "tray",
+                        title: "关闭时保留非空篮",
+                        subtitle: "空篮关闭即删除；开启后非空篮仅隐藏",
+                        isOn: Binding(
+                            get: { model.shelfKeepItemsOnClose },
+                            set: { model.setShelfKeepItemsOnClose($0) }
+                        )
+                    )
+
+                    Divider().opacity(0.35).padding(.vertical, 6)
+
+                    settingRow(
+                        icon: "arrow.clockwise",
+                        title: "启动后恢复",
+                        subtitle: "恢复全部文件篮、位置与窗口状态",
+                        isOn: Binding(
+                            get: { model.shelfRestoreOnLaunch },
+                            set: { model.setShelfRestoreOnLaunch($0) }
+                        )
+                    )
+
+                    Divider().opacity(0.35).padding(.vertical, 6)
+
+                    settingRow(
+                        icon: "paperplane",
+                        title: "发送后清空",
+                        subtitle: "当前文件篮进入发送队列后清空",
+                        isOn: Binding(
+                            get: { model.shelfClearAfterSend },
+                            set: { model.setShelfClearAfterSend($0) }
+                        )
+                    )
+
+                    Text("菜单栏图标仍立即发送，不会进入文件篮。")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 8)
+                }
+            }
+        }
+    }
+
+    private func shelfSettingsGroupLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.tertiary)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
     }
 
     private var updatesAndIntegrationsSection: some View {

@@ -1,9 +1,38 @@
 import SwiftUI
 
+struct FileBasketCommands {
+    let create: () -> Void
+    let show: (UUID) -> Void
+    let showAll: () -> Void
+    let closeAll: () -> Void
+    let delete: (UUID) -> Void
+    let deleteAll: () -> Void
+}
+
+private enum FileBasketDeletionRequest: Equatable {
+    case basket(UUID)
+    case all
+}
+
 struct ContentView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: AppModel
+    @ObservedObject private var fileBaskets: FileBasketStore
     let chooseFiles: () -> Void
+    let fileBasketCommands: FileBasketCommands
     @State private var isDropHovered = false
+    @State private var pendingBasketDeletion: FileBasketDeletionRequest?
+
+    init(
+        model: AppModel,
+        chooseFiles: @escaping () -> Void,
+        fileBasketCommands: FileBasketCommands
+    ) {
+        self.model = model
+        _fileBaskets = ObservedObject(wrappedValue: model.fileBaskets)
+        self.chooseFiles = chooseFiles
+        self.fileBasketCommands = fileBasketCommands
+    }
 
     var body: some View {
         Group {
@@ -44,8 +73,8 @@ struct ContentView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: model.transientNotice)
-        .animation(.easeInOut(duration: 0.2), value: model.appUpdateNotice)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25, extraBounce: 0), value: model.transientNotice)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25, extraBounce: 0), value: model.appUpdateNotice)
         .alert(
             Brand.name,
             isPresented: Binding(
@@ -56,6 +85,21 @@ struct ContentView: View {
             Button("好", role: .cancel) {}
         } message: {
             Text(model.presentedError ?? "")
+        }
+        .confirmationDialog(
+            deletionDialogTitle,
+            isPresented: Binding(
+                get: { pendingBasketDeletion != nil },
+                set: { if !$0 { pendingBasketDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(deletionButtonTitle, role: .destructive, action: confirmBasketDeletion)
+            Button("取消", role: .cancel) {
+                pendingBasketDeletion = nil
+            }
+        } message: {
+            Text(pendingBasketDeletionMessage)
         }
     }
 
@@ -89,6 +133,69 @@ struct ContentView: View {
             Circle()
                 .fill(headerStatusColor)
                 .frame(width: 6, height: 6)
+            if model.shelfEnabled {
+                Button(action: fileBasketCommands.create) {
+                    Image(systemName: "rectangle.stack.badge.plus")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Brand.accent)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("新建文件篮")
+                .accessibilityLabel("新建文件篮")
+
+                Menu {
+                    if fileBaskets.baskets.isEmpty {
+                        Button("暂无文件篮") {}
+                            .disabled(true)
+                    } else {
+                        ForEach(fileBaskets.baskets, id: \.id) { basket in
+                            Button {
+                                fileBasketCommands.show(basket.id)
+                            } label: {
+                                Text("\(basket.title) · \(basket.items.count) 个文件")
+                            }
+                        }
+                        Divider()
+                        Button("显示全部文件篮", action: fileBasketCommands.showAll)
+                        Button("关闭全部文件篮", action: fileBasketCommands.closeAll)
+                        Menu("删除文件篮") {
+                            ForEach(fileBaskets.baskets, id: \.id) { basket in
+                                Button(basket.title, role: .destructive) {
+                                    requestBasketDeletion(basket)
+                                }
+                            }
+                        }
+                        Divider()
+                        Button("删除全部文件篮…", role: .destructive) {
+                            pendingBasketDeletion = .all
+                        }
+                    }
+                } label: {
+                    Image(systemName: fileBaskets.baskets.isEmpty ? "rectangle.stack" : "rectangle.stack.fill")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(fileBaskets.baskets.isEmpty ? Color.secondary : Brand.accent)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                        .overlay(alignment: .topTrailing) {
+                            if !fileBaskets.baskets.isEmpty {
+                                Text(fileBaskets.baskets.count > 9 ? "9+" : String(fileBaskets.baskets.count))
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 3.5)
+                                    .frame(minWidth: 14, minHeight: 14)
+                                    .background(Capsule().fill(Brand.action))
+                                    .offset(x: 3, y: -2)
+                            }
+                        }
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("管理文件篮（⌥⌘S 显示最近使用）")
+                .accessibilityLabel("管理文件篮，当前有 \(fileBaskets.baskets.count) 个")
+            }
             Button {
                 model.showsServices = true
             } label: {
@@ -111,6 +218,47 @@ struct ContentView: View {
         }
         .padding(.horizontal, 18)
         .frame(height: 52)
+    }
+
+    private func requestBasketDeletion(_ basket: ShelfModel) {
+        if basket.items.isEmpty {
+            fileBasketCommands.delete(basket.id)
+        } else {
+            pendingBasketDeletion = .basket(basket.id)
+        }
+    }
+
+    private func confirmBasketDeletion() {
+        guard let request = pendingBasketDeletion else { return }
+        pendingBasketDeletion = nil
+        switch request {
+        case let .basket(id):
+            fileBasketCommands.delete(id)
+        case .all:
+            fileBasketCommands.deleteAll()
+        }
+    }
+
+    private var deletionDialogTitle: String {
+        pendingBasketDeletion == .all ? "删除全部文件篮？" : "删除文件篮？"
+    }
+
+    private var deletionButtonTitle: String {
+        pendingBasketDeletion == .all ? "全部删除" : "删除"
+    }
+
+    private var pendingBasketDeletionMessage: String {
+        guard let request = pendingBasketDeletion else {
+            return "只会移除文件引用，不会删除原文件。"
+        }
+        if request == .all {
+            return "将删除 \(fileBaskets.baskets.count) 个文件篮并移除 \(fileBaskets.totalItemCount) 个文件引用，不会删除原文件。"
+        }
+        guard
+            case let .basket(id) = request,
+            let basket = fileBaskets.basket(id: id)
+        else { return "只会移除文件引用，不会删除原文件。" }
+        return "将删除\(basket.title)并移除篮内 \(basket.items.count) 个文件引用，不会删除原文件。"
     }
 
     private var headerStatusText: String {
@@ -138,7 +286,7 @@ struct ContentView: View {
                 Image(systemName: dropZoneSymbol)
                     .font(.system(size: 22, weight: .regular))
                     .foregroundStyle(dropZoneIsHighlighted ? Brand.accent : Color.secondary)
-                    .symbolEffect(.pulse, isActive: model.hasActiveTransfers)
+                    .symbolEffect(.pulse, isActive: model.hasActiveTransfers && !reduceMotion)
 
                 Text(dropZoneTitle)
                     .font(.system(size: 13.5, weight: .medium))
@@ -169,7 +317,7 @@ struct ContentView: View {
         .contentShape(RoundedRectangle(cornerRadius: Brand.radiusCard, style: .continuous))
         .onHover { isDropHovered = $0 }
         .accessibilityLabel(model.isReady ? "选择或拖入文件发送" : "打开设置登录微信")
-        .animation(.easeInOut(duration: 0.15), value: dropZoneIsHighlighted)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.18, extraBounce: 0), value: dropZoneIsHighlighted)
         .dropDestination(for: URL.self) { urls, _ in
             model.send(urls: urls)
             return !urls.isEmpty

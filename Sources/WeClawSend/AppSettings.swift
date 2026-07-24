@@ -25,6 +25,22 @@ enum SendSizeLimit: Int, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum ShelfShakeSensitivity: String, CaseIterable, Identifiable, Sendable {
+    case low
+    case medium
+    case high
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .low: "低"
+        case .medium: "中"
+        case .high: "高"
+        }
+    }
+}
+
 enum AppSettings {
     static let autoRenameMP4Key = "AutoRenameMP4ToM4V"
     static let localAPIEnabledKey = "LocalAPIEnabled"
@@ -36,6 +52,22 @@ enum AppSettings {
     static let appUpdateNoticeSeenVersionKey = "AppUpdateNoticeSeenVersion"
     static let weChatCredentialSourceKey = "WeChatCredentialSource"
     static let openClawAccountIDKey = "OpenClawAccountID"
+    static let shelfEnabledKey = "ShelfEnabled"
+    static let shelfShakeToOpenEnabledKey = "ShelfShakeToOpenEnabled"
+    static let shelfShakeSensitivityKey = "ShelfShakeSensitivity"
+    static let shelfGlobalShortcutEnabledKey = "ShelfGlobalShortcutEnabled"
+    static let shelfAlwaysOnTopKey = "ShelfAlwaysOnTop"
+    static let shelfKeepItemsOnCloseKey = "ShelfKeepItemsOnClose"
+    static let shelfRestoreOnLaunchKey = "ShelfRestoreOnLaunch"
+    static let shelfClearAfterSendKey = "ShelfClearAfterSend"
+    static let shelfStoredItemsKey = "ShelfStoredItems"
+    static let shelfWindowOriginKey = "ShelfWindowOrigin"
+    static let fileBasketArchiveKey = "FileBasketArchive"
+
+    private static func bool(forKey key: String, default defaultValue: Bool) -> Bool {
+        guard UserDefaults.standard.object(forKey: key) != nil else { return defaultValue }
+        return UserDefaults.standard.bool(forKey: key)
+    }
 
     static var localAPIEnabled: Bool {
         guard UserDefaults.standard.object(forKey: localAPIEnabledKey) != nil else { return false }
@@ -57,6 +89,41 @@ enum AppSettings {
 
     static var maxSendBytes: Int64 {
         sendSizeLimit.byteCount
+    }
+
+    static var shelfEnabled: Bool {
+        bool(forKey: shelfEnabledKey, default: true)
+    }
+
+    static var shelfShakeToOpenEnabled: Bool {
+        bool(forKey: shelfShakeToOpenEnabledKey, default: true)
+    }
+
+    static var shelfShakeSensitivity: ShelfShakeSensitivity {
+        guard let stored = UserDefaults.standard.string(forKey: shelfShakeSensitivityKey) else {
+            return .medium
+        }
+        return ShelfShakeSensitivity(rawValue: stored) ?? .medium
+    }
+
+    static var shelfGlobalShortcutEnabled: Bool {
+        bool(forKey: shelfGlobalShortcutEnabledKey, default: true)
+    }
+
+    static var shelfAlwaysOnTop: Bool {
+        bool(forKey: shelfAlwaysOnTopKey, default: true)
+    }
+
+    static var shelfKeepItemsOnClose: Bool {
+        bool(forKey: shelfKeepItemsOnCloseKey, default: true)
+    }
+
+    static var shelfRestoreOnLaunch: Bool {
+        bool(forKey: shelfRestoreOnLaunchKey, default: false)
+    }
+
+    static var shelfClearAfterSend: Bool {
+        bool(forKey: shelfClearAfterSendKey, default: true)
     }
 
     static var weChatCredentialSource: WeChatCredentialSource {

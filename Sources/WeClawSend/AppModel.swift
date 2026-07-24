@@ -18,6 +18,21 @@ enum WeChatLoginStep: Int, Equatable, Sendable {
     case connected = 3
 }
 
+enum FileBasketSendResult: Equatable {
+    case enqueued
+    case empty
+    case loginRequired
+    case unavailableFilesRemoved(Int)
+}
+
+enum FileBasketArchiveSendResult: Equatable {
+    case enqueued(String)
+    case empty
+    case loginRequired
+    case unavailableFilesRemoved(Int)
+    case failed(String)
+}
+
 private final class AppRuntime: Sendable {
     let weChat: WeChatService
     let coordinator: SendCoordinator
@@ -33,6 +48,8 @@ private final class AppRuntime: Sendable {
 @MainActor
 final class AppModel: ObservableObject {
     static let maxRecentTransfers = 20
+
+    let fileBaskets = FileBasketStore()
 
     @Published var bridgeStatus: ServiceStatus = .checking
     @Published var weChatStatus: ServiceStatus = .checking
@@ -55,6 +72,14 @@ final class AppModel: ObservableObject {
     @Published var sendSizeLimit = AppSettings.sendSizeLimit
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
     @Published var sendResultNotificationsEnabled = AppSettings.sendResultNotificationsEnabled
+    @Published var shelfEnabled = AppSettings.shelfEnabled
+    @Published var shelfShakeToOpenEnabled = AppSettings.shelfShakeToOpenEnabled
+    @Published var shelfShakeSensitivity = AppSettings.shelfShakeSensitivity
+    @Published var shelfGlobalShortcutEnabled = AppSettings.shelfGlobalShortcutEnabled
+    @Published var shelfAlwaysOnTop = AppSettings.shelfAlwaysOnTop
+    @Published var shelfKeepItemsOnClose = AppSettings.shelfKeepItemsOnClose
+    @Published var shelfRestoreOnLaunch = AppSettings.shelfRestoreOnLaunch
+    @Published var shelfClearAfterSend = AppSettings.shelfClearAfterSend
     @Published var launchAtLoginEnabled = LaunchAtLogin.isEnabled
     @Published var launchAtLoginRequiresApproval = LaunchAtLogin.requiresApproval
     @Published var isUpdatingApp = false
@@ -74,6 +99,7 @@ final class AppModel: ObservableObject {
     @Published var daVinciScriptsMessage = ""
 
     var onContextRefreshRequired: (() -> Void)?
+    var onShelfPreferencesChanged: (() -> Void)?
 
     private let runtime: AppRuntime
     private var startupTask: Task<Void, Never>?
@@ -104,9 +130,11 @@ final class AppModel: ObservableObject {
             UserDefaults.standard.removeObject(forKey: legacyRecentTransferKey)
             shouldPersistLegacyTransfers = true
         }
-
         let runtime = AppRuntime()
         self.runtime = runtime
+        FileBasketArchiver.cleanupOrphans(
+            preserving: recentTransfers.filter { $0.status == .failed }.map(\.fileURL)
+        )
         if shouldPersistLegacyTransfers {
             persistTransfers()
         }
@@ -374,6 +402,51 @@ final class AppModel: ObservableObject {
             UNUserNotificationCenter.current()
                 .removePendingNotificationRequests(withIdentifiers: [sendResultNotificationIdentifier])
         }
+    }
+
+    func setShelfEnabled(_ enabled: Bool) {
+        shelfEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.shelfEnabledKey)
+        onShelfPreferencesChanged?()
+    }
+
+    func setShelfShakeToOpenEnabled(_ enabled: Bool) {
+        shelfShakeToOpenEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.shelfShakeToOpenEnabledKey)
+        onShelfPreferencesChanged?()
+    }
+
+    func setShelfShakeSensitivity(_ sensitivity: ShelfShakeSensitivity) {
+        shelfShakeSensitivity = sensitivity
+        UserDefaults.standard.set(sensitivity.rawValue, forKey: AppSettings.shelfShakeSensitivityKey)
+        onShelfPreferencesChanged?()
+    }
+
+    func setShelfGlobalShortcutEnabled(_ enabled: Bool) {
+        shelfGlobalShortcutEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.shelfGlobalShortcutEnabledKey)
+        onShelfPreferencesChanged?()
+    }
+
+    func setShelfAlwaysOnTop(_ enabled: Bool) {
+        shelfAlwaysOnTop = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.shelfAlwaysOnTopKey)
+        onShelfPreferencesChanged?()
+    }
+
+    func setShelfKeepItemsOnClose(_ enabled: Bool) {
+        shelfKeepItemsOnClose = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.shelfKeepItemsOnCloseKey)
+    }
+
+    func setShelfRestoreOnLaunch(_ enabled: Bool) {
+        shelfRestoreOnLaunch = enabled
+        fileBaskets.setRestoresItemsOnLaunch(enabled)
+    }
+
+    func setShelfClearAfterSend(_ enabled: Bool) {
+        shelfClearAfterSend = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.shelfClearAfterSendKey)
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -782,21 +855,77 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func send(urls: [URL]) {
+    @discardableResult
+    func send(urls: [URL]) -> Bool {
         let requests = urls.filter { url in
             (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
         }
         .map { url in
             SendRequest(filePath: url.path, fileName: url.lastPathComponent)
         }
-        guard !requests.isEmpty else { return }
+        guard !requests.isEmpty else { return false }
 
         if !weChatStatus.isOnline {
             showsServices = true
             presentedError = "请先登录微信后再发送文件"
-            return
+            return false
         }
         enqueue(requests)
+        return true
+    }
+
+    @discardableResult
+    func sendBasketItems(id: UUID) -> FileBasketSendResult {
+        guard let basket = fileBaskets.basket(id: id) else { return .empty }
+        let unavailableCount = basket.removeUnavailableItems()
+        guard unavailableCount == 0 else {
+            return .unavailableFilesRemoved(unavailableCount)
+        }
+        let didEnqueue = send(urls: basket.urls)
+        if didEnqueue, shelfClearAfterSend {
+            basket.clear()
+        }
+        if didEnqueue { return .enqueued }
+        return isReady ? .empty : .loginRequired
+    }
+
+    func sendBasketArchive(id: UUID, archiveName: String) async -> FileBasketArchiveSendResult {
+        guard let basket = fileBaskets.basket(id: id) else { return .empty }
+        let unavailableCount = basket.removeUnavailableItems()
+        guard unavailableCount == 0 else {
+            return .unavailableFilesRemoved(unavailableCount)
+        }
+        guard !basket.items.isEmpty else { return .empty }
+        guard weChatStatus.isOnline else { return .loginRequired }
+
+        let urls = basket.urls
+        let archive: FileBasketArchiveArtifact
+        do {
+            archive = try await Task.detached(priority: .userInitiated) {
+                try FileBasketArchiver.createArchive(urls: urls, archiveName: archiveName)
+            }.value
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+
+        guard weChatStatus.isOnline else {
+            FileBasketArchiver.cleanup(archive.fileURL)
+            return .loginRequired
+        }
+        let byteCount = Int64(
+            (try? archive.fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        )
+        guard byteCount <= AppSettings.maxSendBytes else {
+            FileBasketArchiver.cleanup(archive.fileURL)
+            return .failed(
+                "压缩包过大：\(formatBytes(byteCount)) > \(formatBytes(AppSettings.maxSendBytes))"
+            )
+        }
+        guard send(urls: [archive.fileURL]) else {
+            FileBasketArchiver.cleanup(archive.fileURL)
+            return weChatStatus.isOnline ? .empty : .loginRequired
+        }
+        return .enqueued(archive.fileURL.lastPathComponent)
     }
 
     func sendOpened(urls: [URL]) async {
@@ -907,6 +1036,9 @@ final class AppModel: ObservableObject {
     }
 
     func clearFinishedTransfers() {
+        recentTransfers.filter(\.isTerminal).forEach { record in
+            FileBasketArchiver.cleanup(record.fileURL)
+        }
         recentTransfers.removeAll(where: \.isTerminal)
         retriedTransferIDs.removeAll()
         persistTransfers()
@@ -933,6 +1065,11 @@ final class AppModel: ObservableObject {
                     }
                 case let .completed(record):
                     insertTransfer(record)
+                    if FileBasketArchiver.cleanup(record.fileURL) {
+                        recentTransfers.removeAll {
+                            $0.id != record.id && $0.status == .failed && $0.path == record.path
+                        }
+                    }
                     persistTransfers()
                     if contextRefreshTransfers.remove(record.id) != nil {
                         showTransientNotice("微信会话已刷新，文件已自动重新发送")
@@ -978,7 +1115,9 @@ final class AppModel: ObservableObject {
         recentTransfers.removeAll { transfer in
             guard transfer.isTerminal else { return false }
             terminalCount += 1
-            return terminalCount > Self.maxRecentTransfers
+            guard terminalCount > Self.maxRecentTransfers else { return false }
+            FileBasketArchiver.cleanup(transfer.fileURL)
+            return true
         }
         retriedTransferIDs.formIntersection(recentTransfers.map(\.id))
     }

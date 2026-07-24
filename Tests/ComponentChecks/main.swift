@@ -225,6 +225,259 @@ precondition(
 UserDefaults.standard.set(999, forKey: AppSettings.sendSizeLimitMegabytesKey)
 precondition(AppSettings.sendSizeLimit == .megabytes200)
 
+let shelfSettingKeys: [String] = [
+    AppSettings.shelfEnabledKey,
+    AppSettings.shelfShakeToOpenEnabledKey,
+    AppSettings.shelfShakeSensitivityKey,
+    AppSettings.shelfGlobalShortcutEnabledKey,
+    AppSettings.shelfAlwaysOnTopKey,
+    AppSettings.shelfKeepItemsOnCloseKey,
+    AppSettings.shelfRestoreOnLaunchKey,
+    AppSettings.shelfClearAfterSendKey,
+    AppSettings.shelfStoredItemsKey,
+    AppSettings.shelfWindowOriginKey,
+    AppSettings.fileBasketArchiveKey
+]
+let previousShelfSettings = Dictionary(
+    uniqueKeysWithValues: shelfSettingKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+)
+defer {
+    for key in shelfSettingKeys {
+        if let value = previousShelfSettings[key] {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+}
+for key in shelfSettingKeys {
+    UserDefaults.standard.removeObject(forKey: key)
+}
+precondition(AppSettings.shelfEnabled)
+precondition(AppSettings.shelfShakeToOpenEnabled)
+precondition(AppSettings.shelfShakeSensitivity == .medium)
+precondition(AppSettings.shelfShakeSensitivity.title == "中")
+precondition(AppSettings.shelfGlobalShortcutEnabled)
+precondition(AppSettings.shelfAlwaysOnTop)
+precondition(AppSettings.shelfKeepItemsOnClose)
+precondition(!AppSettings.shelfRestoreOnLaunch)
+precondition(AppSettings.shelfClearAfterSend)
+UserDefaults.standard.set(ShelfShakeSensitivity.high.rawValue, forKey: AppSettings.shelfShakeSensitivityKey)
+precondition(AppSettings.shelfShakeSensitivity == .high)
+UserDefaults.standard.set("invalid", forKey: AppSettings.shelfShakeSensitivityKey)
+precondition(AppSettings.shelfShakeSensitivity == .medium)
+
+var shakeDetector = DragShakeDetector(sensitivity: .medium)
+precondition(!shakeDetector.observe(point: CGPoint(x: 0, y: 0), at: 0))
+precondition(!shakeDetector.observe(point: CGPoint(x: 60, y: 0), at: 0.1))
+precondition(!shakeDetector.observe(point: CGPoint(x: 0, y: 0), at: 0.2))
+precondition(!shakeDetector.observe(point: CGPoint(x: 60, y: 0), at: 0.3))
+precondition(shakeDetector.observe(point: CGPoint(x: 0, y: 0), at: 0.4))
+precondition(!shakeDetector.observe(point: CGPoint(x: 60, y: 0), at: 0.5))
+shakeDetector.reset()
+precondition(!shakeDetector.observe(point: CGPoint(x: 0, y: 0), at: 2))
+precondition(!shakeDetector.observe(point: CGPoint(x: 0, y: 80), at: 2.1))
+precondition(!shakeDetector.observe(point: CGPoint(x: 0, y: 0), at: 2.2))
+
+var shakeSession = DragShakeSession(sensitivity: .medium)
+precondition(!shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 3, containsFiles: true))
+precondition(!shakeSession.observe(point: CGPoint(x: 60, y: 0), at: 3.1, containsFiles: true))
+precondition(!shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 3.2, containsFiles: true))
+precondition(!shakeSession.observe(point: CGPoint(x: 60, y: 0), at: 3.3, containsFiles: true))
+precondition(shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 3.4, containsFiles: true))
+precondition(!shakeSession.observe(point: CGPoint(x: 60, y: 0), at: 3.5, containsFiles: true))
+precondition(shakeSession.endDrag())
+precondition(!shakeSession.endDrag())
+precondition(!shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 5, containsFiles: true))
+precondition(!shakeSession.observe(point: CGPoint(x: 60, y: 0), at: 5.1, containsFiles: true))
+precondition(!shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 5.2, containsFiles: true))
+precondition(!shakeSession.observe(point: CGPoint(x: 60, y: 0), at: 5.3, containsFiles: true))
+precondition(shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 5.4, containsFiles: true))
+precondition(!shakeSession.observe(point: CGPoint(x: 60, y: 0), at: 5.5, containsFiles: false))
+precondition(!shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 5.6, containsFiles: true))
+precondition(!shakeSession.observe(point: CGPoint(x: 60, y: 0), at: 5.7, containsFiles: true))
+precondition(shakeSession.endDrag())
+
+precondition(FileBasketCloseAction.resolve(isEmpty: true, keepItemsOnClose: true) == .delete)
+precondition(FileBasketCloseAction.resolve(isEmpty: true, keepItemsOnClose: false) == .delete)
+precondition(FileBasketCloseAction.resolve(isEmpty: false, keepItemsOnClose: false) == .delete)
+precondition(FileBasketCloseAction.resolve(isEmpty: false, keepItemsOnClose: true) == .hide)
+
+MainActor.assumeIsolated {
+    let first = ShelfItem(path: "/tmp/shelf-first")
+    let second = ShelfItem(path: "/tmp/shelf-second")
+    let third = ShelfItem(path: "/tmp/shelf-third")
+    let items = [first, second, third]
+    let session = ShelfSessionState(isCollapsed: true, isAlwaysOnTop: true)
+
+    precondition(session.isCollapsed)
+    precondition(session.isAlwaysOnTop)
+    session.ensureSelection(in: items)
+    precondition(session.selectedItemID == first.id)
+    session.moveSelection(by: 1, in: items)
+    precondition(session.selectedItemID == second.id)
+    session.moveSelection(by: 10, in: items)
+    precondition(session.selectedItemID == third.id)
+    session.moveSelection(by: -10, in: items)
+    precondition(session.selectedItemID == first.id)
+
+    session.select(UUID())
+    precondition(session.selectedItem(in: items)?.id == first.id)
+    session.ensureSelection(in: items)
+    precondition(session.selectedItemID == first.id)
+    session.ensureSelection(in: [])
+    precondition(session.selectedItemID == nil)
+}
+
+let shelfFile = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-shelf-\(UUID()).txt")
+let shelfDirectory = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-shelf-dir-\(UUID())", directoryHint: .isDirectory)
+try Data("shelf-file".utf8).write(to: shelfFile)
+try FileManager.default.createDirectory(at: shelfDirectory, withIntermediateDirectories: true)
+defer {
+    try? FileManager.default.removeItem(at: shelfFile)
+    try? FileManager.default.removeItem(at: shelfDirectory)
+}
+try MainActor.assumeIsolated {
+    let shelfModel = ShelfModel(title: "文件篮测试")
+    precondition(shelfModel.title == "文件篮测试")
+    precondition(shelfModel.add(urls: [shelfFile, shelfDirectory]) == 1)
+    precondition(shelfModel.add(urls: [shelfFile]) == 0)
+    precondition(shelfModel.items.count == 1)
+    precondition(shelfModel.urls == [shelfFile.standardizedFileURL])
+    precondition(shelfModel.items[0].fileName == shelfFile.lastPathComponent)
+    let shelfItemID = shelfModel.items[0].id
+    shelfModel.remove(id: shelfItemID)
+    precondition(shelfModel.items.isEmpty)
+    precondition(shelfModel.add(urls: [shelfFile]) == 1)
+    shelfModel.clear()
+    precondition(shelfModel.items.isEmpty)
+
+    UserDefaults.standard.set(false, forKey: AppSettings.shelfRestoreOnLaunchKey)
+    let store = FileBasketStore()
+    let firstBasket = store.createBasket()
+    let secondBasket = store.createBasket()
+    precondition(firstBasket.title == "文件篮 1")
+    precondition(secondBasket.title == "文件篮 2")
+    precondition(firstBasket.add(urls: [shelfFile]) == 1)
+    precondition(secondBasket.items.isEmpty)
+    precondition(store.totalItemCount == 1)
+    precondition(store.recentBasketID == secondBasket.id)
+    store.markRecent(id: firstBasket.id)
+    precondition(store.recentBasketID == firstBasket.id)
+
+    let firstState = FileBasketWindowState(
+        origin: "{120, 240}",
+        isCollapsed: true,
+        isAlwaysOnTop: false
+    )
+    store.updateWindowState(firstState, for: firstBasket.id)
+    precondition(store.windowState(for: firstBasket.id) == firstState)
+    precondition(store.windowState(for: secondBasket.id).isAlwaysOnTop)
+    precondition(UserDefaults.standard.data(forKey: AppSettings.fileBasketArchiveKey) == nil)
+
+    store.setRestoresItemsOnLaunch(true)
+    precondition(AppSettings.shelfRestoreOnLaunch)
+    precondition(UserDefaults.standard.data(forKey: AppSettings.fileBasketArchiveKey) != nil)
+
+    let archiveBeforeWindowMove = UserDefaults.standard.data(forKey: AppSettings.fileBasketArchiveKey)
+    let movedState = FileBasketWindowState(
+        origin: "{180, 300}",
+        isCollapsed: false,
+        isAlwaysOnTop: true
+    )
+    store.updateWindowState(movedState, for: firstBasket.id)
+    precondition(UserDefaults.standard.data(forKey: AppSettings.fileBasketArchiveKey) == archiveBeforeWindowMove)
+    store.flushPendingPersistence()
+
+    let restoredStore = FileBasketStore()
+    precondition(restoredStore.baskets.count == 2)
+    precondition(restoredStore.baskets[0].items.map(\.path) == [shelfFile.standardizedFileURL.path])
+    precondition(restoredStore.windowState(for: firstBasket.id) == movedState)
+    precondition(restoredStore.recentBasketID == firstBasket.id)
+    restoredStore.removeBasket(id: firstBasket.id)
+    precondition(restoredStore.baskets.map(\.title) == ["文件篮 2"])
+    precondition(restoredStore.recentBasketID == secondBasket.id)
+    precondition(restoredStore.createBasket().title == "文件篮 1")
+
+    restoredStore.setRestoresItemsOnLaunch(false)
+    precondition(!AppSettings.shelfRestoreOnLaunch)
+    precondition(UserDefaults.standard.data(forKey: AppSettings.fileBasketArchiveKey) == nil)
+
+    UserDefaults.standard.removeObject(forKey: AppSettings.fileBasketArchiveKey)
+    UserDefaults.standard.set(true, forKey: AppSettings.shelfRestoreOnLaunchKey)
+    let legacyItems = [ShelfItem(path: shelfFile.path)]
+    UserDefaults.standard.set(
+        try JSONEncoder().encode(legacyItems),
+        forKey: AppSettings.shelfStoredItemsKey
+    )
+    UserDefaults.standard.set("{40, 80}", forKey: AppSettings.shelfWindowOriginKey)
+    let migratedStore = FileBasketStore()
+    precondition(migratedStore.baskets.count == 1)
+    precondition(migratedStore.baskets[0].title == "文件篮 1")
+    precondition(migratedStore.baskets[0].items.map(\.path) == [shelfFile.standardizedFileURL.path])
+    precondition(migratedStore.windowState(for: migratedStore.baskets[0].id).origin == "{40, 80}")
+    precondition(UserDefaults.standard.data(forKey: AppSettings.shelfStoredItemsKey) == nil)
+    precondition(UserDefaults.standard.string(forKey: AppSettings.shelfWindowOriginKey) == nil)
+
+    let customDefaultsName = "WeClawSend.FileBasketStore.\(UUID())"
+    guard let customDefaults = UserDefaults(suiteName: customDefaultsName) else {
+        preconditionFailure("无法创建测试 UserDefaults")
+    }
+    customDefaults.removePersistentDomain(forName: customDefaultsName)
+    customDefaults.set(false, forKey: AppSettings.shelfAlwaysOnTopKey)
+    let customStore = FileBasketStore(defaults: customDefaults)
+    let customBasket = customStore.createBasket()
+    precondition(!customStore.windowState(for: customBasket.id).isAlwaysOnTop)
+    customDefaults.removePersistentDomain(forName: customDefaultsName)
+
+    try FileManager.default.removeItem(at: shelfFile)
+    precondition(migratedStore.baskets[0].removeUnavailableItems() == 1)
+    precondition(migratedStore.baskets[0].items.isEmpty)
+    let filteredStore = FileBasketStore()
+    precondition(filteredStore.baskets[0].items.isEmpty)
+}
+
+let archiveInputDirectory = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-archive-input-\(UUID())", directoryHint: .isDirectory)
+let firstArchiveDirectory = archiveInputDirectory.appending(path: "first", directoryHint: .isDirectory)
+let secondArchiveDirectory = archiveInputDirectory.appending(path: "second", directoryHint: .isDirectory)
+let firstArchiveFile = firstArchiveDirectory.appending(path: "clip.txt")
+let secondArchiveFile = secondArchiveDirectory.appending(path: "clip.txt")
+try FileManager.default.createDirectory(at: firstArchiveDirectory, withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: secondArchiveDirectory, withIntermediateDirectories: true)
+try Data("first".utf8).write(to: firstArchiveFile)
+try Data("second".utf8).write(to: secondArchiveFile)
+defer { try? FileManager.default.removeItem(at: archiveInputDirectory) }
+
+let fileBasketArchive = try FileBasketArchiver.createArchive(
+    urls: [firstArchiveFile, secondArchiveFile],
+    archiveName: "我的文件"
+)
+precondition(fileBasketArchive.fileURL.lastPathComponent == "我的文件.zip")
+precondition(FileBasketArchiver.normalizedArchiveName(" 成片.ZIP ") == "成片.ZIP")
+precondition(FileBasketArchiver.normalizedArchiveName(".zip") == nil)
+precondition(FileBasketArchiver.normalizedArchiveName("错误/名字") == nil)
+let zipListProcess = Process()
+let zipListOutput = Pipe()
+zipListProcess.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+zipListProcess.arguments = ["-Z1", fileBasketArchive.fileURL.path]
+zipListProcess.standardOutput = zipListOutput
+zipListProcess.standardError = FileHandle.nullDevice
+try zipListProcess.run()
+zipListProcess.waitUntilExit()
+precondition(zipListProcess.terminationStatus == 0)
+let zipEntries = String(
+    decoding: zipListOutput.fileHandleForReading.readDataToEndOfFile(),
+    as: UTF8.self
+).split(separator: "\n").map(String.init)
+precondition(zipEntries == ["clip.txt", "clip 2.txt"])
+let archiveWorkDirectory = fileBasketArchive.fileURL.deletingLastPathComponent()
+precondition(FileBasketArchiver.cleanup(fileBasketArchive.fileURL))
+precondition(!FileManager.default.fileExists(atPath: archiveWorkDirectory.path))
+precondition(!FileBasketArchiver.cleanup(firstArchiveFile))
+
 let previousLocalAPISetting = UserDefaults.standard.object(forKey: AppSettings.localAPIEnabledKey)
 defer {
     if let previousLocalAPISetting {

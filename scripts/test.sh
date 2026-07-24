@@ -17,13 +17,20 @@ plutil -lint "$ROOT/Resources/Info.plist" >/dev/null
 
 swiftc \
     -framework AppKit \
+    -framework Carbon \
     -framework Network \
     -framework Security \
     -framework ServiceManagement \
+    -framework SwiftUI \
     -I "$ROOT/Sources/CCommonCrypto" \
     -Xcc -fmodule-map-file="$ROOT/Sources/CCommonCrypto/module.modulemap" \
     "$ROOT/Sources/WeClawSend/PasteboardURLs.swift" \
     "$ROOT/Sources/WeClawSend/AppSettings.swift" \
+    "$ROOT/Sources/WeClawSend/ShelfActivationController.swift" \
+    "$ROOT/Sources/WeClawSend/ShelfModel.swift" \
+    "$ROOT/Sources/WeClawSend/FileBasketArchiver.swift" \
+    "$ROOT/Sources/WeClawSend/FileBasketStore.swift" \
+    "$ROOT/Sources/WeClawSend/ShelfSessionState.swift" \
     "$ROOT/Sources/WeClawSend/UpdateManager.swift" \
     "$ROOT/Sources/WeClawSend/PopoverAutoClosePolicy.swift" \
     "$ROOT/Sources/WeClawSend/TransferRecord.swift" \
@@ -36,4 +43,4 @@ swiftc \
     "$ROOT/Tests/ComponentChecks/main.swift" \
     -o "$TEST_DIR/component-checks"
 "$TEST_DIR/component-checks"
-swift build --package-path "$ROOT" -c release
+swift build --package-path "$ROOT" --scratch-path "$TEST_DIR/swift-build" -c release
