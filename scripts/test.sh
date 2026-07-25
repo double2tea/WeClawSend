@@ -39,6 +39,7 @@ swiftc \
     "$ROOT/Sources/WeClawSend/WeChatService.swift" \
     "$ROOT/Sources/WeClawSend/SendCoordinator.swift" \
     "$ROOT/Sources/WeClawSend/SendResultNotificationBatch.swift" \
+    "$ROOT/Sources/WeClawSend/DiagnosticExporter.swift" \
     "$ROOT/Sources/WeClawSend/EmbeddedBridgeServer.swift" \
     "$ROOT/Tests/ComponentChecks/main.swift" \
     -o "$TEST_DIR/component-checks"

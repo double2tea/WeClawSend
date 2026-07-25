@@ -44,4 +44,5 @@ Deliver 后渲染自动发送。渲染结束后通过 WeClaw Send 本地接口�
 
 - 日志：`~/.davinci-clawbot-postrender.log`
 - 去重：`~/.davinci-clawbot-postrender-state`
+- 可保持 Resolve「偏好设置 → 后台任务 → 启用后台渲染」开启：后台渲染回调没有 Deliver `JobId` 时会被记录并忽略，真正的 Deliver 输出任务仍按 `JobId` 发送。
 - 接口契约见 [`../docs/INTEGRATION.md`](../docs/INTEGRATION.md)

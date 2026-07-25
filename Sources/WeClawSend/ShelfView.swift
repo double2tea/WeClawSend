@@ -16,6 +16,7 @@ struct ShelfView: View {
     let revealAll: () -> Void
     let toggleCollapsed: () -> Void
     let toggleAlwaysOnTop: () -> Void
+    let pointerPresenceChanged: (Bool) -> Void
     let quickLook: (ShelfItem) -> Void
     let revealInFinder: (ShelfItem) -> Void
 
@@ -24,13 +25,16 @@ struct ShelfView: View {
     @State private var showsDeleteConfirmation = false
     @State private var showsZIPNaming = false
     @State private var zipName = ""
+    @State private var hoveredChromeButton: String?
+    @State private var isTitleHovered = false
+    @State private var isActionsMenuHovered = false
 
     private let cornerRadius: CGFloat = 14
 
     var body: some View {
         shelfChrome
             .frame(
-                width: session.isCollapsed ? 248 : 276,
+                width: session.isCollapsed ? 248 : 300,
                 height: session.isCollapsed ? 52 : 292,
                 alignment: .top
             )
@@ -39,10 +43,7 @@ struct ShelfView: View {
             .overlay(shelfBorder)
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .dropDestination(for: URL.self, action: handleDrop, isTargeted: setDropTargeted)
-            .animation(
-                reduceMotion ? nil : .smooth(duration: 0.32, extraBounce: 0),
-                value: session.isCollapsed
-            )
+            .onHover(perform: pointerPresenceChanged)
             .animation(
                 reduceMotion ? nil : .smooth(duration: 0.2, extraBounce: 0),
                 value: session.statusMessage
@@ -81,9 +82,9 @@ struct ShelfView: View {
             }
             .transition(chromeTransition)
 
-            if let status = session.statusMessage {
+            if session.isCollapsed, let status = session.statusMessage {
                 toast(status)
-                    .padding(.bottom, session.isCollapsed ? 8 : 46)
+                    .padding(.bottom, 8)
                     .transition(toastTransition)
             }
         }
@@ -181,42 +182,63 @@ struct ShelfView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 4) {
-            chromeButton("关闭文件篮", systemImage: "xmark", action: close)
-            Spacer(minLength: 2)
-            titleBadge
-            Spacer(minLength: 2)
-            chromeButton(
-                session.isAlwaysOnTop ? "取消置顶" : "置顶",
-                systemImage: session.isAlwaysOnTop ? "pin.fill" : "pin",
-                emphasized: session.isAlwaysOnTop,
-                action: toggleAlwaysOnTop
-            )
-            chromeButton("折叠", systemImage: "chevron.up", action: toggleCollapsed)
-            basketActionsMenu
-            chromeButton("添加文件", systemImage: "plus", action: chooseFiles)
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 36)
-    }
+        ZStack {
+            titleControl
 
-    private var titleBadge: some View {
-        HStack(spacing: 5) {
-            Text(shelf.title)
-                .font(.system(size: 11.5, weight: .semibold))
-            if !shelf.items.isEmpty {
-                Text("\(shelf.items.count)")
-                    .font(.system(size: 9.5, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1.5)
-                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+            HStack(spacing: 0) {
+                chromeButton("关闭文件篮", systemImage: "xmark", action: close)
+                Spacer(minLength: 80)
+
+                HStack(spacing: 2) {
+                    chromeButton(
+                        session.isAlwaysOnTop ? "取消置顶" : "置顶",
+                        systemImage: session.isAlwaysOnTop ? "pin.fill" : "pin",
+                        emphasized: session.isAlwaysOnTop,
+                        action: toggleAlwaysOnTop
+                    )
+                    basketActionsMenu
+                }
             }
         }
+        .padding(.horizontal, 10)
+        .frame(height: 44)
+        .background(Color.primary.opacity(0.012))
+    }
+
+    private var titleControl: some View {
+        Button(action: toggleCollapsed) {
+            HStack(spacing: 5) {
+                Text(shelf.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.primary.opacity(isTitleHovered ? 0.055 : 0))
+            )
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(ShelfPressButtonStyle(scale: 0.985))
+        .onHover { hovering in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+                isTitleHovered = hovering
+            }
+        }
+        .help("折叠文件篮")
+        .accessibilityLabel("折叠\(shelf.title)")
     }
 
     private var basketActionsMenu: some View {
         Menu {
+            Button(action: chooseFiles) {
+                Label("添加文件…", systemImage: "plus")
+            }
+            Divider()
             Button {
                 zipName = "\(shelf.title).zip"
                 showsZIPNaming = true
@@ -247,13 +269,21 @@ struct ShelfView: View {
             Image(systemName: "ellipsis")
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(Color.secondary)
-                .frame(width: 22, height: 22)
-                .background(Circle().fill(Color.primary.opacity(0.05)))
-                .contentShape(Circle())
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.primary.opacity(isActionsMenuHovered ? 0.075 : 0))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        .onHover { hovering in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+                isActionsMenuHovered = hovering
+            }
+        }
         .help("更多文件篮操作")
         .accessibilityLabel("更多文件篮操作")
     }
@@ -270,39 +300,58 @@ struct ShelfView: View {
     }
 
     private var itemList: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 1) {
-                    ForEach(shelf.items) { item in
-                        ShelfItemRow(
-                            item: item,
-                            isSelected: session.selectedItemID == item.id,
-                            isHovered: hoveredItemID == item.id,
-                            onHover: { hovering in
-                                hoveredItemID = hovering ? item.id : (hoveredItemID == item.id ? nil : hoveredItemID)
-                            },
-                            onSelect: {
-                                session.select(item.id)
-                            },
-                            onPreview: {
-                                session.select(item.id)
-                                quickLook(item)
-                            },
-                            onRemove: { remove(item) },
-                            onReveal: { revealInFinder(item) }
-                        )
-                        .id(item.id)
+        ZStack(alignment: .bottom) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(shelf.items) { item in
+                            ShelfItemRow(
+                                item: item,
+                                isSelected: session.selectedItemID == item.id,
+                                isHovered: hoveredItemID == item.id,
+                                onHover: { hovering in
+                                    hoveredItemID = hovering ? item.id : (hoveredItemID == item.id ? nil : hoveredItemID)
+                                },
+                                onSelect: {
+                                    session.select(item.id)
+                                },
+                                onPreview: {
+                                    session.select(item.id)
+                                    quickLook(item)
+                                },
+                                onRemove: { remove(item) },
+                                onReveal: { revealInFinder(item) }
+                            )
+                            .id(item.id)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 7)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: session.selectedItemID) { _, newID in
+                    guard let newID else { return }
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.2, extraBounce: 0)) {
+                        proxy.scrollTo(newID, anchor: .center)
                     }
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 5)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onChange(of: session.selectedItemID) { _, newID in
-                guard let newID else { return }
-                withAnimation(reduceMotion ? nil : .smooth(duration: 0.2, extraBounce: 0)) {
-                    proxy.scrollTo(newID, anchor: .center)
+
+            if shelf.items.count <= 2 {
+                Button(action: chooseFiles) {
+                    Label(
+                        isDropTargeted ? "松开以加入" : "拖入更多文件",
+                        systemImage: isDropTargeted ? "arrow.down.doc.fill" : "plus"
+                    )
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(isDropTargeted ? Brand.accent : Color.secondary.opacity(0.55))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color.primary.opacity(0.035)))
                 }
+                .buttonStyle(ShelfPressButtonStyle(scale: 0.97))
+                .help("添加更多文件")
+                .padding(.bottom, 12)
             }
         }
     }
@@ -357,13 +406,20 @@ struct ShelfView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Button("清空") {
-                clearBasket()
+            if let status = session.statusMessage {
+                Text(status)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            } else {
+                Button("清空") {
+                    clearBasket()
+                }
+                .buttonStyle(ShelfPressButtonStyle(scale: 0.97))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(shelf.items.isEmpty ? Color.secondary.opacity(0.4) : Brand.danger.opacity(0.88))
+                .disabled(shelf.items.isEmpty)
             }
-            .buttonStyle(ShelfPressButtonStyle(scale: 0.97))
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(shelf.items.isEmpty ? Color.secondary.opacity(0.4) : Brand.danger.opacity(0.88))
-            .disabled(shelf.items.isEmpty)
 
             Spacer(minLength: 4)
 
@@ -387,7 +443,7 @@ struct ShelfView: View {
             .help(model.isReady ? "发送当前文件篮内全部文件" : "请先登录微信")
         }
         .padding(.horizontal, 10)
-        .frame(height: 40)
+        .frame(height: 42)
     }
 
     private var sendEnabled: Bool {
@@ -418,15 +474,34 @@ struct ShelfView: View {
             Image(systemName: systemImage)
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(emphasized ? Brand.accent : Color.secondary)
-                .frame(width: 22, height: 22)
+                .frame(width: 26, height: 26)
                 .background(
-                    Circle().fill(Color.primary.opacity(emphasized ? 0.1 : 0.05))
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(chromeButtonBackground(title, emphasized: emphasized))
                 )
-                .contentShape(Circle())
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(ShelfPressButtonStyle())
+        .onHover { hovering in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+                hoveredChromeButton = hovering ? title : (hoveredChromeButton == title ? nil : hoveredChromeButton)
+            }
+        }
         .help(title)
         .accessibilityLabel(title)
+    }
+
+    private func chromeButtonBackground(
+        _ title: String,
+        emphasized: Bool
+    ) -> Color {
+        if emphasized {
+            return Brand.accent.opacity(hoveredChromeButton == title ? 0.16 : 0.11)
+        }
+        if hoveredChromeButton == title {
+            return Color.primary.opacity(0.075)
+        }
+        return .clear
     }
 
     private func remove(_ item: ShelfItem) {
@@ -526,7 +601,7 @@ private struct ShelfItemRow: View {
 
     private var rowContent: some View {
         HStack(spacing: 8) {
-            FilePreviewIcon(url: item.url, size: 24)
+            FilePreviewIcon(url: item.url, size: 26)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.fileName)
@@ -546,15 +621,15 @@ private struct ShelfItemRow: View {
                 rowAction("移除", systemImage: "xmark", action: onRemove)
             }
         }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(backgroundColor)
         )
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(isSelected ? Brand.accent.opacity(0.22) : Color.clear, lineWidth: 1)
+                .stroke(isSelected ? Brand.accent.opacity(0.12) : Color.clear, lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .onHover(perform: onHover)
@@ -577,8 +652,8 @@ private struct ShelfItemRow: View {
     }
 
     private var backgroundColor: Color {
-        if isSelected { return Color.primary.opacity(0.08) }
-        if isHovered { return Color.primary.opacity(0.045) }
+        if isSelected { return Color.primary.opacity(0.055) }
+        if isHovered { return Color.primary.opacity(0.035) }
         return .clear
     }
 

@@ -57,6 +57,39 @@ class PostRenderScriptTests(unittest.TestCase):
         self.assertFalse(PYTHON.completed("Complete", 99))
         self.assertTrue(PYTHON.failed("Cancelled"))
 
+    def test_background_callback_without_job_is_ignored(self):
+        self.assertIsNone(PYTHON.render_trigger_job_id({}))
+        self.assertIsNone(PYTHON.render_trigger_job_id({"job": "  "}))
+        self.assertEqual(
+            PYTHON.render_trigger_job_id({"job": "job-123"}),
+            "job-123",
+        )
+
+        with (
+            mock.patch.object(PYTHON, "log") as log,
+            mock.patch.object(PYTHON, "start_watchdog") as watchdog,
+        ):
+            PYTHON.main()
+
+        watchdog.assert_not_called()
+        log.assert_any_call("忽略无 JobId 的后台渲染回调：不是 Deliver 输出任务")
+
+    def test_resolve_api_can_use_injected_bmd_module(self):
+        resolve_handle = object()
+
+        class InjectedBmd:
+            @staticmethod
+            def scriptapp(name):
+                self.assertEqual(name, "Resolve")
+                return resolve_handle
+
+        with mock.patch.dict(
+            PYTHON.__dict__,
+            {"resolve": None, "bmd": InjectedBmd()},
+            clear=False,
+        ):
+            self.assertIs(PYTHON.resolve_api(), resolve_handle)
+
     def test_send_claim_prevents_duplicates(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "output.mp4"

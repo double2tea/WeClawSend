@@ -115,6 +115,8 @@ MP4/M4V 显示名由设置「发送时 .mp4 显示为 .m4v」处理。
 4. **完全退出并重启** DaVinci Resolve。
 5. Deliver →「渲染作业结束时触发脚本」优先选 **WeClawSend_Lua**。
 
+开启 Resolve「偏好设置 → 后台任务 → 启用后台渲染」也可以使用：后台渲染产生的无 `JobId` 回调会被忽略，实际 Deliver 输出仍按 `JobId` 自动发送。
+
 ```text
 ~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Deliver/
 ```

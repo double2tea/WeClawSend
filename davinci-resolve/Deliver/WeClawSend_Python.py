@@ -133,11 +133,38 @@ def failed(status):
     }
 
 
-def current_project():
-    if "resolve" not in globals():
-        raise RuntimeError("DaVinci Resolve API 不可用：未找到 resolve 全局变量")
+def render_trigger_job_id(namespace=None):
+    context = globals() if namespace is None else namespace
+    job_id = context.get("job")
+    if not isinstance(job_id, str):
+        return None
+    job_id = job_id.strip()
+    return job_id or None
 
-    project_manager = globals()["resolve"].GetProjectManager()
+
+def resolve_api():
+    injected = globals().get("resolve")
+    if injected is not None:
+        return injected
+
+    injected_module = globals().get("bmd")
+    scriptapp = getattr(injected_module, "scriptapp", None)
+    if callable(scriptapp):
+        return scriptapp("Resolve")
+
+    try:
+        import DaVinciResolveScript as dvr_script
+    except ImportError:
+        return None
+    return dvr_script.scriptapp("Resolve")
+
+
+def current_project():
+    resolve_handle = resolve_api()
+    if resolve_handle is None:
+        raise RuntimeError("DaVinci Resolve API 不可用：无法获取 Resolve 句柄")
+
+    project_manager = resolve_handle.GetProjectManager()
     project = project_manager.GetCurrentProject()
     if project is None:
         raise RuntimeError("未找到当前项目")
@@ -353,12 +380,14 @@ def post_to_weclaw_send(file_path, file_name):
 def main():
     global CURRENT_CLAIM
 
-    start_watchdog()
     log("DaVinci 自动发送到 WeClaw Send 启动（Python 版）")
 
-    job_id = globals().get("job")
+    job_id = render_trigger_job_id()
     if not job_id:
-        raise RuntimeError("未找到 DaVinci 后渲染 job 变量")
+        log("忽略无 JobId 的后台渲染回调：不是 Deliver 输出任务")
+        return
+
+    start_watchdog()
 
     if globals().get("error"):
         raise RuntimeError("DaVinci 渲染错误: {}".format(globals().get("error")))

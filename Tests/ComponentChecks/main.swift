@@ -99,6 +99,35 @@ precondition(sendFailureMessage(CancellationError()) == "发送已取消")
 precondition(sendFailureMessage(URLError(.cancelled)) == "发送已取消")
 precondition(isSendCancellation(CancellationError()))
 precondition(isSendCancellation(URLError(.cancelled)))
+precondition(
+    DiagnosticExporter.archiveName(now: Date(timeIntervalSince1970: 0))
+        == "WeClawSend-Diagnostics-19700101-000000.zip"
+)
+let diagnosticOutputDirectory = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-diagnostic-test-\(UUID())", directoryHint: .isDirectory)
+let diagnosticExtractDirectory = diagnosticOutputDirectory
+    .appending(path: "extracted", directoryHint: .isDirectory)
+try FileManager.default.createDirectory(at: diagnosticOutputDirectory, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: diagnosticOutputDirectory) }
+let diagnosticArchive = try DiagnosticExporter.export(
+    to: diagnosticOutputDirectory,
+    now: Date(timeIntervalSince1970: 0)
+)
+let diagnosticExtractProcess = Process()
+diagnosticExtractProcess.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+diagnosticExtractProcess.arguments = [
+    "-x", "-k", diagnosticArchive.path, diagnosticExtractDirectory.path
+]
+try diagnosticExtractProcess.run()
+diagnosticExtractProcess.waitUntilExit()
+precondition(diagnosticExtractProcess.terminationStatus == 0)
+let diagnosticPackage = diagnosticExtractDirectory
+    .appending(path: "WeClawSend-Diagnostics", directoryHint: .isDirectory)
+for fileName in ["README.txt", "System.txt", "WeClawSend.log"] {
+    precondition(
+        FileManager.default.fileExists(atPath: diagnosticPackage.appending(path: fileName).path)
+    )
+}
 
 let loginStart = Date(timeIntervalSince1970: 1_000)
 precondition(!WeChatLoginPollingPolicy.hasTimedOut(
@@ -116,33 +145,38 @@ let autoCloseStart = Date(timeIntervalSince1970: 1_000)
 var autoClosePolicy = PopoverAutoClosePolicy()
 autoClosePolicy.opened(at: autoCloseStart)
 precondition(!autoClosePolicy.shouldClose(
-    at: autoCloseStart.addingTimeInterval(29),
+    at: autoCloseStart.addingTimeInterval(4),
     hasActiveTransfers: false,
     blocksAutoClose: false
 ))
 precondition(autoClosePolicy.shouldClose(
-    at: autoCloseStart.addingTimeInterval(30),
+    at: autoCloseStart.addingTimeInterval(5),
     hasActiveTransfers: false,
     blocksAutoClose: false
 ))
 autoClosePolicy.interacted(at: autoCloseStart.addingTimeInterval(20))
 precondition(!autoClosePolicy.shouldClose(
-    at: autoCloseStart.addingTimeInterval(49),
-    hasActiveTransfers: false,
-    blocksAutoClose: false
-))
-precondition(!autoClosePolicy.shouldClose(
-    at: autoCloseStart.addingTimeInterval(60),
-    hasActiveTransfers: true,
-    blocksAutoClose: false
-))
-precondition(!autoClosePolicy.shouldClose(
-    at: autoCloseStart.addingTimeInterval(61),
+    at: autoCloseStart.addingTimeInterval(24),
     hasActiveTransfers: false,
     blocksAutoClose: false
 ))
 precondition(autoClosePolicy.shouldClose(
-    at: autoCloseStart.addingTimeInterval(66),
+    at: autoCloseStart.addingTimeInterval(25),
+    hasActiveTransfers: false,
+    blocksAutoClose: false
+))
+precondition(!autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(30),
+    hasActiveTransfers: true,
+    blocksAutoClose: false
+))
+precondition(!autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(31),
+    hasActiveTransfers: false,
+    blocksAutoClose: false
+))
+precondition(autoClosePolicy.shouldClose(
+    at: autoCloseStart.addingTimeInterval(34),
     hasActiveTransfers: false,
     blocksAutoClose: false
 ))
@@ -158,7 +192,7 @@ precondition(!autoClosePolicy.shouldClose(
     blocksAutoClose: false
 ))
 precondition(autoClosePolicy.shouldClose(
-    at: autoCloseStart.addingTimeInterval(91),
+    at: autoCloseStart.addingTimeInterval(66),
     hasActiveTransfers: false,
     blocksAutoClose: false
 ))

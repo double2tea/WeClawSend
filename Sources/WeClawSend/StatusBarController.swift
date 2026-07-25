@@ -33,8 +33,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         }
         dropView.onDrop = { [weak self] urls in
             guard let self else { return }
+            let didEnqueue = model.send(urls: urls)
+            if didEnqueue {
+                model.showsServices = false
+            }
             showPopover()
-            model.send(urls: urls)
         }
         dropView.onDraggingChanged = { [weak self] isDragging in
             guard let self else { return }

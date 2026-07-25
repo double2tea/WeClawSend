@@ -77,10 +77,20 @@ local function is_failed(status)
 end
 
 local function current_project()
-    if type(resolve) == "nil" then
-        raise("DaVinci Resolve API 不可用：未找到 resolve 全局变量")
+    local resolve_handle = nil
+    if type(resolve) ~= "nil" then
+        resolve_handle = resolve
+    elseif type(Resolve) == "function" then
+        resolve_handle = Resolve()
+    elseif type(bmd) == "table" and type(bmd.scriptapp) == "function" then
+        resolve_handle = bmd.scriptapp("Resolve")
     end
-    local project_manager = resolve:GetProjectManager()
+
+    if resolve_handle == nil then
+        raise("DaVinci Resolve API 不可用：无法获取 Resolve 句柄")
+    end
+
+    local project_manager = resolve_handle:GetProjectManager()
     local project = project_manager:GetCurrentProject()
     if project == nil then
         raise("未找到当前项目")
@@ -277,8 +287,9 @@ end
 local function run()
     log("DaVinci 自动发送到 WeClaw Send 启动（Lua 版）")
 
-    if type(job) == "nil" or job == "" then
-        raise("未找到 DaVinci 后渲染 job 变量")
+    if type(job) ~= "string" or job == "" then
+        log("忽略无 JobId 的后台渲染回调：不是 Deliver 输出任务")
+        return
     end
 
     local render_error = rawget(_G, "error")

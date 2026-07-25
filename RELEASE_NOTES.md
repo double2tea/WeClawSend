@@ -12,6 +12,7 @@
 - 网站 `/dl/dmg`、`/dl/zip` 下载链路修复，避免点下载却回到首页；并补充静态重定向兜底。
 - 网站导航增加飞书「更新与反馈」入口，便于查看版本日志与讨论。
 - DaVinci Resolve 后渲染双入口：`WeClawSend_Lua`（推荐，curl，无需 Python）与 `WeClawSend_Python`（可选）。
+- DaVinci 后台渲染兼容：无 Deliver `JobId` 的内部后台任务回调会被忽略，不再误报失败；真实 Deliver 任务仍按 `JobId` 自动发送，并补充 Resolve API 句柄获取路径。
 - 移除设置页「Python 为 DaVinci 运行依赖」的检测与安装引导；默认不再把 Python 当作必装项。
 - 安装默认 dual，自动清理旧 `自动发送ClawBot_*` 与过渡脚本名；支持用户/系统 Deliver 双目录；CLI 支持 `both|lua|python|auto`。
 - MP4/M4V 显示名由 App「发送时 .mp4 显示为 .m4v」处理，脚本不再分模式。

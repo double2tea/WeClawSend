@@ -1,8 +1,8 @@
 import Foundation
 
 struct PopoverAutoClosePolicy {
-    static let inactivityInterval: TimeInterval = 30
-    static let transferCompletionInterval: TimeInterval = 5
+    static let inactivityInterval: TimeInterval = 5
+    static let transferCompletionInterval: TimeInterval = 3
 
     private var deadline: Date?
     private var hadActiveTransfers = false

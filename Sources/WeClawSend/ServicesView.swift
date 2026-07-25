@@ -1,3 +1,4 @@
+import AppKit
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
@@ -605,9 +606,18 @@ struct ServicesView: View {
 
     private var footer: some View {
         HStack {
-            Text(model.weChatCredentialSource == .openClaw ? "与 OpenClaw 共用微信登录" : "独立应用 · 无需其它后台")
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+            HStack(spacing: 6) {
+                Text(model.weChatCredentialSource == .openClaw ? "与 OpenClaw 共用微信登录" : "独立应用 · 无需其它后台")
+                Text("v\(model.appVersion)")
+                    .onTapGesture(count: 2) {
+                        guard NSEvent.modifierFlags.contains(.option) else { return }
+                        model.exportDiagnostics()
+                    }
+                    .help("版本 \(model.appVersion)")
+                    .accessibilityLabel("版本 \(model.appVersion)")
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.tertiary)
             Spacer()
             SocialLinksView(appVersion: model.appVersion)
         }

@@ -18,9 +18,9 @@ enum ShelfWindowDismissal: Equatable {
 @MainActor
 final class ShelfWindowController: NSObject, NSWindowDelegate {
     private enum Layout {
-        static let expandedSize = NSSize(width: 276, height: 292)
+        static let expandedSize = NSSize(width: 300, height: 292)
         static let collapsedSize = NSSize(width: 248, height: 52)
-        static let animationDuration: TimeInterval = 0.32
+        static let animationDuration: TimeInterval = 0.3
         static let standardDismissalDuration: TimeInterval = 0.18
         static let shakeDismissalDuration: TimeInterval = 0.26
         static let pointerGap: CGFloat = 12
@@ -44,6 +44,10 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     private var motionCompletionTask: Task<Void, Never>?
     private var isPresenting = false
     private var isDismissing = false
+    private var isResizing = false
+    private var resizeGeneration = 0
+    private var dismissWhenPointerLeaves = false
+    private var hadItems: Bool
 
     init(
         model: AppModel,
@@ -64,6 +68,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         self.requestDelete = requestDelete
         self.onActivate = onActivate
         self.onWindowStateChange = onWindowStateChange
+        hadItems = !basket.items.isEmpty
         savedOrigin = initialWindowState.origin
         session = ShelfSessionState(
             isCollapsed: initialWindowState.isCollapsed,
@@ -71,7 +76,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         )
         panel = ShelfPanel(
             contentRect: NSRect(origin: .zero, size: Layout.expandedSize),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            styleMask: [.titled, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -120,7 +125,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         let wasDismissing = isDismissing
         isDismissing = false
         if expanded, session.isCollapsed {
-            setCollapsed(false, animated: panel.isVisible)
+            setCollapsed(false)
         }
         if !wasVisible {
             let size = session.isCollapsed ? Layout.collapsedSize : Layout.expandedSize
@@ -228,7 +233,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowDidMove(_ notification: Notification) {
-        guard !isPresenting, !isDismissing else { return }
+        guard !isPresenting, !isDismissing, !isResizing else { return }
         publishWindowState()
     }
 
@@ -244,6 +249,11 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.standardWindowButton(.closeButton)?.isHidden = true
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = true
         panel.animationBehavior = .utilityWindow
@@ -268,6 +278,9 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             revealAll: { [weak self] in self?.revealAllBasketItems() },
             toggleCollapsed: { [weak self] in self?.toggleCollapsed() },
             toggleAlwaysOnTop: { [weak self] in self?.toggleAlwaysOnTop() },
+            pointerPresenceChanged: { [weak self] isInside in
+                self?.pointerPresenceChanged(isInside)
+            },
             quickLook: { [weak self] item in self?.showQuickLook(item) },
             revealInFinder: { item in
                 NSWorkspace.shared.activateFileViewerSelecting([item.url])
@@ -297,27 +310,34 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] items in
                 guard let self else { return }
+                let becameEmpty = hadItems && items.isEmpty
+                hadItems = !items.isEmpty
+                if !items.isEmpty {
+                    dismissWhenPointerLeaves = false
+                }
                 session.ensureSelection(in: items)
                 quickLook.urls = validPreviewURLs(from: items)
                 if let ql = QLPreviewPanel.shared(), ql.isVisible, ql.dataSource === quickLook {
                     ql.reloadData()
                     syncQuickLookIndexToSelection()
                 }
+                if becameEmpty {
+                    dismissWhenPointerLeaves = true
+                    deleteEmptyBasketIfPointerIsOutside()
+                }
             }
             .store(in: &cancellables)
     }
 
     private func toggleCollapsed() {
-        setCollapsed(!session.isCollapsed, animated: true)
+        setCollapsed(!session.isCollapsed)
     }
 
-    private func setCollapsed(_ collapsed: Bool, animated: Bool) {
+    private func setCollapsed(_ collapsed: Bool) {
         guard collapsed != session.isCollapsed else { return }
-        if animated, !prefersReducedMotion {
-            withAnimation(.smooth(duration: Layout.animationDuration, extraBounce: 0)) {
-                session.isCollapsed = collapsed
-            }
-        } else {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
             session.isCollapsed = collapsed
         }
         if collapsed {
@@ -329,6 +349,8 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     private func resize(to size: NSSize, animated: Bool) {
+        resizeGeneration += 1
+        let generation = resizeGeneration
         let oldFrame = panel.frame
         let newFrame = clamped(
             frame: NSRect(
@@ -339,15 +361,46 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             )
         )
         guard animated, panel.isVisible, !prefersReducedMotion else {
+            isResizing = false
             panel.setFrame(newFrame, display: true, animate: false)
+            neutralizeContentSafeArea()
             return
         }
+        isResizing = true
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Layout.animationDuration
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.78, 0.2, 1)
-            context.allowsImplicitAnimation = true
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(newFrame, display: true)
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.resizeGeneration == generation else { return }
+                self.isResizing = false
+                self.publishWindowState()
+            }
         }
+    }
+
+    private func neutralizeContentSafeArea() {
+        guard let contentView = panel.contentView else { return }
+        let titlebarInset = max(0, panel.frame.height - panel.contentLayoutRect.height)
+        contentView.additionalSafeAreaInsets = NSEdgeInsets(
+            top: -titlebarInset,
+            left: 0,
+            bottom: 0,
+            right: 0
+        )
+    }
+
+    private func pointerPresenceChanged(_ isInside: Bool) {
+        guard !isInside else { return }
+        deleteEmptyBasketIfPointerIsOutside()
+    }
+
+    private func deleteEmptyBasketIfPointerIsOutside() {
+        guard dismissWhenPointerLeaves, basket.items.isEmpty else { return }
+        guard !panel.isVisible || !panel.frame.contains(NSEvent.mouseLocation) else { return }
+        dismissWhenPointerLeaves = false
+        requestDelete()
     }
 
     private func animateAppearance(_ style: ShelfWindowAppearance) {
@@ -509,7 +562,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
         guard panel.isVisible, !session.isCollapsed else {
             if event.keyCode == 49, session.isCollapsed {
-                setCollapsed(false, animated: true)
+                setCollapsed(false)
                 return true
             }
             return false

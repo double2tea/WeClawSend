@@ -110,6 +110,7 @@ final class AppModel: ObservableObject {
     private var credentialSourceTask: Task<Void, Never>?
     private var credentialSourceRevision: UInt64 = 0
     private var transientNoticeTask: Task<Void, Never>?
+    private var diagnosticExportTask: Task<Void, Never>?
     private var sendResultNotificationTask: Task<Void, Never>?
     private var sendResultNotificationBatch = SendResultNotificationBatch()
     private let updateManager = UpdateManager()
@@ -189,6 +190,25 @@ final class AppModel: ObservableObject {
 
     var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
+    }
+
+    func exportDiagnostics() {
+        guard diagnosticExportTask == nil else { return }
+        showTransientNotice("正在生成诊断日志…")
+        diagnosticExportTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let archiveURL = try await Task.detached(priority: .userInitiated) {
+                    try DiagnosticExporter.export()
+                }.value
+                diagnosticExportTask = nil
+                showTransientNotice("诊断日志已生成")
+                NSWorkspace.shared.activateFileViewerSelecting([archiveURL])
+            } catch {
+                diagnosticExportTask = nil
+                presentedError = error.localizedDescription
+            }
+        }
     }
 
     var isUpdateOperationInProgress: Bool {

@@ -1,7 +1,10 @@
 import AppKit
+import OSLog
 
 @MainActor
 final class FileBasketWindowCoordinator {
+    private static let logger = Logger(subsystem: Brand.bundleID, category: "FileBasket")
+
     private let model: AppModel
     private let chooseFiles: (UUID) -> Void
     private let sendAll: (UUID) -> FileBasketSendResult
@@ -45,6 +48,7 @@ final class FileBasketWindowCoordinator {
             expanded: true,
             appearance: appearance
         )
+        Self.logger.info("文件篮已创建，总数：\(self.model.fileBaskets.baskets.count, privacy: .public)")
         return basket.id
     }
 
@@ -71,7 +75,11 @@ final class FileBasketWindowCoordinator {
     }
 
     func close(id: UUID) {
-        guard model.fileBaskets.basket(id: id) != nil else { return }
+        guard let basket = model.fileBaskets.basket(id: id) else { return }
+        let isVisible = controllers[id]?.isVisible == true
+        Self.logger.info(
+            "请求关闭文件篮，可见：\(isVisible, privacy: .public)，为空：\(basket.items.isEmpty, privacy: .public)"
+        )
         let completion: @MainActor @Sendable () -> Void = { [weak self] in
             guard let self else { return }
             self.completeClose(id: id)
@@ -90,8 +98,10 @@ final class FileBasketWindowCoordinator {
             keepItemsOnClose: model.shelfKeepItemsOnClose
         ) {
         case .hide:
+            Self.logger.info("文件篮关闭完成：隐藏")
             controllers[id]?.hide()
         case .delete:
+            Self.logger.info("文件篮关闭完成：删除")
             delete(id: id)
         }
     }
@@ -101,6 +111,7 @@ final class FileBasketWindowCoordinator {
     }
 
     func deleteAll() {
+        Self.logger.info("请求删除全部文件篮，数量：\(self.model.fileBaskets.baskets.count, privacy: .public)")
         model.fileBaskets.baskets.map(\.id).forEach(delete)
     }
 
@@ -139,6 +150,7 @@ final class FileBasketWindowCoordinator {
     private func deleteImmediately(id: UUID) {
         controllers.removeValue(forKey: id)?.hide()
         model.fileBaskets.removeBasket(id: id)
+        Self.logger.info("文件篮已删除，剩余：\(self.model.fileBaskets.baskets.count, privacy: .public)")
     }
 
     func toggleRecent() {
