@@ -484,8 +484,10 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             break
         case .empty:
             session.flash("文件篮为空")
+        case .requiresArchive:
+            session.flash("文件夹需要压缩后发送")
         case let .unavailableFilesRemoved(count):
-            session.flash("\(count) 个文件已失效并移除，请确认后重试", duration: 2.4)
+            session.flash("\(count) 个项目已失效并移除，请确认后重试", duration: 2.4)
         }
     }
 
@@ -509,7 +511,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             case .loginRequired:
                 session.flash("请先登录微信")
             case let .unavailableFilesRemoved(count):
-                session.flash("\(count) 个文件已失效并移除，请重试", duration: 2.4)
+                session.flash("\(count) 个项目已失效并移除，请重试", duration: 2.4)
             case let .failed(message):
                 session.flash(message, duration: 3)
             }
@@ -532,18 +534,18 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     private func copyFiles(_ items: [ShelfItem]) {
-        let files = items.filter { ShelfModel.isRegularFile($0.url) }
-        guard !files.isEmpty else {
-            session.flash(items.isEmpty ? "文件篮为空" : "文件已失效")
+        let availableItems = items.filter { ShelfModel.isSupportedItem($0.url) }
+        guard !availableItems.isEmpty else {
+            session.flash(items.isEmpty ? "文件篮为空" : "项目已失效")
             return
         }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        guard pasteboard.writeObjects(files.map { $0.url as NSURL }) else {
+        guard pasteboard.writeObjects(availableItems.map { $0.url as NSURL }) else {
             session.flash("复制失败")
             return
         }
-        session.flash(files.count == 1 ? "已复制文件" : "已复制 \(files.count) 个文件")
+        session.flash(availableItems.count == 1 ? "已复制项目" : "已复制 \(availableItems.count) 个项目")
     }
 
     private func revealAllBasketItems() {
@@ -656,10 +658,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     private func showQuickLook(_ item: ShelfItem) {
-        let isRegularFile = (try? item.url.resourceValues(
-            forKeys: [.isRegularFileKey]
-        ).isRegularFile) == true
-        guard isRegularFile else {
+        guard ShelfModel.isSupportedItem(item.url) else {
             basket.remove(id: item.id)
             session.flash("“\(item.fileName)”已失效，已移除")
             return
@@ -694,10 +693,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     private func validPreviewURLs(from items: [ShelfItem]) -> [URL] {
-        items.compactMap { item in
-            let ok = (try? item.url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
-            return ok ? item.url : nil
-        }
+        items.map(\.url).filter(ShelfModel.isSupportedItem)
     }
 
     private func origin(for point: CGPoint?) -> CGPoint {

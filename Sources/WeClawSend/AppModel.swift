@@ -22,6 +22,7 @@ enum FileBasketSendResult: Equatable {
     case enqueued
     case empty
     case loginRequired
+    case requiresArchive
     case unavailableFilesRemoved(Int)
 }
 
@@ -904,6 +905,9 @@ final class AppModel: ObservableObject {
         let unavailableCount = basket.removeUnavailableItems()
         guard unavailableCount == 0 else {
             return .unavailableFilesRemoved(unavailableCount)
+        }
+        guard !basket.items.contains(where: \.isDirectory) else {
+            return .requiresArchive
         }
         let didEnqueue = send(urls: basket.urls)
         if didEnqueue, shelfClearAfterSend {

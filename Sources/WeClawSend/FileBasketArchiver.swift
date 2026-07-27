@@ -42,17 +42,20 @@ enum FileBasketArchiver {
             try fileManager.createDirectory(at: contentsDirectory, withIntermediateDirectories: true)
             var usedNames = Set<String>()
             for sourceURL in urls {
-                let resolvedURL = sourceURL.resolvingSymlinksInPath()
-                let values = try? resolvedURL.resourceValues(forKeys: [.isRegularFileKey])
-                guard values?.isRegularFile == true else {
+                let standardizedURL = sourceURL.standardizedFileURL
+                guard let kind = ShelfItem.kind(for: standardizedURL) else {
                     throw FileBasketArchiveError.invalidFile(sourceURL.lastPathComponent)
                 }
                 let name = uniqueName(for: sourceURL.lastPathComponent, usedNames: &usedNames)
                 let destinationURL = contentsDirectory.appending(path: name)
-                do {
-                    try fileManager.linkItem(at: resolvedURL, to: destinationURL)
-                } catch {
-                    try fileManager.copyItem(at: resolvedURL, to: destinationURL)
+                if kind.isDirectory {
+                    try fileManager.copyItem(at: standardizedURL, to: destinationURL)
+                } else {
+                    do {
+                        try fileManager.linkItem(at: standardizedURL, to: destinationURL)
+                    } catch {
+                        try fileManager.copyItem(at: standardizedURL, to: destinationURL)
+                    }
                 }
             }
             try runDitto(source: contentsDirectory, destination: archiveURL)

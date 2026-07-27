@@ -358,7 +358,10 @@ final class ShelfActivationController {
         if shakeSession.observe(
             point: mouseLocation,
             at: event.timestamp,
-            containsFiles: !fileURLs(from: NSPasteboard(name: .drag)).isEmpty
+            containsFiles: !fileURLs(
+                from: NSPasteboard(name: .drag),
+                includingDirectories: true
+            ).isEmpty
         ) {
             onShake?(mouseLocation)
         }

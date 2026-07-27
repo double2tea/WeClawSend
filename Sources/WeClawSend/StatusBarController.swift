@@ -271,19 +271,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         }
         if let openPanel {
             openPanelDestination = destination
-            openPanel.prompt = destination.prompt
+            configure(openPanel, for: destination)
             NSApp.activate()
             openPanel.makeKeyAndOrderFront(nil)
             return
         }
 
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.data]
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.resolvesAliases = true
-        panel.prompt = destination.prompt
+        configure(panel, for: destination)
         openPanel = panel
         openPanelDestination = destination
 
@@ -302,7 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
             case let .basket(id):
                 guard !urls.isEmpty else { return }
                 guard let basket = model.fileBaskets.basket(id: id) else {
-                    model.presentedError = "文件篮已被删除，无法加入文件"
+                    model.presentedError = "文件篮已被删除，无法加入项目"
                     showPopover()
                     return
                 }
@@ -310,6 +305,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
                 fileBasketCoordinator.show(id: id, expanded: true)
             }
         }
+    }
+
+    private func configure(_ panel: NSOpenPanel, for destination: FileSelectionDestination) {
+        panel.allowedContentTypes = destination.includesDirectories ? [.item] : [.data]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = destination.includesDirectories
+        panel.allowsMultipleSelection = true
+        panel.resolvesAliases = true
+        panel.prompt = destination.prompt
     }
 
     private func sendBasketItems(id: UUID) -> FileBasketSendResult {
@@ -330,6 +334,10 @@ private enum FileSelectionDestination {
         case .send: "发送"
         case .basket: "加入文件篮"
         }
+    }
+
+    var includesDirectories: Bool {
+        if case .basket = self { true } else { false }
     }
 }
 

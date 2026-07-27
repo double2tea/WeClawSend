@@ -51,12 +51,12 @@ struct ShelfView: View {
             )
             .accessibilityElement(children: .contain)
             .accessibilityLabel(shelf.title)
-            .help("拖入文件到文件篮；点选后空格预览，可拖出到其他 App")
+            .help("拖入文件或文件夹；点选后空格预览，可拖出到其他 App")
             .alert("删除\(shelf.title)？", isPresented: $showsDeleteConfirmation) {
                 Button("删除", role: .destructive, action: deleteBasket)
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("将移除篮内 \(shelf.items.count) 个文件引用，不会删除原文件。")
+                Text("将移除篮内 \(shelf.items.count) 个项目引用，不会删除原内容。")
             }
             .alert("压缩并发送", isPresented: $showsZIPNaming) {
                 TextField("压缩包名称", text: $zipName)
@@ -135,7 +135,7 @@ struct ShelfView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture(perform: toggleCollapsed)
-        .accessibilityLabel(shelf.items.isEmpty ? "\(shelf.title)为空，点击展开" : "\(shelf.title)中有 \(shelf.items.count) 个文件，点击展开")
+        .accessibilityLabel(shelf.items.isEmpty ? "\(shelf.title)为空，点击展开" : "\(shelf.title)中有 \(shelf.items.count) 个项目，点击展开")
         .accessibilityAddTraits(.isButton)
     }
 
@@ -146,7 +146,7 @@ struct ShelfView: View {
     private var collapsedSubtitle: String {
         if isDropTargeted { return "松开以加入" }
         guard let firstName = shelf.items.first?.fileName else { return "拖入或点击展开" }
-        return "\(shelf.items.count) 个文件 · \(firstName)"
+        return "\(shelf.items.count) 个项目 · \(firstName)"
     }
 
     private var stackGlyph: some View {
@@ -237,12 +237,11 @@ struct ShelfView: View {
     private var basketActionsMenu: some View {
         Menu {
             Button(action: chooseFiles) {
-                Label("添加文件…", systemImage: "plus")
+                Label("添加文件或文件夹…", systemImage: "plus")
             }
             Divider()
             Button {
-                zipName = "\(shelf.title).zip"
-                showsZIPNaming = true
+                presentZIPNaming()
             } label: {
                 Label("压缩为 ZIP 并发送", systemImage: "archivebox")
             }
@@ -250,11 +249,11 @@ struct ShelfView: View {
             Button {
                 copyFiles(shelf.items)
             } label: {
-                Label("复制全部文件", systemImage: "doc.on.doc.fill")
+                Label("复制全部项目", systemImage: "doc.on.doc.fill")
             }
             .disabled(shelf.items.isEmpty)
             Button(action: copyPaths) {
-                Label("复制全部文件路径", systemImage: "text.alignleft")
+                Label("复制全部项目路径", systemImage: "text.alignleft")
             }
             .disabled(shelf.items.isEmpty)
             Button(action: revealAll) {
@@ -262,7 +261,7 @@ struct ShelfView: View {
             }
             .disabled(shelf.items.isEmpty)
             Divider()
-            Button("清空文件", role: .destructive, action: clearBasket)
+            Button("清空内容", role: .destructive, action: clearBasket)
                 .disabled(shelf.items.isEmpty)
             Divider()
             Button(shelf.items.isEmpty ? "删除文件篮" : "删除文件篮…", role: .destructive) {
@@ -351,7 +350,7 @@ struct ShelfView: View {
             if shelf.items.count <= 2 {
                 Button(action: chooseFiles) {
                     Label(
-                        isDropTargeted ? "松开以加入" : "拖入更多文件",
+                        isDropTargeted ? "松开以加入" : "拖入更多项目",
                         systemImage: isDropTargeted ? "arrow.down.doc.fill" : "plus"
                     )
                     .font(.system(size: 10.5, weight: .medium))
@@ -361,7 +360,7 @@ struct ShelfView: View {
                     .background(Capsule().fill(Color.primary.opacity(0.035)))
                 }
                 .buttonStyle(ShelfPressButtonStyle(scale: 0.97))
-                .help("添加更多文件")
+                .help("添加更多文件或文件夹")
                 .padding(.bottom, 12)
             }
         }
@@ -376,7 +375,7 @@ struct ShelfView: View {
                     .symbolEffect(.pulse, isActive: isDropTargeted && !reduceMotion)
 
                 VStack(spacing: 3) {
-                    Text(isDropTargeted ? "松开以加入" : "拖入文件到文件篮")
+                    Text(isDropTargeted ? "松开以加入" : "拖入文件或文件夹")
                         .font(.system(size: 12.5, weight: .semibold))
                     Text("空格预览 · 仅保存引用")
                         .font(.system(size: 10.5))
@@ -397,7 +396,7 @@ struct ShelfView: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("选择或拖入文件加入\(shelf.title)")
+        .accessibilityLabel("选择或拖入文件或文件夹加入\(shelf.title)")
     }
 
     private func toast(_ text: String) -> some View {
@@ -434,9 +433,9 @@ struct ShelfView: View {
 
             Spacer(minLength: 4)
 
-            Button(action: sendAll) {
+            Button(action: sendCurrentItems) {
                 HStack(spacing: 4) {
-                    Image(systemName: "paperplane.fill")
+                    Image(systemName: hasDirectories ? "archivebox.fill" : "paperplane.fill")
                         .font(.system(size: 9, weight: .semibold))
                     Text(sendButtonTitle)
                         .font(.system(size: 11, weight: .semibold))
@@ -451,7 +450,7 @@ struct ShelfView: View {
             }
             .buttonStyle(ShelfPressButtonStyle(scale: 0.97))
             .disabled(!sendEnabled)
-            .help(model.isReady ? "发送当前文件篮内全部文件" : "请先登录微信")
+            .help(sendButtonHelp)
         }
         .padding(.horizontal, 10)
         .frame(height: 42)
@@ -464,7 +463,7 @@ struct ShelfView: View {
     private var sendButtonTitle: String {
         if !model.isReady { return "未登录" }
         if shelf.items.isEmpty { return "发送" }
-        return "发送 \(shelf.items.count)"
+        return hasDirectories ? "压缩发送 \(shelf.items.count)" : "发送 \(shelf.items.count)"
     }
 
     // MARK: - Controls
@@ -473,6 +472,28 @@ struct ShelfView: View {
         shelf.clear()
         session.select(nil)
         session.flash("已清空")
+    }
+
+    private var hasDirectories: Bool {
+        shelf.items.contains(where: \.isDirectory)
+    }
+
+    private var sendButtonHelp: String {
+        guard model.isReady else { return "请先登录微信" }
+        return hasDirectories ? "文件夹将打包为 ZIP 后发送" : "发送当前文件篮内全部文件"
+    }
+
+    private func sendCurrentItems() {
+        if hasDirectories {
+            presentZIPNaming()
+        } else {
+            sendAll()
+        }
+    }
+
+    private func presentZIPNaming() {
+        zipName = "\(shelf.title).zip"
+        showsZIPNaming = true
     }
 
     private func chromeButton(
@@ -545,12 +566,8 @@ struct ShelfView: View {
 
     @discardableResult
     private func handleDrop(_ urls: [URL], _: CGPoint) -> Bool {
-        let files = urls.filter { url in
-            guard url.isFileURL else { return false }
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
-            return values?.isRegularFile == true
-        }
-        let added = shelf.add(urls: files)
+        let supportedItems = urls.filter(ShelfModel.isSupportedItem)
+        let added = shelf.add(urls: supportedItems)
         if added > 0 {
             if session.isCollapsed {
                 toggleCollapsed()
@@ -561,10 +578,10 @@ struct ShelfView: View {
             session.flash(added == 1 ? "已加入 1 个" : "已加入 \(added) 个")
             return true
         }
-        if !files.isEmpty {
+        if !supportedItems.isEmpty {
             session.flash("已在文件篮中")
         } else if !urls.isEmpty {
-            session.flash("仅支持普通文件")
+            session.flash("不支持此项目或符号链接")
         }
         return false
     }
@@ -600,14 +617,14 @@ private struct ShelfItemRow: View {
 
     var body: some View {
         rowContent
-            .help("\(item.path)\n拖出文件 · ⌘C 复制 · 空格预览 · ↑↓ 选择 · ⌫ 移除")
+            .help("\(item.path)\n拖出项目 · ⌘C 复制 · 空格预览 · ↑↓ 选择 · ⌫ 移除")
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(item.fileName)，\(formatBytes(fileSize))")
+            .accessibilityLabel("\(item.fileName)，\(detailText)")
             .accessibilityValue(isSelected ? "已选中" : "")
             .accessibilityHint("可快速预览、在 Finder 中显示、移除或拖出到其他应用")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             .accessibilityAction(named: "快速预览", onPreview)
-            .accessibilityAction(named: "复制文件", onCopy)
+            .accessibilityAction(named: "复制项目", onCopy)
             .accessibilityAction(named: "在 Finder 中显示", onReveal)
             .accessibilityAction(named: "移除", onRemove)
     }
@@ -621,7 +638,7 @@ private struct ShelfItemRow: View {
                     .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(formatBytes(fileSize))
+                Text(detailText)
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -631,7 +648,7 @@ private struct ShelfItemRow: View {
 
             if isHovered || isSelected {
                 rowAction("预览", systemImage: "eye", action: onPreview)
-                rowAction("复制文件", systemImage: "doc.on.doc", action: onCopy)
+                rowAction("复制项目", systemImage: "doc.on.doc", action: onCopy)
                 rowAction("移除", systemImage: "xmark", action: onRemove)
             }
         }
@@ -657,7 +674,7 @@ private struct ShelfItemRow: View {
             TapGesture(count: 2).onEnded(onPreview)
         )
         .contextMenu {
-            Button("复制文件", action: onCopy)
+            Button("复制项目", action: onCopy)
             Button("快速预览", action: onPreview)
             Button("在 Finder 中显示", action: onReveal)
             Divider()
@@ -687,6 +704,15 @@ private struct ShelfItemRow: View {
 
     private var fileSize: Int64 {
         ShelfItemPresentationCache.fileSize(for: item.url)
+    }
+
+    private var detailText: String {
+        switch item.kind {
+        case .folder: "文件夹"
+        case .package: "包"
+        case .file: formatBytes(fileSize)
+        case nil: "不可用"
+        }
     }
 
     private func rowAction(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {

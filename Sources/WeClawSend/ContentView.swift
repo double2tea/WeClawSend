@@ -252,7 +252,7 @@ struct ContentView: View {
             return "只会移除文件引用，不会删除原文件。"
         }
         if request == .all {
-            return "将删除 \(fileBaskets.baskets.count) 个文件篮并移除 \(fileBaskets.totalItemCount) 个文件引用，不会删除原文件。"
+            return "将删除 \(fileBaskets.baskets.count) 个文件篮并移除 \(fileBaskets.totalItemCount) 个项目引用，不会删除原内容。"
         }
         guard
             case let .basket(id) = request,

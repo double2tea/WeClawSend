@@ -18,10 +18,14 @@ MOUNT="$VERIFY/mount"
 MOUNTED=false
 
 APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Resources/Info.plist")"
+APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$ROOT/Resources/Info.plist")"
+VERSIONED_DMG="$DIST/WeClaw-Send-$APP_VERSION-build$APP_BUILD.dmg"
 PREMIERE_VERSION="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' "$ROOT/premiere-cep/CSXS/manifest.xml")"
 DAVINCI_VERSION="$(tr -d '[:space:]' < "$ROOT/davinci-resolve/VERSION")"
 VERSION_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+$'
+BUILD_PATTERN='^[0-9]+$'
 [[ "$APP_VERSION" =~ $VERSION_PATTERN ]]
+[[ "$APP_BUILD" =~ $BUILD_PATTERN ]]
 [[ "$PREMIERE_VERSION" =~ $VERSION_PATTERN ]]
 [[ "$DAVINCI_VERSION" =~ $VERSION_PATTERN ]]
 
@@ -46,6 +50,7 @@ mkdir -p "$DIST"
 rm -f \
     "$ZIP" \
     "$DMG" \
+    "$VERSIONED_DMG" \
     "$PREMIERE_ZIP" \
     "$DAVINCI_ZIP" \
     "$COMPONENTS" \
@@ -61,6 +66,7 @@ COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$APP" "$DMG_PACKAGE/WeClaw Send.a
 cp "$ROOT/docs/使用说明.html" "$DMG_PACKAGE/使用说明.html"
 ln -s /Applications "$DMG_PACKAGE/Applications"
 hdiutil create -volname "WeClaw Send" -srcfolder "$DMG_PACKAGE" -format UDZO -ov "$DMG" >/dev/null
+COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$DMG" "$VERSIONED_DMG"
 
 mkdir -p "$PREMIERE_PACKAGE"
 COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$ROOT/premiere-cep" "$PREMIERE_PACKAGE"
@@ -127,7 +133,7 @@ codesign --verify --deep --strict "$EXTRACTED_APP"
 [[ "$(shasum -a 256 "$BINARY" | awk '{print $1}')" == "$(shasum -a 256 "$EXTRACTED_BINARY" | awk '{print $1}')" ]]
 
 mkdir -p "$MOUNT"
-hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$MOUNT" >/dev/null
+hdiutil attach "$VERSIONED_DMG" -readonly -nobrowse -mountpoint "$MOUNT" >/dev/null
 MOUNTED=true
 [[ -d "$MOUNT/WeClaw Send.app" ]]
 [[ -f "$MOUNT/使用说明.html" ]]
@@ -142,13 +148,15 @@ MOUNTED=false
     shasum -a 256 \
         "${ZIP:t}" \
         "${DMG:t}" \
+        "${VERSIONED_DMG:t}" \
         "${PREMIERE_ZIP:t}" \
         "${DAVINCI_ZIP:t}" \
         "${COMPONENTS:t}" >"${CHECKSUMS:t}"
 )
 
 print "ZIP：$ZIP"
-print "DMG：$DMG"
+print "DMG（版本化）：$VERSIONED_DMG"
+print "DMG（固定链接）：$DMG"
 print "Premiere：$PREMIERE_ZIP"
 print "DaVinci：$DAVINCI_ZIP"
 print "组件版本：$COMPONENTS"

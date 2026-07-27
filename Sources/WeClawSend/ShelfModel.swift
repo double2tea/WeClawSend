@@ -1,6 +1,16 @@
 import Foundation
 import SwiftUI
 
+enum ShelfItemKind: Equatable, Sendable {
+    case file
+    case folder
+    case package
+
+    var isDirectory: Bool {
+        self == .folder || self == .package
+    }
+}
+
 struct ShelfItem: Codable, Equatable, Identifiable {
     let id: UUID
     let path: String
@@ -16,6 +26,29 @@ struct ShelfItem: Codable, Equatable, Identifiable {
 
     var fileName: String {
         url.lastPathComponent
+    }
+
+    var kind: ShelfItemKind? {
+        Self.kind(for: url)
+    }
+
+    var isDirectory: Bool {
+        kind?.isDirectory == true
+    }
+
+    static func kind(for url: URL) -> ShelfItemKind? {
+        guard url.isFileURL else { return nil }
+        let values = try? url.resourceValues(
+            forKeys: [.isRegularFileKey, .isDirectoryKey, .isPackageKey, .isSymbolicLinkKey]
+        )
+        guard values?.isSymbolicLink != true else { return nil }
+        if values?.isRegularFile == true {
+            return .file
+        }
+        if values?.isDirectory == true {
+            return values?.isPackage == true ? .package : .folder
+        }
+        return nil
     }
 }
 
@@ -33,7 +66,7 @@ final class ShelfModel: ObservableObject {
     init(id: UUID = UUID(), title: String = "文件篮", items: [ShelfItem] = []) {
         self.id = id
         self.title = title
-        self.items = items.filter { Self.isRegularFile($0.url) }
+        self.items = items.filter { Self.isSupportedItem($0.url) }
     }
 
     @discardableResult
@@ -41,7 +74,7 @@ final class ShelfModel: ObservableObject {
         var knownPaths = Set(items.map(\.path))
         let newItems = urls.compactMap { url -> ShelfItem? in
             let standardizedURL = url.standardizedFileURL
-            guard Self.isRegularFile(standardizedURL) else { return nil }
+            guard Self.isSupportedItem(standardizedURL) else { return nil }
             let path = standardizedURL.path
             guard knownPaths.insert(path).inserted else { return nil }
             return ShelfItem(path: path)
@@ -66,7 +99,7 @@ final class ShelfModel: ObservableObject {
     @discardableResult
     func removeUnavailableItems() -> Int {
         let previousCount = items.count
-        items.removeAll { !Self.isRegularFile($0.url) }
+        items.removeAll { !Self.isSupportedItem($0.url) }
         let removedCount = previousCount - items.count
         if removedCount > 0 {
             onChange?()
@@ -74,9 +107,7 @@ final class ShelfModel: ObservableObject {
         return removedCount
     }
 
-    static func isRegularFile(_ url: URL) -> Bool {
-        guard url.isFileURL else { return false }
-        let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
-        return values?.isRegularFile == true
+    static func isSupportedItem(_ url: URL) -> Bool {
+        ShelfItem.kind(for: url) != nil
     }
 }

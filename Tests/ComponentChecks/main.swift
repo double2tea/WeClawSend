@@ -367,22 +367,43 @@ let shelfFile = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-shelf-\(UUID()).txt")
 let shelfDirectory = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-shelf-dir-\(UUID())", directoryHint: .isDirectory)
+let shelfPackage = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-shelf-package-\(UUID()).app", directoryHint: .isDirectory)
+let shelfSymlink = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-shelf-link-\(UUID()).txt")
 try Data("shelf-file".utf8).write(to: shelfFile)
 try FileManager.default.createDirectory(at: shelfDirectory, withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: shelfPackage, withIntermediateDirectories: true)
+try FileManager.default.createSymbolicLink(at: shelfSymlink, withDestinationURL: shelfFile)
 defer {
     try? FileManager.default.removeItem(at: shelfFile)
     try? FileManager.default.removeItem(at: shelfDirectory)
+    try? FileManager.default.removeItem(at: shelfPackage)
+    try? FileManager.default.removeItem(at: shelfSymlink)
 }
 try MainActor.assumeIsolated {
     let shelfModel = ShelfModel(title: "文件篮测试")
     precondition(shelfModel.title == "文件篮测试")
-    precondition(shelfModel.add(urls: [shelfFile, shelfDirectory]) == 1)
-    precondition(shelfModel.add(urls: [shelfFile]) == 0)
-    precondition(shelfModel.items.count == 1)
-    precondition(shelfModel.urls == [shelfFile.standardizedFileURL])
+    precondition(shelfModel.add(urls: [shelfFile, shelfDirectory, shelfPackage, shelfSymlink]) == 3)
+    precondition(shelfModel.add(urls: [shelfFile, shelfDirectory, shelfPackage]) == 0)
+    precondition(shelfModel.items.count == 3)
+    precondition(
+        shelfModel.urls
+            == [
+                shelfFile.standardizedFileURL,
+                shelfDirectory.standardizedFileURL,
+                shelfPackage.standardizedFileURL,
+            ]
+    )
     precondition(shelfModel.items[0].fileName == shelfFile.lastPathComponent)
-    let shelfItemID = shelfModel.items[0].id
-    shelfModel.remove(id: shelfItemID)
+    precondition(shelfModel.items[0].kind == .file)
+    precondition(shelfModel.items[1].kind == .folder)
+    precondition(shelfModel.items[1].isDirectory)
+    precondition(shelfModel.items[2].kind == .package)
+    precondition(shelfModel.items[2].isDirectory)
+    for item in shelfModel.items {
+        shelfModel.remove(id: item.id)
+    }
     precondition(shelfModel.items.isEmpty)
     precondition(shelfModel.add(urls: [shelfFile]) == 1)
     shelfModel.clear()
@@ -486,7 +507,7 @@ try Data("second".utf8).write(to: secondArchiveFile)
 defer { try? FileManager.default.removeItem(at: archiveInputDirectory) }
 
 let fileBasketArchive = try FileBasketArchiver.createArchive(
-    urls: [firstArchiveFile, secondArchiveFile],
+    urls: [firstArchiveFile, secondArchiveFile, firstArchiveDirectory],
     archiveName: "我的文件"
 )
 precondition(fileBasketArchive.fileURL.lastPathComponent == "我的文件.zip")
@@ -506,7 +527,10 @@ let zipEntries = String(
     decoding: zipListOutput.fileHandleForReading.readDataToEndOfFile(),
     as: UTF8.self
 ).split(separator: "\n").map(String.init)
-precondition(zipEntries == ["clip.txt", "clip 2.txt"])
+precondition(zipEntries.contains("clip.txt"))
+precondition(zipEntries.contains("clip 2.txt"))
+precondition(zipEntries.contains("first/"))
+precondition(zipEntries.contains("first/clip.txt"))
 let archiveWorkDirectory = fileBasketArchive.fileURL.deletingLastPathComponent()
 precondition(FileBasketArchiver.cleanup(fileBasketArchive.fileURL))
 precondition(!FileManager.default.fileExists(atPath: archiveWorkDirectory.path))
@@ -1529,6 +1553,10 @@ defer { try? FileManager.default.removeItem(at: fileURL) }
 pasteboard.clearContents()
 pasteboard.writeObjects([fileURL as NSURL, FileManager.default.temporaryDirectory as NSURL])
 precondition(fileURLs(from: pasteboard) == [fileURL])
+precondition(
+    fileURLs(from: pasteboard, includingDirectories: true)
+        == [fileURL, FileManager.default.temporaryDirectory]
+)
 pasteboard.clearContents()
 
 print("Component checks passed")
