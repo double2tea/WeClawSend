@@ -274,6 +274,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             close: { [weak self] in self?.requestClose() },
             deleteBasket: { [weak self] in self?.requestDelete() },
             sendZIP: { [weak self] name in self?.sendBasketZIP(named: name) },
+            copyFiles: { [weak self] items in self?.copyFiles(items) },
             copyPaths: { [weak self] in self?.copyBasketPaths() },
             revealAll: { [weak self] in self?.revealAllBasketItems() },
             toggleCollapsed: { [weak self] in self?.toggleCollapsed() },
@@ -529,6 +530,21 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    private func copyFiles(_ items: [ShelfItem]) {
+        let files = items.filter { ShelfModel.isRegularFile($0.url) }
+        guard !files.isEmpty else {
+            session.flash(items.isEmpty ? "文件篮为空" : "文件已失效")
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.writeObjects(files.map { $0.url as NSURL }) else {
+            session.flash("复制失败")
+            return
+        }
+        session.flash(files.count == 1 ? "已复制文件" : "已复制 \(files.count) 个文件")
+    }
+
     private func revealAllBasketItems() {
         let unavailableCount = basket.removeUnavailableItems()
         guard !basket.items.isEmpty else {
@@ -560,6 +576,12 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         if let ql = QLPreviewPanel.shared(), ql.isVisible, ql.isKeyWindow {
             return false
         }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "c" {
+            guard let item = session.selectedItem(in: basket.items) else { return false }
+            copyFiles([item])
+            return true
+        }
         guard panel.isVisible, !session.isCollapsed else {
             if event.keyCode == 49, session.isCollapsed {
                 setCollapsed(false)
@@ -568,7 +590,6 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             return false
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.isEmpty || flags == .function else { return false }
 
         switch event.keyCode {

@@ -189,7 +189,11 @@ final class AppModel: ObservableObject {
     }
 
     var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
+        guard let label = Bundle.main.object(forInfoDictionaryKey: "WeClawReleaseLabel") as? String else {
+            return version
+        }
+        return "\(version) \(label)"
     }
 
     func exportDiagnostics() {

@@ -12,6 +12,7 @@ struct ShelfView: View {
     let close: () -> Void
     let deleteBasket: () -> Void
     let sendZIP: (String) -> Void
+    let copyFiles: ([ShelfItem]) -> Void
     let copyPaths: () -> Void
     let revealAll: () -> Void
     let toggleCollapsed: () -> Void
@@ -246,8 +247,14 @@ struct ShelfView: View {
                 Label("压缩为 ZIP 并发送", systemImage: "archivebox")
             }
             .disabled(shelf.items.isEmpty || !model.isReady)
+            Button {
+                copyFiles(shelf.items)
+            } label: {
+                Label("复制全部文件", systemImage: "doc.on.doc.fill")
+            }
+            .disabled(shelf.items.isEmpty)
             Button(action: copyPaths) {
-                Label("复制全部文件路径", systemImage: "doc.on.doc")
+                Label("复制全部文件路径", systemImage: "text.alignleft")
             }
             .disabled(shelf.items.isEmpty)
             Button(action: revealAll) {
@@ -318,6 +325,10 @@ struct ShelfView: View {
                                 onPreview: {
                                     session.select(item.id)
                                     quickLook(item)
+                                },
+                                onCopy: {
+                                    session.select(item.id)
+                                    copyFiles([item])
                                 },
                                 onRemove: { remove(item) },
                                 onReveal: { revealInFinder(item) }
@@ -583,18 +594,20 @@ private struct ShelfItemRow: View {
     let onHover: (Bool) -> Void
     let onSelect: () -> Void
     let onPreview: () -> Void
+    let onCopy: () -> Void
     let onRemove: () -> Void
     let onReveal: () -> Void
 
     var body: some View {
         rowContent
-            .help("\(item.path)\n空格预览 · ↑↓ 选择 · ⌫ 移除")
+            .help("\(item.path)\n拖出文件 · ⌘C 复制 · 空格预览 · ↑↓ 选择 · ⌫ 移除")
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(item.fileName)，\(formatBytes(fileSize))")
             .accessibilityValue(isSelected ? "已选中" : "")
             .accessibilityHint("可快速预览、在 Finder 中显示、移除或拖出到其他应用")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             .accessibilityAction(named: "快速预览", onPreview)
+            .accessibilityAction(named: "复制文件", onCopy)
             .accessibilityAction(named: "在 Finder 中显示", onReveal)
             .accessibilityAction(named: "移除", onRemove)
     }
@@ -618,6 +631,7 @@ private struct ShelfItemRow: View {
 
             if isHovered || isSelected {
                 rowAction("预览", systemImage: "eye", action: onPreview)
+                rowAction("复制文件", systemImage: "doc.on.doc", action: onCopy)
                 rowAction("移除", systemImage: "xmark", action: onRemove)
             }
         }
@@ -633,17 +647,17 @@ private struct ShelfItemRow: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .onHover(perform: onHover)
+        .draggable(item.url) {
+            dragPreview
+        }
         .simultaneousGesture(
             TapGesture().onEnded(onSelect)
         )
         .simultaneousGesture(
             TapGesture(count: 2).onEnded(onPreview)
         )
-        .onDrag {
-            onSelect()
-            return NSItemProvider(contentsOf: item.url) ?? NSItemProvider(object: item.url as NSURL)
-        }
         .contextMenu {
+            Button("复制文件", action: onCopy)
             Button("快速预览", action: onPreview)
             Button("在 Finder 中显示", action: onReveal)
             Divider()
@@ -655,6 +669,20 @@ private struct ShelfItemRow: View {
         if isSelected { return Color.primary.opacity(0.055) }
         if isHovered { return Color.primary.opacity(0.035) }
         return .clear
+    }
+
+    private var dragPreview: some View {
+        HStack(spacing: 8) {
+            FilePreviewIcon(url: item.url, size: 24)
+            Text(item.fileName)
+                .font(.system(size: 11.5, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: 220)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var fileSize: Int64 {
