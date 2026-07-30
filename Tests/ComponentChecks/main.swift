@@ -259,6 +259,20 @@ precondition(
 UserDefaults.standard.set(999, forKey: AppSettings.sendSizeLimitMegabytesKey)
 precondition(AppSettings.sendSizeLimit == .megabytes200)
 
+let previousAppUpdateChannel = UserDefaults.standard.object(forKey: AppSettings.appUpdateChannelKey)
+defer {
+    if let previousAppUpdateChannel {
+        UserDefaults.standard.set(previousAppUpdateChannel, forKey: AppSettings.appUpdateChannelKey)
+    } else {
+        UserDefaults.standard.removeObject(forKey: AppSettings.appUpdateChannelKey)
+    }
+}
+UserDefaults.standard.removeObject(forKey: AppSettings.appUpdateChannelKey)
+precondition(AppSettings.appUpdateChannel(default: .stable) == .stable)
+precondition(AppSettings.appUpdateChannel(default: .beta) == .beta)
+UserDefaults.standard.set(AppUpdateChannel.beta.rawValue, forKey: AppSettings.appUpdateChannelKey)
+precondition(AppSettings.appUpdateChannel(default: .stable) == .beta)
+
 let shelfSettingKeys: [String] = [
     AppSettings.shelfEnabledKey,
     AppSettings.shelfShakeToOpenEnabledKey,
@@ -1144,6 +1158,14 @@ let version150 = ReleaseVersion(tag: "1.5.0")!
 precondition(version140 < version150)
 precondition(ReleaseVersion(tag: "v1.5") == nil)
 let version160 = ReleaseVersion(tag: "1.6.0")!
+let stable140 = AppBuildVersion(version: version140, build: 10, channel: .stable)
+let stable150 = AppBuildVersion(version: version150, build: 11, channel: .stable)
+let beta150Build12 = AppBuildVersion(version: version150, build: 12, channel: .beta)
+let beta150Build13 = AppBuildVersion(releaseTag: "v1.5.0-beta.13", isPrerelease: true)!
+precondition(beta150Build12 < beta150Build13)
+precondition(beta150Build13 < stable150)
+precondition(beta150Build13.identifier == "1.5.0-beta.13")
+precondition(AppBuildVersion(releaseTag: "v1.5.0-beta", isPrerelease: true) == nil)
 precondition(
     UpdateManager.premierePluginUpdateState(installed: nil, latest: version150)
         == .notInstalled(latest: version150)
@@ -1167,16 +1189,19 @@ let release = try JSONDecoder().decode(
     )
 )
 precondition(release.version == version150)
+precondition(release.appVersion == AppBuildVersion(version: version150, build: 0, channel: .stable))
+precondition(!release.isPrerelease)
 precondition(release.asset(named: UpdateManager.appArchiveName)?.browserDownloadURL.host == "example.test")
 precondition(AppUpdateNotice.notes(from: release.body) == ["支持批量发送", "修复登录问题"])
-precondition(AppUpdateNotice(release: release, currentVersion: version140, seenVersion: "") != nil)
-precondition(AppUpdateNotice(release: release, currentVersion: version140, seenVersion: "1.5.0") == nil)
-precondition(AppUpdateNotice(release: release, currentVersion: version150, seenVersion: "") == nil)
+precondition(AppUpdateNotice(release: release, currentVersion: stable140, seenVersion: "") != nil)
+precondition(AppUpdateNotice(release: release, currentVersion: stable140, seenVersion: "1.5.0") == nil)
+precondition(AppUpdateNotice(release: release, currentVersion: stable150, seenVersion: "") == nil)
 let releaseComponents = try JSONDecoder().decode(
     ReleaseComponents.self,
-    from: Data(#"{"app":"1.5.0","premiere":"2.0.0","davinci":"3.0.0"}"#.utf8)
+    from: Data(#"{"app":"1.5.0","app_build":11,"premiere":"2.0.0","davinci":"3.0.0"}"#.utf8)
 )
 precondition(releaseComponents.app == version150)
+precondition(releaseComponents.appBuild == 11)
 precondition(releaseComponents.premiere == ReleaseVersion(tag: "2.0.0")!)
 precondition(releaseComponents.daVinci == ReleaseVersion(tag: "3.0.0")!)
 let checksumManifest = """
@@ -1235,7 +1260,7 @@ Task {
     do {
         updateResult.release = try await updateManager.latestRelease()
         updateResult.appAvailability = try await updateManager.appUpdateAvailability(
-            currentVersion: version140
+            currentVersion: stable140
         )
         await updateManager.invalidateReleaseCache()
         updateResult.refreshedRelease = try await updateManager.latestRelease()
@@ -1247,9 +1272,42 @@ Task {
 precondition(updateFinished.wait(timeout: .now() + 10) == .success)
 if let error = updateResult.error { throw error }
 precondition(updateResult.release?.tagName == "v1.5.0")
-precondition(updateResult.appAvailability == .updateAvailable(version150))
+precondition(
+    updateResult.appAvailability
+        == .updateAvailable(AppBuildVersion(version: version150, build: 0, channel: .stable))
+)
 precondition(updateResult.refreshedRelease?.tagName == "v1.6.0")
 precondition(updateResult.metadataRequestCount == 2)
+
+let betaEndpoint = URL(string: "https://mock.local/releases?per_page=100")!
+let betaResult = UpdateResultBox()
+MockURLProtocol.handler = { request in
+    precondition(request.url == betaEndpoint)
+    betaResult.metadataRequestCount += 1
+    return MockURLProtocol.response(
+        request,
+        body: #"[{"tag_name":"v1.5.0-beta.13","html_url":"https://example.test/v1.5.0-beta.13","draft":false,"prerelease":true,"assets":[]},{"tag_name":"v1.5.0-beta.14","html_url":"https://example.test/v1.5.0-beta.14","draft":true,"prerelease":true,"assets":[]},{"tag_name":"v1.5.0-beta.15","html_url":"https://example.test/v1.5.0-beta.15","draft":false,"prerelease":false,"assets":[]},{"tag_name":"v1.4.0","html_url":"https://example.test/v1.4.0","draft":false,"prerelease":false,"assets":[]}]"#
+    )
+}
+let betaManager = UpdateManager(session: updateSession, betaReleasesURL: betaEndpoint)
+let betaFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        betaResult.release = try await betaManager.latestRelease(channel: .beta)
+        betaResult.appAvailability = try await betaManager.appUpdateAvailability(
+            currentVersion: beta150Build12,
+            channel: .beta
+        )
+    } catch {
+        betaResult.error = error
+    }
+    betaFinished.signal()
+}
+precondition(betaFinished.wait(timeout: .now() + 10) == .success)
+if let error = betaResult.error { throw error }
+precondition(betaResult.release?.tagName == "v1.5.0-beta.13")
+precondition(betaResult.appAvailability == .updateAvailable(beta150Build13))
+precondition(betaResult.metadataRequestCount == 1)
 
 let installerRoot = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-installer-\(UUID())", directoryHint: .isDirectory)

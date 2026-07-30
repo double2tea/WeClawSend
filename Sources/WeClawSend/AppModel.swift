@@ -50,6 +50,16 @@ private final class AppRuntime: Sendable {
 final class AppModel: ObservableObject {
     static let maxRecentTransfers = 20
 
+    private static var bundledUpdateChannel: AppUpdateChannel {
+        guard
+            let value = Bundle.main.object(forInfoDictionaryKey: "WeClawReleaseChannel") as? String,
+            let channel = AppUpdateChannel(rawValue: value)
+        else {
+            return .stable
+        }
+        return channel
+    }
+
     let fileBaskets = FileBasketStore()
 
     @Published var bridgeStatus: ServiceStatus = .checking
@@ -91,6 +101,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var isCheckingAppUpdate = false
     @Published private(set) var appUpdateAvailability: AppUpdateAvailability?
     @Published private(set) var appUpdateNotice: AppUpdateNotice?
+    @Published private(set) var appUpdateChannel = AppSettings.appUpdateChannel(
+        default: AppModel.bundledUpdateChannel
+    )
     @Published private(set) var isCheckingPremierePlugin = false
     @Published private(set) var premierePluginUpdateState: PremierePluginUpdateState?
     @Published private(set) var isCheckingDaVinciScripts = false
@@ -191,10 +204,25 @@ final class AppModel: ObservableObject {
 
     var appVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
-        guard let label = Bundle.main.object(forInfoDictionaryKey: "WeClawReleaseLabel") as? String else {
-            return version
+        return Self.bundledUpdateChannel == .beta ? "\(version) 测试版" : version
+    }
+
+    var receivesBetaUpdates: Bool {
+        appUpdateChannel == .beta
+    }
+
+    private var currentAppBuildVersion: AppBuildVersion? {
+        guard
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        else {
+            return nil
         }
-        return "\(version) \(label)"
+        return AppBuildVersion(
+            version: version,
+            build: build,
+            channel: Self.bundledUpdateChannel
+        )
     }
 
     func exportDiagnostics() {
@@ -488,6 +516,24 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func setReceivesBetaUpdates(_ enabled: Bool) {
+        guard !isUpdateOperationInProgress, !isAppUpdateBusy else { return }
+        let channel: AppUpdateChannel = enabled ? .beta : .stable
+        guard appUpdateChannel != channel else { return }
+        appUpdateChannel = channel
+        UserDefaults.standard.set(channel.rawValue, forKey: AppSettings.appUpdateChannelKey)
+        appUpdateAvailability = nil
+        appUpdateNotice = nil
+        premierePluginUpdateState = nil
+        daVinciScriptsUpdateState = nil
+        updateMessage = ""
+        premierePluginMessage = ""
+        daVinciScriptsMessage = ""
+        Task { [weak self] in
+            await self?.refreshAllUpdateStatuses(forceRefresh: true)
+        }
+    }
+
     func refreshLaunchAtLogin() {
         launchAtLoginEnabled = LaunchAtLogin.isEnabled
         launchAtLoginRequiresApproval = LaunchAtLogin.requiresApproval
@@ -508,7 +554,7 @@ final class AppModel: ObservableObject {
             presentedError = "当前有正在处理的文件，请发送完成后再更新 App"
             return
         }
-        guard let currentVersion = ReleaseVersion(tag: appVersion) else {
+        guard let currentVersion = currentAppBuildVersion else {
             presentedError = "无法识别当前 App 版本：\(appVersion)"
             return
         }
@@ -521,7 +567,8 @@ final class AppModel: ObservableObject {
                 let result = try await updateManager.prepareAppUpdate(
                     currentVersion: currentVersion,
                     appURL: Bundle.main.bundleURL,
-                    currentProcessID: ProcessInfo.processInfo.processIdentifier
+                    currentProcessID: ProcessInfo.processInfo.processIdentifier,
+                    channel: appUpdateChannel
                 )
                 switch result {
                 case .alreadyCurrent:
@@ -544,7 +591,7 @@ final class AppModel: ObservableObject {
     func dismissAppUpdateNotice() {
         guard let appUpdateNotice else { return }
         UserDefaults.standard.set(
-            appUpdateNotice.version.description,
+            appUpdateNotice.version.identifier,
             forKey: AppSettings.appUpdateNoticeSeenVersionKey
         )
         self.appUpdateNotice = nil
@@ -573,18 +620,19 @@ final class AppModel: ObservableObject {
 
     func refreshAppUpdateStatus() async {
         guard !isUpdatingApp else { return }
-        guard let currentVersion = ReleaseVersion(tag: appVersion) else {
+        guard let currentVersion = currentAppBuildVersion else {
             isCheckingAppUpdate = false
-            updateMessage = "开发版本不检查在线更新"
+            updateMessage = "无法识别当前 App 版本"
             return
         }
         isCheckingAppUpdate = true
         updateMessage = ""
         do {
             appUpdateAvailability = try await updateManager.appUpdateAvailability(
-                currentVersion: currentVersion
+                currentVersion: currentVersion,
+                channel: appUpdateChannel
             )
-            let release = try await updateManager.latestRelease()
+            let release = try await updateManager.latestRelease(channel: appUpdateChannel)
             appUpdateNotice = AppUpdateNotice(
                 release: release,
                 currentVersion: currentVersion,
@@ -614,7 +662,7 @@ final class AppModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let version = try await updateManager.installPremierePlugin()
+                let version = try await updateManager.installPremierePlugin(channel: appUpdateChannel)
                 premierePluginUpdateState = .current(version)
                 premierePluginMessage = "已安装 v\(version)，请重启 Premiere Pro"
                 isInstallingPremierePlugin = false
@@ -650,7 +698,9 @@ final class AppModel: ObservableObject {
         isCheckingPremierePlugin = true
         premierePluginMessage = ""
         do {
-            premierePluginUpdateState = try await updateManager.premierePluginUpdateState()
+            premierePluginUpdateState = try await updateManager.premierePluginUpdateState(
+                channel: appUpdateChannel
+            )
         } catch {
             premierePluginUpdateState = nil
             premierePluginMessage = "无法检查插件版本：\(error.localizedDescription)"
@@ -672,7 +722,7 @@ final class AppModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let version = try await updateManager.installDaVinciScripts()
+                let version = try await updateManager.installDaVinciScripts(channel: appUpdateChannel)
                 let directoryURL = await updateManager.daVinciScriptsDirectoryURL()
                 let installedDirs = await updateManager.daVinciInstalledDirectoryURLs()
                 let localAPIHint = localAPIEnabled
@@ -751,7 +801,9 @@ final class AppModel: ObservableObject {
         isCheckingDaVinciScripts = true
         daVinciScriptsMessage = ""
         do {
-            daVinciScriptsUpdateState = try await updateManager.daVinciScriptsUpdateState()
+            daVinciScriptsUpdateState = try await updateManager.daVinciScriptsUpdateState(
+                channel: appUpdateChannel
+            )
         } catch {
             daVinciScriptsUpdateState = nil
             daVinciScriptsMessage = "无法检查脚本版本：\(error.localizedDescription)"

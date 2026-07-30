@@ -12,6 +12,8 @@ python3 -m unittest discover \
 plutil -lint "$ROOT/Resources/Info.plist" >/dev/null
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$ROOT/Resources/Info.plist")" == "public.movie" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSHandlerRank' "$ROOT/Resources/Info.plist")" == "Alternate" ]]
+APP_CHANNEL="$(/usr/libexec/PlistBuddy -c 'Print :WeClawReleaseChannel' "$ROOT/Resources/Info.plist")"
+[[ "$APP_CHANNEL" == "stable" || "$APP_CHANNEL" == "beta" ]]
 
 "$ROOT/scripts/build-premiere-plugin.sh"
 

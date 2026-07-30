@@ -575,6 +575,21 @@ struct ServicesView: View {
 
                 Divider().opacity(0.35).padding(.vertical, 6)
 
+                settingRow(
+                    icon: "testtube.2",
+                    title: "接收内测版本",
+                    subtitle: model.receivesBetaUpdates
+                        ? "已加入内测，App 与编辑器组件会检查测试版"
+                        : "开启后可更新到最新测试版，也可随时退出",
+                    isOn: Binding(
+                        get: { model.receivesBetaUpdates },
+                        set: { model.setReceivesBetaUpdates($0) }
+                    )
+                )
+                .disabled(model.isAppUpdateBusy || model.isUpdateOperationInProgress)
+
+                Divider().opacity(0.35).padding(.vertical, 6)
+
                 premierePluginIntegrationRow
 
                 Divider().opacity(0.35).padding(.vertical, 6)

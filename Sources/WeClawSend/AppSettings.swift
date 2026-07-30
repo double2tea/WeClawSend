@@ -50,6 +50,7 @@ enum AppSettings {
     static let launchMigrationCompleteKey = "LaunchAtLoginMigrationComplete"
     static let portfolioSeenVersionKey = "PortfolioSeenVersion"
     static let appUpdateNoticeSeenVersionKey = "AppUpdateNoticeSeenVersion"
+    static let appUpdateChannelKey = "AppUpdateChannel"
     static let weChatCredentialSourceKey = "WeChatCredentialSource"
     static let openClawAccountIDKey = "OpenClawAccountID"
     static let shelfEnabledKey = "ShelfEnabled"
@@ -89,6 +90,13 @@ enum AppSettings {
 
     static var maxSendBytes: Int64 {
         sendSizeLimit.byteCount
+    }
+
+    static func appUpdateChannel(default defaultChannel: AppUpdateChannel) -> AppUpdateChannel {
+        guard let stored = UserDefaults.standard.string(forKey: appUpdateChannelKey) else {
+            return defaultChannel
+        }
+        return AppUpdateChannel(rawValue: stored) ?? defaultChannel
     }
 
     static var shelfEnabled: Bool {

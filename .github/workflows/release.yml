@@ -21,20 +21,29 @@ jobs:
         shell: zsh {0}
         run: |
           app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          app_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Resources/Info.plist)"
+          app_channel="$(/usr/libexec/PlistBuddy -c 'Print :WeClawReleaseChannel' Resources/Info.plist)"
           premiere_version="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' premiere-cep/CSXS/manifest.xml)"
           davinci_version="$(tr -d '[:space:]' < davinci-resolve/VERSION)"
 
-          if [[ "$GITHUB_REF_NAME" != "v$app_version" ]]; then
-            print -u2 "标签与 App 版本不一致：tag=$GITHUB_REF_NAME app=$app_version"
+          case "$app_channel" in
+            stable) expected_tag="v$app_version"; expected_notes_heading="# v$app_version" ;;
+            beta) expected_tag="v$app_version-beta.$app_build"; expected_notes_heading="# v$app_version 测试版" ;;
+            *) print -u2 "未知发布通道：$app_channel"; exit 1 ;;
+          esac
+
+          if [[ "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            print -u2 "标签与 App 版本不一致：expected=$expected_tag actual=$GITHUB_REF_NAME"
             exit 1
           fi
 
           version_pattern='^[0-9]+\.[0-9]+\.[0-9]+$'
+          build_pattern='^[0-9]+$'
           [[ "$app_version" =~ $version_pattern ]]
+          [[ "$app_build" =~ $build_pattern ]]
           [[ "$premiere_version" =~ $version_pattern ]]
           [[ "$davinci_version" =~ $version_pattern ]]
 
-          expected_notes_heading="# v$app_version"
           actual_notes_heading="$(head -n 1 RELEASE_NOTES.md)"
           if [[ "$actual_notes_heading" != "$expected_notes_heading" ]]; then
             print -u2 "发布说明版本不一致：expected=$expected_notes_heading actual=$actual_notes_heading"
@@ -51,6 +60,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          app_channel="$(/usr/libexec/PlistBuddy -c 'Print :WeClawReleaseChannel' Resources/Info.plist)"
+          release_flags=()
+          if [[ "$app_channel" == "beta" ]]; then
+            release_flags+=(--prerelease)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             dist/WeClaw-Send.zip \
             dist/WeClaw-Send.dmg \
@@ -60,4 +74,5 @@ jobs:
             dist/SHA256SUMS.txt \
             --verify-tag \
             --notes-file RELEASE_NOTES.md \
-            --title "WeClaw Send $GITHUB_REF_NAME"
+            --title "WeClaw Send $GITHUB_REF_NAME" \
+            "${release_flags[@]}"
