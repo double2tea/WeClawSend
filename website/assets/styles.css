@@ -355,6 +355,7 @@ code {
 }
 
 .workflow,
+.basket-feature,
 .product-detail,
 .faq {
   padding: 88px 0;
@@ -404,6 +405,217 @@ code {
   color: var(--muted);
   font-size: 13.5px;
   line-height: 1.75;
+}
+
+.basket-feature {
+  display: grid;
+  grid-template-columns: 0.92fr 1.08fr;
+  align-items: center;
+  gap: 68px;
+}
+.basket-copy h2 {
+  font-size: clamp(34px, 3.8vw, 48px);
+  font-weight: 500;
+  line-height: 1.16;
+}
+.basket-copy > p:not(.section-kicker) {
+  max-width: 520px;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.8;
+}
+.basket-copy .text-link {
+  display: inline-flex;
+  margin-top: 24px;
+  color: var(--ink-soft);
+  border-bottom: 1px solid rgba(23, 25, 27, 0.16);
+  font-size: 14px;
+  font-weight: 500;
+}
+.basket-points {
+  margin-top: 30px;
+  border-top: 1px solid var(--line);
+}
+.basket-points article {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.basket-points b {
+  font-size: 14px;
+  font-weight: 550;
+}
+.basket-points span {
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+.basket-visual {
+  position: relative;
+  min-height: 590px;
+  padding: 68px 34px 42px;
+  border: 1px solid var(--line);
+  border-radius: 34px;
+  background:
+    radial-gradient(circle at 82% 10%, rgba(142, 160, 171, 0.2), transparent 32%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(239, 238, 233, 0.64));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+.basket-visual::before {
+  position: absolute;
+  inset: 0;
+  opacity: 0.36;
+  background-image: radial-gradient(rgba(91, 109, 120, 0.2) 0.7px, transparent 0.7px);
+  background-size: 14px 14px;
+  border-radius: inherit;
+  content: "";
+  mask-image: linear-gradient(135deg, black, transparent 68%);
+}
+.basket-window {
+  position: relative;
+  z-index: 2;
+  width: min(92%, 430px);
+  margin-left: auto;
+  overflow: hidden;
+  border: 1px solid rgba(23, 25, 27, 0.1);
+  border-radius: 22px;
+  background: rgba(252, 251, 248, 0.94);
+  box-shadow: 0 30px 80px rgba(23, 25, 27, 0.14);
+  backdrop-filter: blur(18px);
+}
+.basket-window-back {
+  position: absolute;
+  top: 28px;
+  left: 18px;
+  z-index: 1;
+  display: flex;
+  width: 45%;
+  min-height: 98px;
+  margin: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px;
+  transform: rotate(-5deg);
+  color: rgba(23, 25, 27, 0.58);
+  background: rgba(245, 244, 240, 0.82);
+  box-shadow: 0 18px 46px rgba(23, 25, 27, 0.1);
+}
+.basket-window-back span {
+  font-size: 13px;
+  font-weight: 550;
+}
+.basket-window-back small {
+  font-size: 11px;
+}
+.basket-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.basket-titlebar b,
+.basket-item b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 550;
+}
+.basket-titlebar small,
+.basket-item small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted-soft);
+  font-size: 11.5px;
+}
+.basket-titlebar > span {
+  color: var(--muted-soft);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+.basket-items {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+.basket-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  background: rgba(23, 25, 27, 0.025);
+  border: 1px solid rgba(23, 25, 27, 0.045);
+  border-radius: 13px;
+}
+.basket-file-icon {
+  display: grid;
+  width: 34px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #50616c;
+  background: #dce5ea;
+  border-radius: 8px 8px 10px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.basket-file-icon-video {
+  color: #6b5e50;
+  background: #e9e1d7;
+}
+.basket-file-icon-package {
+  color: #50685b;
+  background: #dbe8df;
+}
+.basket-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--line);
+}
+.basket-actions span {
+  color: var(--muted-soft);
+  font-size: 11.5px;
+}
+.basket-actions b {
+  padding: 8px 13px;
+  color: white;
+  background: var(--ink);
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 550;
+}
+.basket-version-note {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  max-width: 360px;
+  align-items: center;
+  gap: 12px;
+  margin: 26px 0 0 auto;
+  padding: 12px 14px;
+  color: rgba(244, 245, 244, 0.72);
+  background: rgba(23, 25, 27, 0.9);
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+}
+.basket-version-note span {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+.basket-version-note p {
+  font-size: 11.5px;
+  line-height: 1.55;
 }
 
 .editors {
@@ -830,10 +1042,11 @@ code {
 .method-grid,
 .setting-list {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-top: 18px;
 }
+.method-grid { grid-template-columns: repeat(2, 1fr); }
+.setting-list { grid-template-columns: repeat(3, 1fr); }
 .method-grid article,
 .setting-list article {
   min-height: 140px;
@@ -1105,6 +1318,7 @@ html:not(.js) .reveal {
 @media (max-width: 980px) {
   .hero,
   .film-layout,
+  .basket-feature,
   .product-detail,
   .privacy-layout,
   .faq,
@@ -1134,6 +1348,7 @@ html:not(.js) .reveal {
   }
   .film-layout,
   .workflow,
+  .basket-feature,
   .product-detail,
   .faq {
     gap: 28px;
@@ -1152,6 +1367,7 @@ html:not(.js) .reveal {
     padding: 28px 22px;
   }
   .editor-card { min-height: 0; }
+  .basket-visual { min-height: 560px; }
   .detail-frame {
     left: 8%;
     width: 84%;
@@ -1233,6 +1449,14 @@ html:not(.js) .reveal {
   .detail-visual {
     min-height: 460px;
   }
+  .basket-visual {
+    min-height: 520px;
+    padding: 60px 18px 28px;
+  }
+  .basket-window { width: 94%; }
+  .basket-window-back { width: 52%; }
+  .basket-points article { grid-template-columns: 1fr; gap: 6px; }
+  .basket-version-note { margin-top: 20px; }
   .app-window {
     left: 8%;
     width: 84%;

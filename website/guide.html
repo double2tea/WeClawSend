@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="WeClaw Send 的安装、登录、会话绑定、发送文件和剪辑软件接入说明。">
+    <meta name="description" content="WeClaw Send 的安装、登录、文件篮、发送文件、在线更新和剪辑软件接入说明。">
     <meta name="theme-color" content="#f6f5f2">
     <title>使用说明 | WeClaw Send</title>
     <link rel="icon" href="/assets/brand-mark.png">
@@ -23,6 +23,7 @@
       <nav class="site-nav" aria-label="主导航" data-nav>
         <a href="/">作品页</a>
         <a href="#install">安装</a>
+        <a href="#baskets">文件篮</a>
         <a href="#editors-guide">剪辑软件</a>
         <a href="#troubleshooting">故障排查</a>
         <a href="https://my.feishu.cn/docx/ZBq3dUnj1o55Q3xfJrpc9hfRnlh" target="_blank" rel="noopener noreferrer">更新与反馈</a>
@@ -55,6 +56,7 @@
           <a href="#install">安装</a>
           <a href="#first-use">微信登录</a>
           <a href="#send">发送文件</a>
+          <a href="#baskets">文件篮</a>
           <a href="#settings">常用设置</a>
           <a href="#editors-guide">剪辑软件</a>
           <a href="#troubleshooting">故障排查</a>
@@ -110,7 +112,7 @@
           <section id="send">
             <span class="chapter">03</span>
             <h2>发送文件</h2>
-            <p>可以从这三处开始发送：</p>
+            <p>可以从这四处开始发送：</p>
             <div class="method-grid">
               <article>
                 <span>↗</span>
@@ -127,6 +129,11 @@
                 <h3>剪辑软件导出</h3>
                 <p>Premiere、Final Cut 或 DaVinci 导出完成后自动发送。</p>
               </article>
+              <article>
+                <span>▱</span>
+                <h3>文件篮批量发送</h3>
+                <p>先暂存文件、文件夹与 macOS 包，再从当前文件篮统一发送。</p>
+              </article>
             </div>
             <table class="limits">
               <tbody>
@@ -138,8 +145,49 @@
             </table>
           </section>
 
-          <section id="settings">
+          <section id="baskets">
             <span class="chapter">04</span>
+            <h2>文件篮</h2>
+            <p>文件篮是独立悬浮的文件中转窗，可以同时创建多个。它只保存路径引用，不复制、不移动磁盘上的原内容。</p>
+            <div class="method-grid basket-methods">
+              <article>
+                <span>＋</span>
+                <h3>新建</h3>
+                <p>在主面板点“＋ 文件篮”；或拖着文件左右摇晃，在指针旁直接新建。</p>
+              </article>
+              <article>
+                <span>⌥</span>
+                <h3>快速显示</h3>
+                <p>按 <code>⌥⌘S</code> 显示或隐藏最近使用的文件篮。</p>
+              </article>
+              <article>
+                <span>↗</span>
+                <h3>拖出与复制</h3>
+                <p>拖到 Finder、微信或其他 App；也可按 <code>⌘C</code> 复制真实项目。</p>
+              </article>
+              <article>
+                <span>␣</span>
+                <h3>预览与定位</h3>
+                <p>选中后按空格快速预览，或从右键菜单在 Finder 中显示。</p>
+              </article>
+            </div>
+            <h3>发送规则</h3>
+            <ul class="check-list">
+              <li>仅含普通文件时，“发送”会立即处理当前文件篮中的全部文件。</li>
+              <li>包含文件夹或 macOS 包时，按钮会变为“压缩发送”；输入 ZIP 名称后再发送。</li>
+              <li>“压缩为 ZIP 并发送”可随时主动使用，发送不会改变篮内内容。</li>
+              <li>每个文件篮独立保存内容、位置、折叠与置顶状态，并可跨 App 启动恢复。</li>
+              <li>关闭空文件篮会自动删除；移除项目、清空或删除文件篮都不会删除原内容。</li>
+              <li>暂不支持符号链接、文本片段和剪贴板图片等非文件系统项目。</li>
+            </ul>
+            <div class="callout callout-blue">
+              <b>文件篮与菜单栏拖入互不影响</b>
+              <p>拖到菜单栏纸飞机仍会立即发送。只有拖入文件篮的项目才会暂存，批量发送也只处理当前文件篮。</p>
+            </div>
+          </section>
+
+          <section id="settings">
+            <span class="chapter">05</span>
             <h2>常用设置</h2>
             <div class="setting-list">
               <article>
@@ -164,13 +212,17 @@
               </article>
               <article>
                 <h3>在线更新</h3>
-                <p>发现新版本时会先显示更新内容。关闭后当前版本不再提醒。</p>
+                <p>正式通道只检查稳定 Release；发现新版本时会先显示更新内容，关闭后当前版本不再提醒。</p>
+              </article>
+              <article>
+                <h3>接收内测版本</h3>
+                <p>开启后，App、Premiere 插件和 DaVinci 脚本会一起检查测试版；可随时关闭并回到正式通道。</p>
               </article>
             </div>
           </section>
 
           <section id="editors-guide">
-            <span class="chapter">05</span>
+            <span class="chapter">06</span>
             <h2>剪辑软件接入</h2>
             <div class="editor-guide">
               <article>
@@ -214,13 +266,17 @@
                     <li>在 Deliver 页“在渲染作业结束时触发脚本”中优先选择 <code>WeClawSend_Lua</code>。MP4/M4V 显示名由设置“发送时 .mp4 显示为 .m4v”处理。</li>
                   </ol>
                   <p>默认 dual 安装 Lua / Python 两个入口，日常推荐 Lua。脚本写入用户 Deliver 目录，系统目录可写时也会同步。</p>
+                  <div class="callout callout-blue">
+                    <b>Resolve 21 及更高版本</b>
+                    <p>使用自动发送前，请关闭“偏好设置 → 后台任务 → 启用后台渲染”。开启时，Resolve 的回调可能缺少 Deliver 作业信息，自动发送无法可靠工作。</p>
+                  </div>
                 </div>
               </article>
             </div>
           </section>
 
           <section id="troubleshooting">
-            <span class="chapter">06</span>
+            <span class="chapter">07</span>
             <h2>故障排查</h2>
             <details open>
               <summary>提示“无法验证开发者”</summary>
@@ -248,12 +304,16 @@
             </details>
             <details>
               <summary>DaVinci 脚本下拉只有“无”，或渲染后没有发送</summary>
-              <p>在设置页点“显示路径”确认 <code>WeClawSend_Lua.lua</code> 存在，并彻底重启 Resolve。脚本与 Resolve 需使用同一个 macOS 用户。</p>
+              <p>在设置页点“显示路径”确认 <code>WeClawSend_Lua.lua</code> 存在，并彻底重启 Resolve。脚本与 Resolve 需使用同一个 macOS 用户；Resolve 21 及更高版本还需关闭“偏好设置 → 后台任务 → 启用后台渲染”。</p>
+            </details>
+            <details>
+              <summary>文件篮中的文件夹为什么不能立即发送</summary>
+              <p>微信附件按文件发送。当前文件篮含文件夹或 macOS 包时，需要先输入名称，应用会将全部项目压缩为一个 ZIP 后发送。</p>
             </details>
           </section>
 
           <section id="privacy">
-            <span class="chapter">07</span>
+            <span class="chapter">08</span>
             <h2>隐私与安全</h2>
             <ul class="check-list">
               <li>不设开发者自有云端存储，文件通过微信通道发到你自己的 ClawBot。</li>
@@ -265,14 +325,14 @@
           </section>
 
           <section id="uninstall">
-            <span class="chapter">08</span>
+            <span class="chapter">09</span>
             <h2>退出与卸载</h2>
             <p><strong>退出：</strong>菜单栏纸飞机 → 设置 → 退出。</p>
             <p><strong>卸载：</strong>退出后，把“应用程序”中的 WeClaw Send 移到废纸篓。若要同时清除独立登录数据，再删除 <code>~/Library/Application Support/WeClawSend</code>；不会影响 OpenClaw 的本机数据。</p>
           </section>
 
           <section id="feedback">
-            <span class="chapter">09</span>
+            <span class="chapter">10</span>
             <h2>更新日志与反馈</h2>
             <p>版本更新说明、问题讨论与建议，统一放在飞书文档：</p>
             <p><a href="https://my.feishu.cn/docx/ZBq3dUnj1o55Q3xfJrpc9hfRnlh" target="_blank" rel="noopener noreferrer">产品交流与反馈（飞书）</a></p>

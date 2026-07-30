@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="WeClaw Send 是 macOS 菜单栏工具，独立扫码完成会话绑定后即可发送，也可复用 OpenClaw，把文件直接发到自己的微信。">
+    <meta name="description" content="WeClaw Send 是 macOS 菜单栏工具：用文件篮暂存文件、文件夹与 macOS 包，再直接发到自己的微信；支持 Premiere、Final Cut Pro 和 DaVinci Resolve。">
     <meta name="theme-color" content="#f6f5f2">
     <meta property="og:title" content="WeClaw Send | 导出完成，微信就收到">
-    <meta property="og:description" content="独立扫码完成会话绑定，或复用 OpenClaw，把 Mac 和剪辑软件里的文件直接发到自己的微信。">
+    <meta property="og:description" content="用多个文件篮暂存文件、文件夹与 macOS 包，再把 Mac 和剪辑软件里的内容直接发到自己的微信。">
     <meta property="og:image" content="/assets/brand-mark.png">
     <title>WeClaw Send | 导出完成，微信就收到</title>
     <link rel="icon" href="/assets/brand-mark.png">
@@ -25,6 +25,7 @@
       </button>
       <nav class="site-nav" aria-label="主导航" data-nav>
         <a href="#film">产品演示</a>
+        <a href="#baskets">文件篮</a>
         <a href="#editors">剪辑软件</a>
         <a href="#privacy">隐私</a>
         <a href="/guide.html">使用说明</a>
@@ -37,9 +38,9 @@
     <main id="main">
       <section class="hero section-shell">
         <div class="hero-copy reveal">
-          <p class="eyebrow">macOS 菜单栏应用</p>
+          <p class="eyebrow">2.0 文件篮 · macOS 菜单栏应用</p>
           <h1>导出完成<br>微信就收到</h1>
-          <p class="hero-lede">把 Mac 或剪辑软件导出的文件，直接发到自己的微信。</p>
+          <p class="hero-lede">把 Mac 或剪辑软件导出的内容直接发到自己的微信，也可以先放进文件篮，随用随取。</p>
           <div class="hero-actions">
             <a class="button button-primary" href="/dl/dmg">
               <span>下载 macOS 版</span>
@@ -47,7 +48,7 @@
             </a>
             <a class="button button-quiet" href="/guide.html">查看使用说明</a>
           </div>
-          <p class="hero-meta">独立扫码完成会话绑定，也可复用 OpenClaw · MIT 开源</p>
+          <p class="hero-meta">文件、文件夹与 macOS 包 · 独立扫码或复用 OpenClaw · MIT 开源</p>
         </div>
 
         <div class="hero-visual reveal" data-delay="1" aria-label="WeClaw Send 应用界面展示">
@@ -65,6 +66,67 @@
               <b>成片-最终版.m4v</b>
               <small>已发送到微信</small>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="basket-feature section-shell" id="baskets">
+        <div class="basket-copy reveal">
+          <p class="section-kicker">2.0 新功能</p>
+          <h2>先放进文件篮<br>需要时再处理</h2>
+          <p>同时打开多个悬浮文件篮，把分散在不同位置的文件、文件夹和 macOS 包先收在一起。文件篮只保存路径引用，不复制、不移动原内容。</p>
+          <div class="basket-points">
+            <article>
+              <b>随手收集</b>
+              <span>拖着文件左右摇晃即可在指针旁新建，也可按 <code>⌥⌘S</code> 快速显示最近使用的文件篮。</span>
+            </article>
+            <article>
+              <b>继续拖出</b>
+              <span>项目可拖回 Finder、微信或其他 App，也能复制、空格预览并在 Finder 中定位。</span>
+            </article>
+            <article>
+              <b>按内容发送</b>
+              <span>普通文件立即发送；包含文件夹或包时，命名后自动压缩为一个 ZIP。</span>
+            </article>
+          </div>
+          <a class="text-link" href="/guide.html#baskets">查看文件篮完整用法</a>
+        </div>
+
+        <div class="basket-visual reveal" data-delay="1" aria-label="多个文件篮暂存项目并压缩发送的示意图">
+          <div class="basket-window basket-window-back" aria-hidden="true">
+            <span>文件篮 2</span>
+            <small>2 个项目</small>
+          </div>
+          <div class="basket-window">
+            <div class="basket-titlebar">
+              <div>
+                <b>文件篮 1</b>
+                <small>3 个项目</small>
+              </div>
+              <span>•••</span>
+            </div>
+            <div class="basket-items">
+              <div class="basket-item">
+                <span class="basket-file-icon">F</span>
+                <div><b>品牌成片</b><small>文件夹 · 12 项</small></div>
+              </div>
+              <div class="basket-item">
+                <span class="basket-file-icon basket-file-icon-video">V</span>
+                <div><b>发布版.mov</b><small>186 MB</small></div>
+              </div>
+              <div class="basket-item">
+                <span class="basket-file-icon basket-file-icon-package">P</span>
+                <div><b>交付工程.app</b><small>macOS 包</small></div>
+              </div>
+            </div>
+            <div class="basket-actions">
+              <span>仅保存引用</span>
+              <b>压缩发送 3</b>
+            </div>
+          </div>
+          <div class="basket-version-note">
+            <span>2.0.1 内测</span>
+            <p>文件夹、包与内测更新通道现已可用</p>
           </div>
         </div>
       </section>
@@ -145,10 +207,10 @@
             <article class="editor-card reveal" data-delay="2">
               <small>DaVinci Resolve</small>
               <h3>在 Deliver 页面直接发送</h3>
-              <p>渲染完成后通过本机接口发送，可选视频或附件方式。</p>
+              <p>渲染完成后通过本机接口发送。推荐 Lua 入口，使用 macOS 自带 curl，无需 Python。</p>
               <ul>
                 <li>App 设置中一键安装</li>
-                <li>脚本仅访问 127.0.0.1</li>
+                <li>Resolve 21+ 使用前需关闭后台渲染</li>
               </ul>
             </article>
           </div>
@@ -236,6 +298,14 @@
           <details class="reveal">
             <summary>文件大小与并发限制<span>+</span></summary>
             <p>默认单文件上限 200 MB，可在设置中调到 2 GB；最多同时处理 3 个文件。</p>
+          </details>
+          <details class="reveal">
+            <summary>文件篮会复制或删除原文件吗<span>+</span></summary>
+            <p>不会。文件篮只保存路径引用；从篮内移除项目、清空或删除文件篮，都不会删除磁盘上的原内容。</p>
+          </details>
+          <details class="reveal">
+            <summary>怎样体验 2.0.1 内测版<span>+</span></summary>
+            <p>在支持更新通道的版本中打开“设置 → 更新与编辑器集成”，开启“接收内测版本”。App、Premiere 插件和 DaVinci 脚本会一起检查对应测试版。</p>
           </details>
           <details class="reveal">
             <summary>在哪里看版本更新或提反馈<span>+</span></summary>
