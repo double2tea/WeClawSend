@@ -1,3 +1,9 @@
+# v1.7.3
+
+- 设置页新增“接收内测版本”：正式版可直接加入或退出内测，加入后会同时检查 App、Premiere 插件和 DaVinci 脚本测试版。
+- 内测通道支持 GitHub prerelease 与 `v<版本>-beta.<构建号>`，同一版本可按构建号持续升级；正式通道仍只接收稳定 Release。
+- 修复带“测试版”展示标签的 App 无法识别当前版本、不能在线更新的问题。
+
 # v1.7.2
 
 - DaVinci Resolve 后渲染双入口：`WeClawSend_Lua`（推荐，curl，无需 Python）与 `WeClawSend_Python`（可选）。

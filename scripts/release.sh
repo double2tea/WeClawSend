@@ -18,10 +18,15 @@ MOUNT="$VERIFY/mount"
 MOUNTED=false
 
 APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Resources/Info.plist")"
+APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$ROOT/Resources/Info.plist")"
+APP_CHANNEL="$(/usr/libexec/PlistBuddy -c 'Print :WeClawReleaseChannel' "$ROOT/Resources/Info.plist")"
 PREMIERE_VERSION="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' "$ROOT/premiere-cep/CSXS/manifest.xml")"
 DAVINCI_VERSION="$(tr -d '[:space:]' < "$ROOT/davinci-resolve/VERSION")"
 VERSION_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+$'
+BUILD_PATTERN='^[0-9]+$'
 [[ "$APP_VERSION" =~ $VERSION_PATTERN ]]
+[[ "$APP_BUILD" =~ $BUILD_PATTERN ]]
+[[ "$APP_CHANNEL" == "stable" || "$APP_CHANNEL" == "beta" ]]
 [[ "$PREMIERE_VERSION" =~ $VERSION_PATTERN ]]
 [[ "$DAVINCI_VERSION" =~ $VERSION_PATTERN ]]
 
@@ -103,8 +108,9 @@ if ! grep -qx 'davinci-resolve/Deliver/WeClawSend_Lua.lua' <<<"$DAVINCI_CONTENTS
     exit 1
 fi
 
-printf '{\n  "app": "%s",\n  "premiere": "%s",\n  "davinci": "%s"\n}\n' \
+printf '{\n  "app": "%s",\n  "app_build": %s,\n  "premiere": "%s",\n  "davinci": "%s"\n}\n' \
     "$APP_VERSION" \
+    "$APP_BUILD" \
     "$PREMIERE_VERSION" \
     "$DAVINCI_VERSION" > "$COMPONENTS"
 python3 -m json.tool "$COMPONENTS" >/dev/null

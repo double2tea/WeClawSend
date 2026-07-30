@@ -39,6 +39,72 @@ struct ReleaseVersion: Comparable, Equatable, Sendable, CustomStringConvertible 
     }
 }
 
+enum AppUpdateChannel: String, Equatable, Sendable {
+    case stable
+    case beta
+}
+
+struct AppBuildVersion: Comparable, Equatable, Sendable, CustomStringConvertible {
+    let version: ReleaseVersion
+    let build: Int
+    let channel: AppUpdateChannel
+
+    init(version: ReleaseVersion, build: Int, channel: AppUpdateChannel) {
+        self.version = version
+        self.build = build
+        self.channel = channel
+    }
+
+    init?(version: String, build: String, channel: AppUpdateChannel) {
+        guard
+            let version = ReleaseVersion(tag: version),
+            let build = Int(build),
+            build >= 0
+        else {
+            return nil
+        }
+        self.init(version: version, build: build, channel: channel)
+    }
+
+    init?(releaseTag: String, isPrerelease: Bool) {
+        let rawValue = releaseTag.hasPrefix("v") ? String(releaseTag.dropFirst()) : releaseTag
+        if let marker = rawValue.range(of: "-beta.") {
+            guard
+                marker.upperBound < rawValue.endIndex,
+                let version = ReleaseVersion(tag: String(rawValue[..<marker.lowerBound])),
+                let build = Int(rawValue[marker.upperBound...]),
+                build >= 0
+            else {
+                return nil
+            }
+            self.init(version: version, build: build, channel: .beta)
+            return
+        }
+        guard let version = ReleaseVersion(tag: rawValue) else { return nil }
+        self.init(version: version, build: 0, channel: isPrerelease ? .beta : .stable)
+    }
+
+    var identifier: String {
+        switch channel {
+        case .stable: version.description
+        case .beta: "\(version)-beta.\(build)"
+        }
+    }
+
+    var description: String {
+        switch channel {
+        case .stable: version.description
+        case .beta: "\(version) 测试版（构建 \(build)）"
+        }
+    }
+
+    static func < (lhs: AppBuildVersion, rhs: AppBuildVersion) -> Bool {
+        if lhs.version != rhs.version { return lhs.version < rhs.version }
+        if lhs.channel != rhs.channel { return lhs.channel == .beta }
+        return lhs.build < rhs.build
+    }
+}
+
 struct GitHubReleaseAsset: Decodable, Equatable, Sendable {
     let name: String
     let browserDownloadURL: URL
@@ -54,16 +120,34 @@ struct GitHubRelease: Decodable, Equatable, Sendable {
     let htmlURL: URL
     let body: String?
     let assets: [GitHubReleaseAsset]
+    let isDraft: Bool
+    let isPrerelease: Bool
 
     enum CodingKeys: String, CodingKey {
         case tagName = "tag_name"
         case htmlURL = "html_url"
         case body
         case assets
+        case isDraft = "draft"
+        case isPrerelease = "prerelease"
+    }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        tagName = try values.decode(String.self, forKey: .tagName)
+        htmlURL = try values.decode(URL.self, forKey: .htmlURL)
+        body = try values.decodeIfPresent(String.self, forKey: .body)
+        assets = try values.decode([GitHubReleaseAsset].self, forKey: .assets)
+        isDraft = try values.decodeIfPresent(Bool.self, forKey: .isDraft) ?? false
+        isPrerelease = try values.decodeIfPresent(Bool.self, forKey: .isPrerelease) ?? false
     }
 
     var version: ReleaseVersion? {
-        ReleaseVersion(tag: tagName)
+        appVersion?.version
+    }
+
+    var appVersion: AppBuildVersion? {
+        AppBuildVersion(releaseTag: tagName, isPrerelease: isPrerelease)
     }
 
     func asset(named name: String) -> GitHubReleaseAsset? {
@@ -72,12 +156,12 @@ struct GitHubRelease: Decodable, Equatable, Sendable {
 }
 
 struct AppUpdateNotice: Equatable, Sendable {
-    let version: ReleaseVersion
+    let version: AppBuildVersion
     let notes: [String]
 
-    init?(release: GitHubRelease, currentVersion: ReleaseVersion, seenVersion: String) {
-        guard let version = release.version, currentVersion < version else { return nil }
-        guard seenVersion != version.description else { return nil }
+    init?(release: GitHubRelease, currentVersion: AppBuildVersion, seenVersion: String) {
+        guard let version = release.appVersion, currentVersion < version else { return nil }
+        guard seenVersion != version.identifier else { return nil }
         self.version = version
         notes = Self.notes(from: release.body)
     }
@@ -105,6 +189,7 @@ struct AppUpdateNotice: Equatable, Sendable {
 
 struct ReleaseComponents: Equatable, Sendable {
     let app: ReleaseVersion
+    let appBuild: Int?
     let premiere: ReleaseVersion
     let daVinci: ReleaseVersion
 }
@@ -112,6 +197,7 @@ struct ReleaseComponents: Equatable, Sendable {
 extension ReleaseComponents: Decodable {
     enum CodingKeys: String, CodingKey {
         case app
+        case appBuild = "app_build"
         case premiere
         case daVinci = "davinci"
     }
@@ -119,6 +205,7 @@ extension ReleaseComponents: Decodable {
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let appText = try values.decode(String.self, forKey: .app)
+        let appBuild = try values.decodeIfPresent(Int.self, forKey: .appBuild)
         let premiereText = try values.decode(String.self, forKey: .premiere)
         let daVinciText = try values.decode(String.self, forKey: .daVinci)
         guard
@@ -130,7 +217,14 @@ extension ReleaseComponents: Decodable {
                 .init(codingPath: decoder.codingPath, debugDescription: "组件版本格式无效")
             )
         }
-        self.init(app: app, premiere: premiere, daVinci: daVinci)
+        if let appBuild, appBuild < 0 {
+            throw DecodingError.dataCorruptedError(
+                forKey: .appBuild,
+                in: values,
+                debugDescription: "App 构建号无效"
+            )
+        }
+        self.init(app: app, appBuild: appBuild, premiere: premiere, daVinci: daVinci)
     }
 }
 
@@ -146,8 +240,8 @@ typealias PremierePluginUpdateState = IntegrationUpdateState
 typealias DaVinciScriptsUpdateState = IntegrationUpdateState
 
 enum AppUpdateAvailability: Equatable, Sendable {
-    case current(ReleaseVersion)
-    case updateAvailable(ReleaseVersion)
+    case current(AppBuildVersion)
+    case updateAvailable(AppBuildVersion)
 }
 
 enum UpdateManagerError: LocalizedError {
@@ -215,6 +309,9 @@ actor UpdateManager {
     nonisolated static let latestReleaseURL = URL(
         string: "https://api.github.com/repos/double2tea/WeClawSend/releases/latest"
     )!
+    nonisolated static let betaReleasesURL = URL(
+        string: "https://api.github.com/repos/double2tea/WeClawSend/releases?per_page=100"
+    )!
     nonisolated static let appArchiveName = "WeClaw-Send.zip"
     nonisolated static let premiereArchiveName = "WeClaw-Send-Premiere-CEP12.zip"
     nonisolated static let daVinciArchiveName = "WeClaw-Send-DaVinci-Resolve.zip"
@@ -255,44 +352,50 @@ actor UpdateManager {
     private let session: URLSession
     private let fileManager: FileManager
     private let latestReleaseURL: URL
+    private let betaReleasesURL: URL
     private let homeDirectory: URL
     private let defaultsExecutablePath: String
-    private var cachedRelease: (release: GitHubRelease, date: Date)?
+    private var cachedReleases: [AppUpdateChannel: (release: GitHubRelease, date: Date)] = [:]
     private var releaseCacheGeneration = 0
     private var ignoresCacheForNextMetadataRequest = false
-    private var latestReleaseTask: (generation: Int, task: Task<GitHubRelease, Error>)?
+    private var latestReleaseTasks: [
+        AppUpdateChannel: (generation: Int, task: Task<GitHubRelease, Error>)
+    ] = [:]
     private var cachedComponents: [String: ReleaseComponents] = [:]
 
     init(
         session: URLSession = .shared,
         fileManager: FileManager = .default,
         latestReleaseURL: URL = UpdateManager.latestReleaseURL,
+        betaReleasesURL: URL = UpdateManager.betaReleasesURL,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         defaultsExecutablePath: String = "/usr/bin/defaults"
     ) {
         self.session = session
         self.fileManager = fileManager
         self.latestReleaseURL = latestReleaseURL
+        self.betaReleasesURL = betaReleasesURL
         self.homeDirectory = homeDirectory
         self.defaultsExecutablePath = defaultsExecutablePath
     }
 
     func invalidateReleaseCache() {
         releaseCacheGeneration &+= 1
-        cachedRelease = nil
+        cachedReleases.removeAll()
         cachedComponents.removeAll()
         ignoresCacheForNextMetadataRequest = true
-        latestReleaseTask?.task.cancel()
-        latestReleaseTask = nil
+        latestReleaseTasks.values.forEach { $0.task.cancel() }
+        latestReleaseTasks.removeAll()
     }
 
     func prepareAppUpdate(
-        currentVersion: ReleaseVersion,
+        currentVersion: AppBuildVersion,
         appURL: URL,
-        currentProcessID: Int32
+        currentProcessID: Int32,
+        channel: AppUpdateChannel = .stable
     ) async throws -> AppUpdateResult {
-        let release = try await latestRelease()
-        guard let releaseVersion = release.version else {
+        let release = try await latestRelease(channel: channel)
+        guard let releaseVersion = release.appVersion else {
             throw UpdateManagerError.invalidVersion(release.tagName)
         }
         guard currentVersion < releaseVersion else {
@@ -335,15 +438,20 @@ actor UpdateManager {
         }
     }
 
-    func appUpdateAvailability(currentVersion: ReleaseVersion) async throws -> AppUpdateAvailability {
-        let release = try await latestRelease()
-        guard let latestVersion = release.version else {
+    func appUpdateAvailability(
+        currentVersion: AppBuildVersion,
+        channel: AppUpdateChannel = .stable
+    ) async throws -> AppUpdateAvailability {
+        let release = try await latestRelease(channel: channel)
+        guard let latestVersion = release.appVersion else {
             throw UpdateManagerError.invalidVersion(release.tagName)
         }
         return currentVersion < latestVersion ? .updateAvailable(latestVersion) : .current(currentVersion)
     }
 
-    func premierePluginUpdateState() async throws -> PremierePluginUpdateState {
+    func premierePluginUpdateState(
+        channel: AppUpdateChannel = .stable
+    ) async throws -> PremierePluginUpdateState {
         let installedVersion: ReleaseVersion?
         let requiresRepair: Bool
         do {
@@ -354,7 +462,7 @@ actor UpdateManager {
             installedVersion = nil
             requiresRepair = true
         }
-        let release = try await latestRelease()
+        let release = try await latestRelease(channel: channel)
         let latestVersion = try await releaseComponents(in: release).premiere
         if requiresRepair { return .repairRequired(latest: latestVersion) }
         return Self.premierePluginUpdateState(installed: installedVersion, latest: latestVersion)
@@ -366,8 +474,8 @@ actor UpdateManager {
         return try Self.premierePluginVersion(at: target)
     }
 
-    func installPremierePlugin() async throws -> ReleaseVersion {
-        let release = try await latestRelease()
+    func installPremierePlugin(channel: AppUpdateChannel = .stable) async throws -> ReleaseVersion {
+        let release = try await latestRelease(channel: channel)
         let releaseVersion = try await releaseComponents(in: release).premiere
         let installedVersion: ReleaseVersion?
         do {
@@ -425,7 +533,9 @@ actor UpdateManager {
         premierePluginURL
     }
 
-    func daVinciScriptsUpdateState() async throws -> DaVinciScriptsUpdateState {
+    func daVinciScriptsUpdateState(
+        channel: AppUpdateChannel = .stable
+    ) async throws -> DaVinciScriptsUpdateState {
         let installedVersion: ReleaseVersion?
         let requiresRepair: Bool
         do {
@@ -436,7 +546,7 @@ actor UpdateManager {
             installedVersion = nil
             requiresRepair = true
         }
-        let release = try await latestRelease()
+        let release = try await latestRelease(channel: channel)
         let latestVersion = try await releaseComponents(in: release).daVinci
         if requiresRepair { return .repairRequired(latest: latestVersion) }
         return Self.integrationUpdateState(installed: installedVersion, latest: latestVersion)
@@ -462,8 +572,8 @@ actor UpdateManager {
         return version
     }
 
-    func installDaVinciScripts() async throws -> ReleaseVersion {
-        let release = try await latestRelease()
+    func installDaVinciScripts(channel: AppUpdateChannel = .stable) async throws -> ReleaseVersion {
+        let release = try await latestRelease(channel: channel)
         let releaseVersion = try await releaseComponents(in: release).daVinci
         let installedVersion: ReleaseVersion?
         do {
@@ -554,13 +664,14 @@ actor UpdateManager {
         }
     }
 
-    func latestRelease() async throws -> GitHubRelease {
-        if let cachedRelease,
+    func latestRelease(channel: AppUpdateChannel = .stable) async throws -> GitHubRelease {
+        if let cachedRelease = cachedReleases[channel],
            Date().timeIntervalSince(cachedRelease.date) < Self.releaseCacheDuration {
             return cachedRelease.release
         }
         let generation = releaseCacheGeneration
-        if let latestReleaseTask, latestReleaseTask.generation == generation {
+        if let latestReleaseTask = latestReleaseTasks[channel],
+           latestReleaseTask.generation == generation {
             return try await latestReleaseTask.task.value
         }
 
@@ -568,7 +679,7 @@ actor UpdateManager {
         let ignoresCache = ignoresCacheForNextMetadataRequest
         ignoresCacheForNextMetadataRequest = false
         let request = request(
-            for: latestReleaseURL,
+            for: channel == .stable ? latestReleaseURL : betaReleasesURL,
             timeoutInterval: Self.metadataRequestTimeout,
             ignoresCache: ignoresCache
         )
@@ -581,24 +692,49 @@ actor UpdateManager {
                 throw UpdateManagerError.httpStatus(response.statusCode)
             }
             do {
-                return try JSONDecoder().decode(GitHubRelease.self, from: data)
+                switch channel {
+                case .stable:
+                    let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
+                    guard
+                        !release.isDraft,
+                        !release.isPrerelease,
+                        release.appVersion?.channel == .stable
+                    else {
+                        throw UpdateManagerError.invalidResponse
+                    }
+                    return release
+                case .beta:
+                    let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
+                    let candidates = releases.compactMap { release -> (GitHubRelease, AppBuildVersion)? in
+                        guard !release.isDraft, let version = release.appVersion else { return nil }
+                        if version.channel == .beta, !release.isPrerelease { return nil }
+                        if version.channel == .stable, release.isPrerelease { return nil }
+                        return (release, version)
+                    }
+                    guard let latest = candidates.max(by: { $0.1 < $1.1 })?.0
+                    else {
+                        throw UpdateManagerError.invalidResponse
+                    }
+                    return latest
+                }
             } catch {
+                if let error = error as? UpdateManagerError { throw error }
                 throw UpdateManagerError.invalidResponse
             }
         }
-        latestReleaseTask = (generation, task)
+        latestReleaseTasks[channel] = (generation, task)
         do {
             let release = try await task.value
             if generation == releaseCacheGeneration {
-                cachedRelease = (release, Date())
-                if latestReleaseTask?.generation == generation {
-                    latestReleaseTask = nil
+                cachedReleases[channel] = (release, Date())
+                if latestReleaseTasks[channel]?.generation == generation {
+                    latestReleaseTasks[channel] = nil
                 }
             }
             return release
         } catch {
-            if latestReleaseTask?.generation == generation {
-                latestReleaseTask = nil
+            if latestReleaseTasks[channel]?.generation == generation {
+                latestReleaseTasks[channel] = nil
             }
             throw error
         }
@@ -731,6 +867,7 @@ actor UpdateManager {
         guard release.asset(named: Self.componentsName) != nil else {
             let legacy = ReleaseComponents(
                 app: appVersion,
+                appBuild: nil,
                 premiere: appVersion,
                 daVinci: appVersion
             )
@@ -755,6 +892,11 @@ actor UpdateManager {
             throw UpdateManagerError.invalidArchive(Self.componentsName)
         }
         guard components.app == appVersion else {
+            throw UpdateManagerError.invalidArchive(Self.componentsName)
+        }
+        if let releaseVersion = release.appVersion,
+           releaseVersion.channel == .beta,
+           components.appBuild != releaseVersion.build {
             throw UpdateManagerError.invalidArchive(Self.componentsName)
         }
         cachedComponents[release.tagName] = components
@@ -899,13 +1041,24 @@ actor UpdateManager {
         return resolvedURL
     }
 
-    private func validateApp(at appURL: URL, version: ReleaseVersion) throws {
+    private func validateApp(at appURL: URL, version: AppBuildVersion) throws {
         guard
             let bundle = Bundle(url: appURL),
             bundle.bundleIdentifier == "com.chacha.WeClawSend",
-            bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == version.description
+            bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+                == version.version.description
         else {
             throw UpdateManagerError.invalidArchive(Self.appArchiveName)
+        }
+        if version.channel == .beta {
+            guard
+                bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+                    == String(version.build),
+                bundle.object(forInfoDictionaryKey: "WeClawReleaseChannel") as? String
+                    == AppUpdateChannel.beta.rawValue
+            else {
+                throw UpdateManagerError.invalidArchive(Self.appArchiveName)
+            }
         }
     }
 
