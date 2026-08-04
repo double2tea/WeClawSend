@@ -351,6 +351,27 @@ precondition(FileBasketCloseAction.resolve(isEmpty: true, keepItemsOnClose: fals
 precondition(FileBasketCloseAction.resolve(isEmpty: false, keepItemsOnClose: false) == .delete)
 precondition(FileBasketCloseAction.resolve(isEmpty: false, keepItemsOnClose: true) == .hide)
 
+let marqueeFirstID = UUID()
+let marqueeSecondID = UUID()
+let marqueeThirdID = UUID()
+let marqueeFrames = [
+    marqueeFirstID: CGRect(x: 10, y: 10, width: 100, height: 36),
+    marqueeSecondID: CGRect(x: 10, y: 50, width: 100, height: 36),
+    marqueeThirdID: CGRect(x: 10, y: 90, width: 100, height: 36),
+]
+precondition(
+    ShelfMarqueeSelection.intersectingItemIDs(
+        in: CGRect(x: 0, y: 30, width: 120, height: 45),
+        itemFrames: marqueeFrames
+    ) == [marqueeFirstID, marqueeSecondID]
+)
+precondition(
+    ShelfMarqueeSelection.intersectingItemIDs(
+        in: CGRect(x: 130, y: 0, width: 20, height: 140),
+        itemFrames: marqueeFrames
+    ).isEmpty
+)
+
 MainActor.assumeIsolated {
     let first = ShelfItem(path: "/tmp/shelf-first")
     let second = ShelfItem(path: "/tmp/shelf-second")
@@ -360,6 +381,10 @@ MainActor.assumeIsolated {
 
     precondition(session.isCollapsed)
     precondition(session.isAlwaysOnTop)
+    precondition(session.displayMode == .grid)
+    session.displayMode = .list
+    precondition(session.displayMode == .list)
+    session.displayMode = .grid
     session.ensureSelection(in: items)
     precondition(session.selectedItemID == first.id)
     session.moveSelection(by: 1, in: items)
@@ -370,11 +395,53 @@ MainActor.assumeIsolated {
     precondition(session.selectedItemID == first.id)
 
     session.select(UUID())
-    precondition(session.selectedItem(in: items)?.id == first.id)
+    precondition(session.selectedItem(in: items) == nil)
     session.ensureSelection(in: items)
     precondition(session.selectedItemID == first.id)
     session.ensureSelection(in: [])
     precondition(session.selectedItemID == nil)
+
+    session.select(second.id)
+    session.selectAll(in: items)
+    precondition(session.selectedItemID == second.id)
+    precondition(session.selectedItemIDs == Set(items.map(\.id)))
+    precondition(session.selectedItems(in: items).map(\.id) == items.map(\.id))
+    precondition(session.dragItems(startingAt: third.id, in: items).map(\.id) == items.map(\.id))
+
+    let fourth = ShelfItem(path: "/tmp/shelf-fourth")
+    let expandedItems = items + [fourth]
+    session.select(first.id)
+    session.moveSelection(by: 3, in: expandedItems)
+    precondition(session.selectedItemID == fourth.id)
+    session.moveSelection(by: -3, in: expandedItems)
+    precondition(session.selectedItemID == first.id)
+    precondition(session.dragItems(startingAt: fourth.id, in: expandedItems).map(\.id) == [fourth.id])
+    precondition(session.selectedItemIDs == [fourth.id])
+    session.select(fourth.id, in: expandedItems, extending: false, toggling: true)
+    precondition(session.selectedItemIDs.isEmpty)
+    precondition(session.selectedItem(in: expandedItems) == nil)
+
+    session.setSelection([second.id, third.id, UUID()], in: items)
+    precondition(session.selectedItems(in: items).map(\.id) == [second.id, third.id])
+    precondition(session.selectedItemID == second.id)
+
+    session.select(first.id)
+    session.select(third.id, in: items, extending: true, toggling: false)
+    precondition(session.selectedItems(in: items).map(\.id) == items.map(\.id))
+    session.select(second.id, in: items, extending: false, toggling: true)
+    precondition(session.selectedItems(in: items).map(\.id) == [first.id, third.id])
+
+    session.select(third.id)
+    session.select(first.id, in: items, extending: true, toggling: false)
+    precondition(session.selectedItems(in: items).map(\.id) == items.map(\.id))
+
+    session.ensureSelection(in: [first, second])
+    precondition(session.selectedItemIDs == [first.id, second.id])
+    precondition(session.selectedItemID == first.id)
+    session.selectAll(in: items)
+    session.moveSelection(by: 1, in: items)
+    precondition(session.selectedItemIDs == [second.id])
+    precondition(session.selectedItemID == second.id)
 }
 
 let shelfFile = FileManager.default.temporaryDirectory
@@ -415,9 +482,9 @@ try MainActor.assumeIsolated {
     precondition(shelfModel.items[1].isDirectory)
     precondition(shelfModel.items[2].kind == .package)
     precondition(shelfModel.items[2].isDirectory)
-    for item in shelfModel.items {
-        shelfModel.remove(id: item.id)
-    }
+    shelfModel.remove(ids: Set(shelfModel.items.prefix(2).map(\.id)))
+    precondition(shelfModel.items.map(\.url) == [shelfPackage.standardizedFileURL])
+    shelfModel.remove(id: shelfModel.items[0].id)
     precondition(shelfModel.items.isEmpty)
     precondition(shelfModel.add(urls: [shelfFile]) == 1)
     shelfModel.clear()
@@ -1606,14 +1673,24 @@ precondition(repairResult.premiereVersion?.description == "9.0.0")
 let pasteboard = NSPasteboard(name: .init("WeClawSendComponentChecks"))
 let fileURL = FileManager.default.temporaryDirectory
     .appending(path: "WeClawSend-中文文件-\(UUID()).m4v")
+let secondFileURL = FileManager.default.temporaryDirectory
+    .appending(path: "WeClawSend-second-\(UUID()).mov")
 precondition(FileManager.default.createFile(atPath: fileURL.path, contents: Data()))
-defer { try? FileManager.default.removeItem(at: fileURL) }
+precondition(FileManager.default.createFile(atPath: secondFileURL.path, contents: Data()))
+defer {
+    try? FileManager.default.removeItem(at: fileURL)
+    try? FileManager.default.removeItem(at: secondFileURL)
+}
 pasteboard.clearContents()
-pasteboard.writeObjects([fileURL as NSURL, FileManager.default.temporaryDirectory as NSURL])
-precondition(fileURLs(from: pasteboard) == [fileURL])
+pasteboard.writeObjects([
+    fileURL as NSURL,
+    secondFileURL as NSURL,
+    FileManager.default.temporaryDirectory as NSURL,
+])
+precondition(fileURLs(from: pasteboard) == [fileURL, secondFileURL])
 precondition(
     fileURLs(from: pasteboard, includingDirectories: true)
-        == [fileURL, FileManager.default.temporaryDirectory]
+        == [fileURL, secondFileURL, FileManager.default.temporaryDirectory]
 )
 pasteboard.clearContents()
 

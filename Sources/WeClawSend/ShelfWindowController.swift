@@ -18,7 +18,7 @@ enum ShelfWindowDismissal: Equatable {
 @MainActor
 final class ShelfWindowController: NSObject, NSWindowDelegate {
     private enum Layout {
-        static let expandedSize = NSSize(width: 300, height: 292)
+        static let expandedSize = NSSize(width: 340, height: 340)
         static let collapsedSize = NSSize(width: 248, height: 52)
         static let animationDuration: TimeInterval = 0.3
         static let standardDismissalDuration: TimeInterval = 0.18
@@ -88,8 +88,9 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
         quickLook.onArrow = { [weak self] down in
             Task { @MainActor in
-                self?.handleArrowKey(down: down)
-                self?.syncQuickLookIndexToSelection()
+                guard let self else { return }
+                self.session.moveSelection(by: down ? 1 : -1, in: self.basket.items)
+                self.syncQuickLookIndexToSelection()
             }
         }
         quickLook.onSpace = { [weak self] in
@@ -276,6 +277,9 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             deleteBasket: { [weak self] in self?.requestDelete() },
             sendZIP: { [weak self] name in self?.sendBasketZIP(named: name) },
             copyFiles: { [weak self] items in self?.copyFiles(items) },
+            shareFiles: { [weak self] items, destination in
+                self?.shareFiles(items, via: destination)
+            },
             copyPaths: { [weak self] in self?.copyBasketPaths() },
             revealAll: { [weak self] in self?.revealAllBasketItems() },
             toggleCollapsed: { [weak self] in self?.toggleCollapsed() },
@@ -548,6 +552,25 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         session.flash(availableItems.count == 1 ? "已复制项目" : "已复制 \(availableItems.count) 个项目")
     }
 
+    private func shareFiles(
+        _ items: [ShelfItem],
+        via destination: ShelfShareDestination
+    ) {
+        let availableItems = items.filter { ShelfModel.isSupportedItem($0.url) }
+        guard !availableItems.isEmpty else {
+            session.flash(items.isEmpty ? "未选择项目" : "项目已失效")
+            return
+        }
+        let urls = availableItems.map { $0.url as NSURL }
+        guard let service = NSSharingService(named: destination.serviceName),
+              service.canPerform(withItems: urls)
+        else {
+            session.flash("当前无法使用\(destination.title)")
+            return
+        }
+        service.perform(withItems: urls)
+    }
+
     private func revealAllBasketItems() {
         let unavailableCount = basket.removeUnavailableItems()
         guard !basket.items.isEmpty else {
@@ -580,10 +603,19 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             return false
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "c" {
-            guard let item = session.selectedItem(in: basket.items) else { return false }
-            copyFiles([item])
-            return true
+        if flags == .command {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "a":
+                session.selectAll(in: basket.items)
+                return true
+            case "c":
+                let items = session.selectedItems(in: basket.items)
+                guard !items.isEmpty else { return false }
+                copyFiles(items)
+                return true
+            default:
+                break
+            }
         }
         guard panel.isVisible, !session.isCollapsed else {
             if event.keyCode == 49, session.isCollapsed {
@@ -605,11 +637,17 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
                 return true
             }
             return false
-        case 125:
-            handleArrowKey(down: true)
+        case 123: // left
+            handleArrowKey(.left)
             return true
-        case 126:
-            handleArrowKey(down: false)
+        case 124: // right
+            handleArrowKey(.right)
+            return true
+        case 125: // down
+            handleArrowKey(.down)
+            return true
+        case 126: // up
+            handleArrowKey(.up)
             return true
         case 51, 117:
             removeSelectedItem()
@@ -626,20 +664,40 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func handleArrowKey(down: Bool) {
-        session.moveSelection(by: down ? 1 : -1, in: basket.items)
+    private enum ArrowDirection {
+        case left
+        case right
+        case up
+        case down
+    }
+
+    private func handleArrowKey(_ direction: ArrowDirection) {
+        let offset: Int
+        switch (session.displayMode, direction) {
+        case (.grid, .left), (.list, .left), (.list, .up):
+            offset = -1
+        case (.grid, .right), (.list, .right), (.list, .down):
+            offset = 1
+        case (.grid, .up):
+            offset = -3
+        case (.grid, .down):
+            offset = 3
+        }
+        session.moveSelection(by: offset, in: basket.items)
     }
 
     private func removeSelectedItem() {
-        guard let item = session.selectedItem(in: basket.items) else { return }
+        let selectedItems = session.selectedItems(in: basket.items)
+        guard !selectedItems.isEmpty else { return }
         let items = basket.items
-        let index = items.firstIndex(where: { $0.id == item.id }) ?? 0
-        basket.remove(id: item.id)
+        let selectedIDs = Set(selectedItems.map(\.id))
+        let index = items.firstIndex(where: { selectedIDs.contains($0.id) }) ?? 0
+        basket.remove(ids: selectedIDs)
         let remaining = basket.items
         if remaining.isEmpty {
-            session.selectedItemID = nil
+            session.select(nil)
         } else {
-            session.selectedItemID = remaining[min(index, remaining.count - 1)].id
+            session.select(remaining[min(index, remaining.count - 1)].id)
         }
     }
 

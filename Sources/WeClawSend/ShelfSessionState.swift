@@ -10,19 +10,45 @@ enum FileBasketCloseAction: Equatable {
     }
 }
 
+enum ShelfMarqueeSelection {
+    static func intersectingItemIDs(
+        in rect: CGRect,
+        itemFrames: [UUID: CGRect]
+    ) -> Set<UUID> {
+        Set(
+            itemFrames.compactMap { id, frame in
+                frame.intersects(rect) ? id : nil
+            }
+        )
+    }
+}
+
+enum ShelfDisplayMode: Equatable {
+    case grid
+    case list
+}
+
 /// 文件篮窗口会话态：折叠、选中、置顶与短暂反馈。
 @MainActor
 final class ShelfSessionState: ObservableObject {
     @Published var isCollapsed: Bool
     @Published var isAlwaysOnTop: Bool
-    @Published var selectedItemID: UUID?
+    @Published var displayMode: ShelfDisplayMode
+    @Published private(set) var selectedItemID: UUID?
+    @Published private(set) var selectedItemIDs: Set<UUID> = []
     @Published private(set) var statusMessage: String?
 
     private var statusClearTask: Task<Void, Never>?
+    private var selectionAnchorID: UUID?
 
-    init(isCollapsed: Bool = false, isAlwaysOnTop: Bool) {
+    init(
+        isCollapsed: Bool = false,
+        isAlwaysOnTop: Bool,
+        displayMode: ShelfDisplayMode = .grid
+    ) {
         self.isCollapsed = isCollapsed
         self.isAlwaysOnTop = isAlwaysOnTop
+        self.displayMode = displayMode
     }
 
     func flash(_ message: String, duration: TimeInterval = 1.35) {
@@ -47,32 +73,107 @@ final class ShelfSessionState: ObservableObject {
 
     func select(_ id: UUID?) {
         selectedItemID = id
+        selectedItemIDs = id.map { [$0] } ?? []
+        selectionAnchorID = id
+    }
+
+    func select(
+        _ id: UUID,
+        in items: [ShelfItem],
+        extending: Bool,
+        toggling: Bool
+    ) {
+        guard items.contains(where: { $0.id == id }) else { return }
+        if extending,
+           let anchorID = selectionAnchorID ?? selectedItemID,
+           let anchorIndex = items.firstIndex(where: { $0.id == anchorID }),
+           let targetIndex = items.firstIndex(where: { $0.id == id })
+        {
+            let range = min(anchorIndex, targetIndex)...max(anchorIndex, targetIndex)
+            selectedItemIDs = Set(range.map { items[$0].id })
+            selectedItemID = id
+            return
+        }
+        if toggling {
+            if selectedItemIDs.contains(id) {
+                selectedItemIDs.remove(id)
+                selectedItemID = items.first(where: { selectedItemIDs.contains($0.id) })?.id
+                selectionAnchorID = selectedItemID
+            } else {
+                selectedItemIDs.insert(id)
+                selectedItemID = id
+                selectionAnchorID = id
+            }
+            return
+        }
+        select(id)
+    }
+
+    func setSelection(_ ids: Set<UUID>, in items: [ShelfItem]) {
+        let availableIDs = Set(items.map(\.id))
+        selectedItemIDs = ids.intersection(availableIDs)
+        if selectedItemID.map(selectedItemIDs.contains) != true {
+            selectedItemID = items.first(where: { selectedItemIDs.contains($0.id) })?.id
+        }
+        selectionAnchorID = selectedItemID
+    }
+
+    func selectAll(in items: [ShelfItem]) {
+        selectedItemIDs = Set(items.map(\.id))
+        if let selectedItemID, selectedItemIDs.contains(selectedItemID) {
+            selectionAnchorID = selectedItemID
+        } else {
+            selectedItemID = items.first?.id
+            selectionAnchorID = selectedItemID
+        }
     }
 
     func ensureSelection(in items: [ShelfItem]) {
-        if let selectedItemID, items.contains(where: { $0.id == selectedItemID }) {
+        let availableIDs = Set(items.map(\.id))
+        selectedItemIDs.formIntersection(availableIDs)
+        if !selectedItemIDs.isEmpty {
+            if let selectedItemID, selectedItemIDs.contains(selectedItemID) {
+                if selectionAnchorID.map(availableIDs.contains) != true {
+                    selectionAnchorID = selectedItemID
+                }
+                return
+            }
+            selectedItemID = items.first(where: { selectedItemIDs.contains($0.id) })?.id
+            selectionAnchorID = selectedItemID
             return
         }
-        selectedItemID = items.first?.id
+        select(items.first?.id)
     }
 
     func moveSelection(by offset: Int, in items: [ShelfItem]) {
         guard !items.isEmpty else {
-            selectedItemID = nil
+            select(nil)
             return
         }
         guard let selectedItemID,
               let index = items.firstIndex(where: { $0.id == selectedItemID })
         else {
-            self.selectedItemID = items.first?.id
+            select(items.first?.id)
             return
         }
         let next = min(max(index + offset, 0), items.count - 1)
-        self.selectedItemID = items[next].id
+        select(items[next].id)
     }
 
     func selectedItem(in items: [ShelfItem]) -> ShelfItem? {
-        guard let selectedItemID else { return items.first }
-        return items.first(where: { $0.id == selectedItemID }) ?? items.first
+        guard let selectedItemID else { return nil }
+        return items.first(where: { $0.id == selectedItemID })
+    }
+
+    func selectedItems(in items: [ShelfItem]) -> [ShelfItem] {
+        items.filter { selectedItemIDs.contains($0.id) }
+    }
+
+    func dragItems(startingAt id: UUID, in items: [ShelfItem]) -> [ShelfItem] {
+        if selectedItemIDs.contains(id) {
+            return selectedItems(in: items)
+        }
+        select(id)
+        return items.filter { $0.id == id }
     }
 }

@@ -90,6 +90,12 @@ final class ShelfModel: ObservableObject {
         onChange?()
     }
 
+    func remove(ids: Set<UUID>) {
+        guard items.contains(where: { ids.contains($0.id) }) else { return }
+        items.removeAll { ids.contains($0.id) }
+        onChange?()
+    }
+
     func clear() {
         guard !items.isEmpty else { return }
         items.removeAll()
