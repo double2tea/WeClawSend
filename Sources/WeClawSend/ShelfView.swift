@@ -22,6 +22,14 @@ enum ShelfShareDestination {
         case .messages: "信息"
         }
     }
+
+    var systemImage: String {
+        switch self {
+        case .airDrop: "airdrop"
+        case .mail: "envelope"
+        case .messages: "message"
+        }
+    }
 }
 
 struct ShelfView: View {
@@ -329,6 +337,10 @@ struct ShelfView: View {
                 Label("添加文件或文件夹…", systemImage: "plus")
             }
             Divider()
+            basketShareButton(.airDrop)
+            basketShareButton(.mail)
+            basketShareButton(.messages)
+            Divider()
             Button {
                 presentZIPNaming()
             } label: {
@@ -526,6 +538,15 @@ struct ShelfView: View {
 
     private func share(_ item: ShelfItem, via destination: ShelfShareDestination) {
         shareFiles(actionItems(for: item), destination)
+    }
+
+    private func basketShareButton(_ destination: ShelfShareDestination) -> some View {
+        Button {
+            shareFiles(session.selectedItems(in: shelf.items), destination)
+        } label: {
+            Label("\(destination.title)所选项目", systemImage: destination.systemImage)
+        }
+        .disabled(shelf.items.isEmpty || session.selectedItemIDs.isEmpty)
     }
 
     private func actionItems(for item: ShelfItem) -> [ShelfItem] {
