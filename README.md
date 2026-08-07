@@ -35,7 +35,7 @@
 ## 发送
 
 - 拖放或多选文件，最多同时处理 3 个任务
-- 显示准备、加密、上传和发送进度；支持取消与失败重试
+- 显示准备、加密、上传和发送进度；支持取消、失败重试，以及针对短暂网络错误的有限自动重试
 - 保留最近 20 条记录
 - 可将微信里的 `.mp4` 附件名显示为 `.m4v`，不修改本地文件
 - 可只读复用 OpenClaw 官方微信插件的登录；多个账号由你明确选择
@@ -128,11 +128,11 @@ MP4/M4V 显示名由设置「发送时 .mp4 显示为 .m4v」处理。
 
 ## 微信会话限制
 
-微信 iLink 会限制主动发送的会话窗口和消息额度。遇到 `ret=-2` 时，App 会提示你给 ClawBot 发一条消息；收到新上下文后自动续传，不需要重新选择文件。
+微信 iLink 会限制主动发送的会话窗口和消息额度。遇到 `ret=-2` 时，App 会提示你给 ClawBot 发一条消息；收到新上下文后自动继续发送，不需要重新选择文件。
 
 如果扫码并在手机确认后仍停在等待状态，可以先给 ClawBot 发一条任意消息，促使微信完成登录确认。登录等待最多持续 5 分钟，之后 App 会停止轮询并给出重试建议。
 
-刷新通知会自行淡出。如果 5 分钟内没有收到新消息，任务会结束并显示失败。相关背景见 [会话限制反馈](https://github.com/Tencent/openclaw-weixin/issues/202) 和 [`ret=-2` 反馈](https://github.com/Tencent/openclaw-weixin/issues/225)。
+刷新通知会在会话恢复或任务结束后自动撤销；系统通知权限被关闭时不会阻塞 App。如果 5 分钟内没有收到新消息，任务会结束并显示失败。相关背景见 [会话限制反馈](https://github.com/Tencent/openclaw-weixin/issues/202) 和 [`ret=-2` 反馈](https://github.com/Tencent/openclaw-weixin/issues/225)。
 
 ## 给本机脚本调用
 
@@ -161,8 +161,8 @@ chmod +x scripts/*.sh
 
 `release.sh` 会生成通用 App 和发布附件。App、Premiere 与 DaVinci 可以独立升级；推送与 `Resources/Info.plist` 一致的标签后，GitHub Actions 会自动创建 Release：
 
-- 正式版：`WeClawReleaseChannel=stable`，标签为 `v<版本>`（例如 `v2.0.1`）。
-- 内测版：`WeClawReleaseChannel=beta`，标签为 `v<版本>-beta.<构建号>`（例如 `v2.0.1-beta.24`），并自动发布为 GitHub prerelease。
+- 正式版：`WeClawReleaseChannel=stable`，标签为 `v<版本>`（例如 `v2.1.0`）。
+- 内测版：`WeClawReleaseChannel=beta`，标签为 `v<版本>-beta.<构建号>`（例如 `v2.1.1-beta.28`），并自动发布为 GitHub prerelease。
 
 </details>
 

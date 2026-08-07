@@ -1,10 +1,17 @@
 import AppKit
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNUserNotificationCenterDelegate {
+    private static let contextRefreshNotificationIdentifier = "weclaw-send-context-refresh"
+    private static let notificationLogger = Logger(
+        subsystem: "com.chacha.WeClawSend",
+        category: "Notifications"
+    )
+
     private let model = AppModel()
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
@@ -20,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         UNUserNotificationCenter.current().delegate = self
+        dismissContextRefreshNotification()
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         guard let button = statusItem.button else { return }
@@ -100,6 +108,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         model.onContextRefreshRequired = { [weak self] in
             guard let self, !popover.isShown else { return }
             deliverContextRefreshNotification()
+        }
+        model.onContextRefreshResolved = { [weak self] in
+            self?.dismissContextRefreshNotification()
         }
         model.onShelfPreferencesChanged = { [weak self] in
             self?.applyShelfPreferences()
@@ -242,19 +253,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
                 content.title = Brand.name
                 content.body = "请在微信里给 ClawBot 发送任意消息；收到后 App 会自动继续发送文件。"
                 content.sound = .default
+                center.removeDeliveredNotifications(
+                    withIdentifiers: [Self.contextRefreshNotificationIdentifier]
+                )
+                center.removePendingNotificationRequests(
+                    withIdentifiers: [Self.contextRefreshNotificationIdentifier]
+                )
                 try await center.add(
                     UNNotificationRequest(
-                        identifier: "weclaw-send-context-refresh",
+                        identifier: Self.contextRefreshNotificationIdentifier,
                         content: content,
                         trigger: nil
                     )
                 )
             } catch {
-                await MainActor.run {
-                    self?.model.presentedError = "微信会话需要刷新，但系统通知发送失败：\(error.localizedDescription)"
-                }
+                Self.notificationLogger.warning(
+                    "Context refresh notification unavailable: \(error.localizedDescription, privacy: .public)"
+                )
             }
         }
+    }
+
+    private func dismissContextRefreshNotification() {
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(
+            withIdentifiers: [Self.contextRefreshNotificationIdentifier]
+        )
+        center.removePendingNotificationRequests(
+            withIdentifiers: [Self.contextRefreshNotificationIdentifier]
+        )
     }
 
     private func chooseFiles() {

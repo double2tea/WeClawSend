@@ -99,6 +99,15 @@ precondition(sendFailureMessage(CancellationError()) == "发送已取消")
 precondition(sendFailureMessage(URLError(.cancelled)) == "发送已取消")
 precondition(isSendCancellation(CancellationError()))
 precondition(isSendCancellation(URLError(.cancelled)))
+precondition(WeChatRetryPolicy.shouldRetry(WeChatError.http(500, "temporary")))
+precondition(WeChatRetryPolicy.shouldRetry(WeChatError.http(503, "temporary")))
+precondition(!WeChatRetryPolicy.shouldRetry(WeChatError.http(400, "invalid")))
+precondition(WeChatRetryPolicy.shouldRetry(URLError(.networkConnectionLost)))
+precondition(!WeChatRetryPolicy.shouldRetry(URLError(.badURL)))
+precondition(
+    WeChatError.transfer(stage: .uploadingFile, reason: "HTTP 500").localizedDescription
+        == "上传微信 CDN 文件失败：HTTP 500"
+)
 precondition(
     DiagnosticExporter.archiveName(now: Date(timeIntervalSince1970: 0))
         == "WeClawSend-Diagnostics-19700101-000000.zip"
@@ -776,6 +785,64 @@ precondition(integrationResult.progress.first?.stage == .preparing)
 precondition(integrationResult.progress.contains { $0.stage == .uploading })
 precondition(integrationResult.progress.last?.stage == .finished)
 precondition(integrationResult.progress.last?.fraction == 1)
+
+let retryResult = RetryResultBox()
+MockURLProtocol.handler = { request in
+    switch request.url!.path {
+    case "/ilink/bot/getuploadurl":
+        retryResult.uploadURLRequestCount += 1
+        if retryResult.uploadURLRequestCount == 1 {
+            return MockURLProtocol.response(request, statusCode: 503, body: "temporary")
+        }
+        return MockURLProtocol.response(
+            request,
+            body: #"{"ret":0,"upload_full_url":"https://mock.local/upload"}"#
+        )
+    case "/upload":
+        retryResult.uploadRequestCount += 1
+        if retryResult.uploadRequestCount == 1 {
+            return MockURLProtocol.response(request, statusCode: 500, body: "temporary")
+        }
+        return MockURLProtocol.response(
+            request,
+            headers: ["x-encrypted-param": "retry-download-reference"],
+            body: ""
+        )
+    case "/ilink/bot/sendmessage":
+        retryResult.sendRequestCount += 1
+        let body = try JSONSerialization.jsonObject(with: requestBody(request)) as! [String: Any]
+        let message = body["msg"] as! [String: Any]
+        let clientID = message["client_id"] as! String
+        if let previousClientID = retryResult.clientID {
+            precondition(clientID == previousClientID)
+        } else {
+            retryResult.clientID = clientID
+        }
+        if retryResult.sendRequestCount == 1 {
+            return MockURLProtocol.response(request, statusCode: 502, body: "temporary")
+        }
+        return MockURLProtocol.response(request, body: #"{"ret":0}"#)
+    default:
+        preconditionFailure("Unexpected retry request: \(request.url!.absoluteString)")
+    }
+}
+
+let retryFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let service = WeChatService(credentials: mockCredentials, session: mockSession)
+        try await service.sendFile(at: mockFile, fileName: mockFileName)
+    } catch {
+        retryResult.error = error
+    }
+    retryFinished.signal()
+}
+precondition(retryFinished.wait(timeout: .now() + 10) == .success)
+if let error = retryResult.error { throw error }
+precondition(retryResult.uploadURLRequestCount == 2)
+precondition(retryResult.uploadRequestCount == 2)
+precondition(retryResult.sendRequestCount == 2)
+precondition(retryResult.clientID?.hasPrefix("weclaw-send:") == true)
 
 let cancellationResult = CancellationResultBox()
 let cancellationFinished = DispatchSemaphore(value: 0)
@@ -1787,6 +1854,14 @@ final class ContextRefreshResultBox: @unchecked Sendable {
     var progress: [WeChatSendProgress] = []
 }
 
+final class RetryResultBox: @unchecked Sendable {
+    var error: Error?
+    var uploadURLRequestCount = 0
+    var uploadRequestCount = 0
+    var sendRequestCount = 0
+    var clientID: String?
+}
+
 final class UpdateResultBox: @unchecked Sendable {
     var error: Error?
     var release: GitHubRelease?
@@ -1909,21 +1984,23 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 
     static func response(
         _ request: URLRequest,
+        statusCode: Int = 200,
         headers: [String: String] = [:],
         body: String
     ) -> (HTTPURLResponse, Data) {
-        response(request, headers: headers, data: Data(body.utf8))
+        response(request, statusCode: statusCode, headers: headers, data: Data(body.utf8))
     }
 
     static func response(
         _ request: URLRequest,
+        statusCode: Int = 200,
         headers: [String: String] = [:],
         data: Data
     ) -> (HTTPURLResponse, Data) {
         (
             HTTPURLResponse(
                 url: request.url!,
-                statusCode: 200,
+                statusCode: statusCode,
                 httpVersion: "HTTP/1.1",
                 headerFields: headers
             )!,

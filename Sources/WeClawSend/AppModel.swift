@@ -113,6 +113,7 @@ final class AppModel: ObservableObject {
     @Published var daVinciScriptsMessage = ""
 
     var onContextRefreshRequired: (() -> Void)?
+    var onContextRefreshResolved: (() -> Void)?
     var onShelfPreferencesChanged: (() -> Void)?
 
     private let runtime: AppRuntime
@@ -1151,14 +1152,14 @@ final class AppModel: ObservableObject {
                         }
                     }
                     persistTransfers()
-                    if contextRefreshTransfers.remove(record.id) != nil {
+                    if resolveContextRefresh(for: record.id) {
                         showTransientNotice("微信会话已刷新，文件已自动重新发送")
                     }
                     noteSendResultForNotification(success: true, record: record)
                 case let .failed(record):
                     insertTransfer(record)
                     persistTransfers()
-                    contextRefreshTransfers.remove(record.id)
+                    resolveContextRefresh(for: record.id)
                     noteSendResultForNotification(success: false, record: record)
                 }
             }
@@ -1186,6 +1187,15 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    @discardableResult
+    private func resolveContextRefresh(for transferID: UUID) -> Bool {
+        guard contextRefreshTransfers.remove(transferID) != nil else { return false }
+        if contextRefreshTransfers.isEmpty {
+            onContextRefreshResolved?()
+        }
+        return true
     }
 
     private func insertTransfer(_ record: TransferRecord) {

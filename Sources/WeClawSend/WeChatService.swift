@@ -5,6 +5,7 @@ enum WeChatError: LocalizedError {
     case notLoggedIn
     case invalidResponse
     case http(Int, String)
+    case transfer(stage: WeChatTransferStage, reason: String)
     case api(String)
     case login(String)
     case contextBindingRequired
@@ -20,6 +21,8 @@ enum WeChatError: LocalizedError {
             "微信服务返回了无效响应"
         case let .http(status, message):
             "微信服务 HTTP \(status)：\(message)"
+        case let .transfer(stage, reason):
+            "\(stage.rawValue)失败：\(reason)"
         case let .api(message), let .login(message):
             message
         case .contextBindingRequired:
@@ -31,6 +34,36 @@ enum WeChatError: LocalizedError {
         case .missingUploadResult:
             "微信 CDN 未返回文件引用"
         }
+    }
+}
+
+enum WeChatTransferStage: String, Sendable {
+    case requestingUploadURL = "获取微信上传地址"
+    case uploadingFile = "上传微信 CDN 文件"
+    case submittingMessage = "提交微信消息"
+}
+
+enum WeChatRetryPolicy {
+    static let maxAttempts = 3
+
+    static func shouldRetry(_ error: any Error) -> Bool {
+        if case let WeChatError.http(status, _) = error {
+            return [408, 425, 500, 502, 503, 504].contains(status)
+        }
+        guard let urlError = error as? URLError else { return false }
+        return [
+            URLError.Code.timedOut,
+            .cannotFindHost,
+            .cannotConnectToHost,
+            .networkConnectionLost,
+            .notConnectedToInternet,
+            .dnsLookupFailed,
+            .cannotLoadFromNetwork
+        ].contains(urlError.code)
+    }
+
+    static func delay(afterFailedAttempt attempt: Int) -> Duration {
+        .milliseconds(Int64(min(max(attempt, 1), 2)) * 750)
     }
 }
 
@@ -84,6 +117,10 @@ actor WeChatService {
     private static let loginLogger = Logger(
         subsystem: "com.chacha.WeClawSend",
         category: "WeChatLogin"
+    )
+    private static let transferLogger = Logger(
+        subsystem: "com.chacha.WeClawSend",
+        category: "WeChatTransfer"
     )
 
     private let store: WeChatCredentialStore
@@ -390,14 +427,18 @@ actor WeChatService {
             baseURL: credentials.baseURL,
             path: "ilink/bot/getuploadurl"
         )
-        let uploadResponse: GetUploadURLResponse = try await post(
-            uploadEndpoint,
-            body: uploadRequest,
-            token: credentials.botToken,
-            timeout: 15
-        )
-        try uploadResponse.validate()
-        let uploadURL = try Self.uploadURL(from: uploadResponse, fileKey: fileKey)
+        let uploadURL: URL = try await withTransientRetry(
+            stage: .requestingUploadURL
+        ) {
+            let response: GetUploadURLResponse = try await self.post(
+                uploadEndpoint,
+                body: uploadRequest,
+                token: credentials.botToken,
+                timeout: 15
+            )
+            try response.validate()
+            return try Self.uploadURL(from: response, fileKey: fileKey)
+        }
         await progress(
             WeChatSendProgress(
                 stage: .uploading,
@@ -441,12 +482,13 @@ actor WeChatService {
             )
         )
 
+        let clientID = "weclaw-send:\(UUID().uuidString.lowercased())"
         func messageRequest(contextToken: String?) -> SendMessageRequest {
             SendMessageRequest(
                 message: WeChatMessage(
                     fromUserID: "",
                     toUserID: submissionCredentials.userID,
-                    clientID: "weclaw-send:\(UUID().uuidString.lowercased())",
+                    clientID: clientID,
                     messageType: 2,
                     messageState: 2,
                     items: [
@@ -472,12 +514,16 @@ actor WeChatService {
             baseURL: submissionCredentials.baseURL,
             path: "ilink/bot/sendmessage"
         )
-        var sendResponse: APIResponse = try await post(
-            sendEndpoint,
-            body: messageRequest(contextToken: submissionCredentials.contextToken),
-            token: submissionCredentials.botToken,
-            timeout: 15
-        )
+        var sendResponse: APIResponse = try await withTransientRetry(
+            stage: .submittingMessage
+        ) {
+            try await self.post(
+                sendEndpoint,
+                body: messageRequest(contextToken: submissionCredentials.contextToken),
+                token: submissionCredentials.botToken,
+                timeout: 15
+            )
+        }
         if sendResponse.result == -2 {
             await progress(
                 WeChatSendProgress(
@@ -496,14 +542,23 @@ actor WeChatService {
                     totalBytes: totalBytes
                 )
             )
-            sendResponse = try await post(
-                sendEndpoint,
-                body: messageRequest(contextToken: contextToken),
-                token: submissionCredentials.botToken,
-                timeout: 15
+            sendResponse = try await withTransientRetry(stage: .submittingMessage) {
+                try await self.post(
+                    sendEndpoint,
+                    body: messageRequest(contextToken: contextToken),
+                    token: submissionCredentials.botToken,
+                    timeout: 15
+                )
+            }
+        }
+        do {
+            try sendResponse.validateSendMessage()
+        } catch {
+            throw WeChatError.transfer(
+                stage: .submittingMessage,
+                reason: error.localizedDescription
             )
         }
-        try sendResponse.validateSendMessage()
         credentialsValidated = true
         await progress(
             WeChatSendProgress(
@@ -564,47 +619,83 @@ actor WeChatService {
         to url: URL,
         progress: @escaping @Sendable (WeChatSendProgress) async -> Void
     ) async throws -> String {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 300
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        let progressPair = AsyncStream<Int64>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let delegate = UploadProgressDelegate { sentBytes in
-            progressPair.continuation.yield(sentBytes)
-        }
-        let progressTask = Task {
-            for await sentBytes in progressPair.stream {
-                let ratio = min(Double(sentBytes) / Double(max(ciphertextSize, 1)), 1)
-                await progress(
-                    WeChatSendProgress(
-                        stage: .uploading,
-                        fraction: 0.1 + ratio * 0.8,
-                        sentBytes: min(Int64(Double(plaintextSize) * ratio), plaintextSize),
-                        totalBytes: plaintextSize
-                    )
+        try await withTransientRetry(stage: .uploadingFile) {
+            await progress(
+                WeChatSendProgress(
+                    stage: .uploading,
+                    fraction: 0.1,
+                    sentBytes: 0,
+                    totalBytes: plaintextSize
                 )
+            )
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 300
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            let progressPair = AsyncStream<Int64>.makeStream(bufferingPolicy: .bufferingNewest(1))
+            let delegate = UploadProgressDelegate { sentBytes in
+                progressPair.continuation.yield(sentBytes)
+            }
+            let progressTask = Task {
+                for await sentBytes in progressPair.stream {
+                    let ratio = min(Double(sentBytes) / Double(max(ciphertextSize, 1)), 1)
+                    await progress(
+                        WeChatSendProgress(
+                            stage: .uploading,
+                            fraction: 0.1 + ratio * 0.8,
+                            sentBytes: min(Int64(Double(plaintextSize) * ratio), plaintextSize),
+                            totalBytes: plaintextSize
+                        )
+                    )
+                }
+            }
+
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await self.session.upload(
+                    for: request,
+                    fromFile: ciphertextURL,
+                    delegate: delegate
+                )
+                progressPair.continuation.finish()
+                await progressTask.value
+            } catch {
+                progressPair.continuation.finish()
+                await progressTask.value
+                throw error
+            }
+            let http = try Self.validatedHTTPResponse(response, data: data)
+            guard http.statusCode == 200 else {
+                throw WeChatError.http(http.statusCode, String(decoding: data, as: UTF8.self))
+            }
+            guard let parameter = http.value(forHTTPHeaderField: "x-encrypted-param"), !parameter.isEmpty else {
+                throw WeChatError.missingUploadResult
+            }
+            return parameter
+        }
+    }
+
+    private func withTransientRetry<Value: Sendable>(
+        stage: WeChatTransferStage,
+        operation: () async throws -> Value
+    ) async throws -> Value {
+        for attempt in 1...WeChatRetryPolicy.maxAttempts {
+            do {
+                return try await operation()
+            } catch {
+                try Task.checkCancellation()
+                guard attempt < WeChatRetryPolicy.maxAttempts,
+                      WeChatRetryPolicy.shouldRetry(error) else {
+                    throw WeChatError.transfer(stage: stage, reason: error.localizedDescription)
+                }
+                Self.transferLogger.warning(
+                    "\(stage.rawValue, privacy: .public) transient failure; retry \(attempt + 1)/\(WeChatRetryPolicy.maxAttempts): \(error.localizedDescription, privacy: .public)"
+                )
+                try await Task.sleep(for: WeChatRetryPolicy.delay(afterFailedAttempt: attempt))
             }
         }
-
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.upload(for: request, fromFile: ciphertextURL, delegate: delegate)
-            progressPair.continuation.finish()
-            await progressTask.value
-        } catch {
-            progressPair.continuation.finish()
-            await progressTask.value
-            throw error
-        }
-        let http = try Self.validatedHTTPResponse(response, data: data)
-        guard http.statusCode == 200 else {
-            throw WeChatError.http(http.statusCode, String(decoding: data, as: UTF8.self))
-        }
-        guard let parameter = http.value(forHTTPHeaderField: "x-encrypted-param"), !parameter.isEmpty else {
-            throw WeChatError.missingUploadResult
-        }
-        return parameter
+        fatalError("retry loop must return or throw")
     }
 
     private func waitForFreshContextToken(
