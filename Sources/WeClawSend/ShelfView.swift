@@ -40,9 +40,11 @@ struct ShelfView: View {
 
     let chooseFiles: () -> Void
     let sendAll: () -> Void
+    let scheduleAll: (Date) -> Void
     let close: () -> Void
     let deleteBasket: () -> Void
     let sendZIP: (String) -> Void
+    let scheduleZIP: (String, Date) -> Void
     let copyFiles: ([ShelfItem]) -> Void
     let shareFiles: ([ShelfItem], ShelfShareDestination) -> Void
     let copyPaths: () -> Void
@@ -57,6 +59,8 @@ struct ShelfView: View {
     @State private var hoveredItemID: UUID?
     @State private var showsDeleteConfirmation = false
     @State private var showsZIPNaming = false
+    @State private var showsSchedulePicker = false
+    @State private var pendingZIPScheduleAt: Date?
     @State private var zipName = ""
     @State private var hoveredChromeButton: String?
     @State private var isTitleHovered = false
@@ -95,16 +99,28 @@ struct ShelfView: View {
             } message: {
                 Text("将移除篮内 \(shelf.items.count) 个项目引用，不会删除原内容。")
             }
-            .alert("压缩并发送", isPresented: $showsZIPNaming) {
+            .alert(zipAlertTitle, isPresented: $showsZIPNaming) {
                 TextField("压缩包名称", text: $zipName)
-                Button("压缩并发送") {
-                    sendZIP(zipName)
+                Button(zipConfirmationTitle) {
+                    if let scheduledAt = pendingZIPScheduleAt {
+                        scheduleZIP(zipName, scheduledAt)
+                    } else {
+                        sendZIP(zipName)
+                    }
+                    pendingZIPScheduleAt = nil
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(FileBasketArchiver.normalizedArchiveName(zipName) == nil)
-                Button("取消", role: .cancel) {}
+                Button("取消", role: .cancel) {
+                    pendingZIPScheduleAt = nil
+                }
             } message: {
-                Text("确认后立即压缩并发送；名称不能包含 / 或 :，也不会清空当前文件篮。")
+                Text(zipAlertMessage)
+            }
+            .sheet(isPresented: $showsSchedulePicker) {
+                ScheduledSendDatePicker(itemDescription: scheduledItemDescription) { scheduledAt in
+                    scheduleCurrentItems(at: scheduledAt)
+                }
             }
     }
 
@@ -683,6 +699,30 @@ struct ShelfView: View {
             .buttonStyle(ShelfPressButtonStyle(scale: 0.97))
             .disabled(!sendEnabled)
             .help(sendButtonHelp)
+
+            Menu {
+                ForEach(ScheduledSendPreset.allCases) { preset in
+                    Button(preset.title) {
+                        scheduleCurrentItems(at: preset.scheduledAt())
+                    }
+                }
+                Divider()
+                Button("自定义时间…") {
+                    showsSchedulePicker = true
+                }
+            } label: {
+                Image(systemName: "clock.badge.plus")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(shelf.items.isEmpty ? Color.secondary.opacity(0.45) : Brand.accent)
+                    .frame(width: 28, height: 28)
+                    .background(Color.primary.opacity(0.05), in: Circle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(shelf.items.isEmpty)
+            .help("延时发送当前文件篮")
+            .accessibilityLabel("延时发送当前文件篮")
         }
         .padding(.horizontal, 10)
         .frame(height: 42)
@@ -723,9 +763,37 @@ struct ShelfView: View {
         }
     }
 
-    private func presentZIPNaming() {
+    private func scheduleCurrentItems(at scheduledAt: Date) {
+        if hasDirectories {
+            presentZIPNaming(scheduledAt: scheduledAt)
+        } else {
+            scheduleAll(scheduledAt)
+        }
+    }
+
+    private func presentZIPNaming(scheduledAt: Date? = nil) {
+        pendingZIPScheduleAt = scheduledAt
         zipName = "\(shelf.title).zip"
         showsZIPNaming = true
+    }
+
+    private var scheduledItemDescription: String {
+        "\(shelf.title) · \(shelf.items.count) 个项目"
+    }
+
+    private var zipAlertTitle: String {
+        pendingZIPScheduleAt == nil ? "压缩并发送" : "压缩并加入待发送"
+    }
+
+    private var zipConfirmationTitle: String {
+        pendingZIPScheduleAt == nil ? "压缩并发送" : "压缩并加入待发送"
+    }
+
+    private var zipAlertMessage: String {
+        if let scheduledAt = pendingZIPScheduleAt {
+            return "将先创建 ZIP，再于 \(scheduledSendTimeText(scheduledAt)) 发送；名称不能包含 / 或 :。"
+        }
+        return "确认后立即压缩并发送；名称不能包含 / 或 :，也不会清空当前文件篮。"
     }
 
     private func chromeButton(
@@ -1222,7 +1290,7 @@ private struct ShelfItemDragSourceAnchor: NSViewRepresentable {
     }
 }
 
-private struct FileThumbnailView: View {
+struct FileThumbnailView: View {
     let url: URL
     let width: CGFloat
     let height: CGFloat

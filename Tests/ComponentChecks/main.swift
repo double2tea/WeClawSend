@@ -265,6 +265,9 @@ let dynamicHealth = try JSONSerialization.jsonObject(with: dynamicHealthData) as
 precondition(
     (dynamicHealth["max_send_bytes"] as? NSNumber)?.int64Value == 500 * 1_024 * 1_024
 )
+precondition(dynamicHealth["last_send_at"] is NSNull)
+precondition(dynamicHealth["scheduled_send_count"] as? Int == 0)
+precondition(dynamicHealth["next_scheduled_at"] is NSNull)
 UserDefaults.standard.set(999, forKey: AppSettings.sendSizeLimitMegabytesKey)
 precondition(AppSettings.sendSizeLimit == .megabytes200)
 
@@ -2076,3 +2079,251 @@ private func requestBody(_ request: URLRequest) -> Data {
     }
     return result
 }
+
+let scheduledStoreDirectory = FileManager.default.temporaryDirectory
+    .appendingPathComponent("weclaw-scheduled-plan-check-\(UUID())", isDirectory: true)
+let scheduledStoreURL = scheduledStoreDirectory.appendingPathComponent("plans.json")
+defer { try? FileManager.default.removeItem(at: scheduledStoreDirectory) }
+let scheduledItem = ScheduledSendItem(
+    filePath: "/tmp/render.mp4",
+    fileName: "render.m4v",
+    byteCount: 42,
+    modifiedAt: Date(timeIntervalSince1970: 1_700_000_000)
+)
+let scheduledPlan = ScheduledSendPlan(
+    id: UUID(),
+    items: [scheduledItem],
+    createdAt: Date(timeIntervalSince1970: 1_700_000_001),
+    scheduledAt: Date(timeIntervalSince1970: 1_700_000_600),
+    source: "component-check",
+    idempotencyKey: "component-check-key"
+)
+try ScheduledSendStore.save([scheduledPlan], to: scheduledStoreURL)
+let restoredScheduledPlans = try ScheduledSendStore.load(from: scheduledStoreURL)
+precondition(restoredScheduledPlans == [scheduledPlan])
+precondition(ScheduledSendStatus.needsAttention.rawValue == "needs_attention")
+let scheduledPlanJSONEncoder = JSONEncoder()
+scheduledPlanJSONEncoder.dateEncodingStrategy = .iso8601
+let scheduledPlanObject = try JSONSerialization.jsonObject(
+    with: scheduledPlanJSONEncoder.encode(scheduledPlan)
+) as! [String: Any]
+precondition(scheduledPlanObject["scheduled_at"] != nil)
+precondition(scheduledPlanObject["created_at"] != nil)
+precondition(scheduledPlanObject["idempotency_key"] as? String == "component-check-key")
+precondition(scheduledPlanObject["scheduledAt"] == nil)
+
+let scheduledRuntimeDirectory = FileManager.default.temporaryDirectory
+    .appendingPathComponent("weclaw-scheduled-runtime-check-\(UUID())", isDirectory: true)
+let scheduledRuntimeStoreURL = scheduledRuntimeDirectory.appendingPathComponent("plans.json")
+let scheduledRuntimeFile = scheduledRuntimeDirectory.appendingPathComponent("runtime.txt")
+try FileManager.default.createDirectory(at: scheduledRuntimeDirectory, withIntermediateDirectories: true)
+try Data("runtime-plan".utf8).write(to: scheduledRuntimeFile)
+defer { try? FileManager.default.removeItem(at: scheduledRuntimeDirectory) }
+
+let scheduledRuntimeError = ResultBox()
+let scheduledRuntimeFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let coordinator = SendCoordinator(
+            weChat: WeChatService(),
+            scheduledStoreURL: scheduledRuntimeStoreURL
+        )
+        let request = SendRequest(
+            filePath: scheduledRuntimeFile.path,
+            fileName: scheduledRuntimeFile.lastPathComponent
+        )
+        let first = try await coordinator.createScheduledSend(
+            requests: [request],
+            scheduledAt: Date().addingTimeInterval(600),
+            source: "component-check",
+            idempotencyKey: "runtime-idempotency"
+        )
+        precondition(first.created)
+        let repeated = try await coordinator.createScheduledSend(
+            requests: [request],
+            scheduledAt: Date().addingTimeInterval(900),
+            source: "component-check",
+            idempotencyKey: "runtime-idempotency"
+        )
+        precondition(!repeated.created)
+        precondition(repeated.plan.id == first.plan.id)
+
+        let rescheduled = try await coordinator.rescheduleScheduledSend(
+            id: first.plan.id,
+            to: Date().addingTimeInterval(1_200)
+        )
+        precondition(rescheduled.scheduledAt > Date())
+
+        let concurrentA = Task {
+            try await coordinator.sendScheduledNow(id: first.plan.id)
+        }
+        let concurrentB = Task {
+            try await coordinator.sendScheduledNow(id: first.plan.id)
+        }
+        let concurrentResults = try await (concurrentA.value, concurrentB.value)
+        precondition(concurrentResults.0.status == .needsAttention)
+        precondition(concurrentResults.1.status == .needsAttention)
+
+        let cancelled = try await coordinator.cancelScheduledSend(id: first.plan.id)
+        precondition(cancelled.status == .cancelled)
+
+        let due = try await coordinator.createScheduledSend(
+            requests: [request],
+            scheduledAt: Date().addingTimeInterval(0.05),
+            source: "component-check",
+            idempotencyKey: "runtime-due"
+        )
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        let dueStatus = await coordinator.scheduledPlan(id: due.plan.id)?.status
+        precondition(dueStatus == .needsAttention)
+
+        let missing = SendRequest(
+            filePath: scheduledRuntimeDirectory.appendingPathComponent("missing.txt").path,
+            fileName: "missing.txt"
+        )
+        do {
+            _ = try await coordinator.createScheduledSend(
+                requests: [missing],
+                scheduledAt: Date().addingTimeInterval(600),
+                source: "component-check",
+                idempotencyKey: "runtime-missing"
+            )
+            preconditionFailure("a missing scheduled file must be rejected")
+        } catch is BackendError {
+            // Expected validation failure.
+        }
+
+        let overdueID = UUID()
+        let overduePlan = ScheduledSendPlan(
+            id: overdueID,
+            items: [ScheduledSendItem(
+                filePath: scheduledRuntimeFile.path,
+                fileName: scheduledRuntimeFile.lastPathComponent,
+                byteCount: 12,
+                modifiedAt: nil
+            )],
+            scheduledAt: Date().addingTimeInterval(-60),
+            source: "component-check",
+            idempotencyKey: "runtime-overdue"
+        )
+        try ScheduledSendStore.save([overduePlan], to: scheduledRuntimeStoreURL)
+        let recoveredCoordinator = SendCoordinator(
+            weChat: WeChatService(),
+            scheduledStoreURL: scheduledRuntimeStoreURL
+        )
+        let recovered = await recoveredCoordinator.scheduledPlan(id: overdueID)
+        precondition(recovered?.status == .needsAttention)
+    } catch {
+        scheduledRuntimeError.error = error
+    }
+    scheduledRuntimeFinished.signal()
+}
+precondition(scheduledRuntimeFinished.wait(timeout: .now() + 6) == .success)
+if let error = scheduledRuntimeError.error { throw error }
+
+let changedFileDirectory = FileManager.default.temporaryDirectory
+    .appendingPathComponent("weclaw-scheduled-change-check-\(UUID())", isDirectory: true)
+let changedFile = changedFileDirectory.appendingPathComponent("changed.txt")
+try FileManager.default.createDirectory(at: changedFileDirectory, withIntermediateDirectories: true)
+try Data("before".utf8).write(to: changedFile)
+defer { try? FileManager.default.removeItem(at: changedFileDirectory) }
+let changedResult = ResultBox()
+let changedFinished = DispatchSemaphore(value: 0)
+MockURLProtocol.handler = { request in
+    guard request.url?.path == "/ilink/bot/getconfig" else {
+        preconditionFailure("file-change preflight must not send network requests")
+    }
+    return MockURLProtocol.response(request, body: #"{"ret":0}"#)
+}
+Task {
+    do {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let service = WeChatService(
+            credentials: mockCredentials,
+            session: URLSession(configuration: configuration)
+        )
+        try await service.validateCredentials()
+        let coordinator = SendCoordinator(weChat: service, scheduledStoreURL: changedFileDirectory.appendingPathComponent("plans.json"))
+        let creation = try await coordinator.createScheduledSend(
+            requests: [SendRequest(filePath: changedFile.path, fileName: changedFile.lastPathComponent)],
+            scheduledAt: Date().addingTimeInterval(600),
+            source: "component-check",
+            idempotencyKey: "runtime-changed"
+        )
+        try Data("after-and-longer".utf8).write(to: changedFile)
+        _ = try await coordinator.sendScheduledNow(id: creation.plan.id)
+        for _ in 0..<20 {
+            if let plan = await coordinator.scheduledPlan(id: creation.plan.id),
+               plan.status == .needsAttention {
+                precondition(plan.message?.contains("变化") == true)
+                changedFinished.signal()
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        preconditionFailure("a changed file must put the plan in needs_attention")
+    } catch {
+        changedResult.error = error
+        changedFinished.signal()
+    }
+}
+precondition(changedFinished.wait(timeout: .now() + 5) == .success)
+if let error = changedResult.error { throw error }
+
+let apiDirectory = FileManager.default.temporaryDirectory
+    .appendingPathComponent("weclaw-scheduled-api-check-\(UUID())", isDirectory: true)
+let apiFile = apiDirectory.appendingPathComponent("api.txt")
+try FileManager.default.createDirectory(at: apiDirectory, withIntermediateDirectories: true)
+try Data("api-plan".utf8).write(to: apiFile)
+defer { try? FileManager.default.removeItem(at: apiDirectory) }
+let apiResult = ResultBox()
+let apiFinished = DispatchSemaphore(value: 0)
+let apiPort = UInt16(30_000 + ProcessInfo.processInfo.processIdentifier % 10_000)
+Task {
+    let server = EmbeddedBridgeServer(
+        coordinator: SendCoordinator(
+            weChat: WeChatService(),
+            scheduledStoreURL: apiDirectory.appendingPathComponent("plans.json")
+        ),
+        port: apiPort
+    )
+    server.start()
+    defer { server.stop() }
+    do {
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let session = URLSession(configuration: .ephemeral)
+        var createRequest = URLRequest(url: URL(string: "http://127.0.0.1:\(apiPort)/scheduled-sends")!)
+        createRequest.httpMethod = "POST"
+        createRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        createRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+            "items": [["file_path": apiFile.path, "file_name": apiFile.lastPathComponent]],
+            "delay_seconds": 120,
+            "source": "component-check",
+            "idempotency_key": "api-idempotency"
+        ])
+        let (createData, createResponse) = try await session.data(for: createRequest)
+        precondition((createResponse as? HTTPURLResponse)?.statusCode == 201)
+        let createdObject = try JSONSerialization.jsonObject(with: createData) as! [String: Any]
+        let planID = createdObject["id"] as! String
+        precondition(createdObject["scheduled_at"] != nil)
+        precondition(createdObject["created_at"] != nil)
+        precondition(createdObject["scheduledAt"] == nil)
+
+        let getURL = URL(string: "http://127.0.0.1:\(apiPort)/scheduled-sends/\(planID)")!
+        let (_, getResponse) = try await session.data(from: getURL)
+        precondition((getResponse as? HTTPURLResponse)?.statusCode == 200)
+
+        var deleteRequest = URLRequest(url: getURL)
+        deleteRequest.httpMethod = "DELETE"
+        let (deleteData, deleteResponse) = try await session.data(for: deleteRequest)
+        precondition((deleteResponse as? HTTPURLResponse)?.statusCode == 200)
+        let deletedObject = try JSONSerialization.jsonObject(with: deleteData) as! [String: Any]
+        precondition(deletedObject["status"] as? String == "cancelled")
+    } catch {
+        apiResult.error = error
+    }
+    apiFinished.signal()
+}
+precondition(apiFinished.wait(timeout: .now() + 8) == .success)
+if let error = apiResult.error { throw error }

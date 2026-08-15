@@ -18,6 +18,8 @@ struct HealthResponse: Encodable {
     let maxConcurrentTransfers = SendCoordinator.maxConcurrentTransfers
     let maxSendBytes: Int64
     let lastSendAt: String?
+    let scheduledSendCount: Int
+    let nextScheduledAt: String?
 
     enum CodingKeys: String, CodingKey {
         case ok
@@ -29,6 +31,47 @@ struct HealthResponse: Encodable {
         case maxConcurrentTransfers = "max_concurrent_transfers"
         case maxSendBytes = "max_send_bytes"
         case lastSendAt = "last_send_at"
+        case scheduledSendCount = "scheduled_send_count"
+        case nextScheduledAt = "next_scheduled_at"
+    }
+
+    init(
+        queueDepth: Int,
+        weChatConnected: Bool,
+        maxSendBytes: Int64,
+        lastSendAt: String?,
+        scheduledSendCount: Int = 0,
+        nextScheduledAt: String? = nil
+    ) {
+        self.queueDepth = queueDepth
+        self.weChatConnected = weChatConnected
+        self.maxSendBytes = maxSendBytes
+        self.lastSendAt = lastSendAt
+        self.scheduledSendCount = scheduledSendCount
+        self.nextScheduledAt = nextScheduledAt
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(ok, forKey: .ok)
+        try container.encode(service, forKey: .service)
+        try container.encode(backend, forKey: .backend)
+        try container.encode(queueDepth, forKey: .queueDepth)
+        try container.encode(weChatConnected, forKey: .weChatConnected)
+        try container.encode(sendCooldownMilliseconds, forKey: .sendCooldownMilliseconds)
+        try container.encode(maxConcurrentTransfers, forKey: .maxConcurrentTransfers)
+        try container.encode(maxSendBytes, forKey: .maxSendBytes)
+        if let lastSendAt {
+            try container.encode(lastSendAt, forKey: .lastSendAt)
+        } else {
+            try container.encodeNil(forKey: .lastSendAt)
+        }
+        try container.encode(scheduledSendCount, forKey: .scheduledSendCount)
+        if let nextScheduledAt {
+            try container.encode(nextScheduledAt, forKey: .nextScheduledAt)
+        } else {
+            try container.encodeNil(forKey: .nextScheduledAt)
+        }
     }
 }
 
@@ -36,12 +79,14 @@ final class EmbeddedBridgeServer: @unchecked Sendable {
     nonisolated let states: AsyncStream<EmbeddedServerState>
 
     private let coordinator: SendCoordinator
+    private let configuredPort: UInt16
     private let queue = DispatchQueue(label: "com.chacha.WeClawSend.bridge")
     private let stateContinuation: AsyncStream<EmbeddedServerState>.Continuation
     private var listener: NWListener?
 
-    init(coordinator: SendCoordinator) {
+    init(coordinator: SendCoordinator, port: UInt16 = EmbeddedBridgeServer.port) {
         self.coordinator = coordinator
+        configuredPort = port
         let statePair = AsyncStream<EmbeddedServerState>.makeStream()
         states = statePair.stream
         stateContinuation = statePair.continuation
@@ -58,7 +103,7 @@ final class EmbeddedBridgeServer: @unchecked Sendable {
                 parameters.allowLocalEndpointReuse = true
                 parameters.requiredLocalEndpoint = .hostPort(
                     host: "127.0.0.1",
-                    port: NWEndpoint.Port(rawValue: Self.port)!
+                    port: NWEndpoint.Port(rawValue: configuredPort)!
                 )
                 let listener = try NWListener(using: parameters)
                 self.listener = listener
@@ -124,6 +169,32 @@ private struct HTTPRequest: Sendable {
     let method: String
     let path: String
     let body: Data
+}
+
+private struct ScheduledSendCreatePayload: Decodable {
+    let items: [SendRequest]
+    let scheduledAt: String?
+    let delaySeconds: Int64?
+    let source: String?
+    let idempotencyKey: String?
+
+    enum CodingKeys: String, CodingKey {
+        case items
+        case scheduledAt = "scheduled_at"
+        case delaySeconds = "delay_seconds"
+        case source
+        case idempotencyKey = "idempotency_key"
+    }
+}
+
+private struct ScheduledSendUpdatePayload: Decodable {
+    let scheduledAt: String?
+    let delaySeconds: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case scheduledAt = "scheduled_at"
+        case delaySeconds = "delay_seconds"
+    }
 }
 
 private final class HTTPConnectionHandler: @unchecked Sendable {
@@ -236,9 +307,103 @@ private final class HTTPConnectionHandler: @unchecked Sendable {
                         queueDepth: snapshot.queueDepth,
                         weChatConnected: snapshot.weChatConnected,
                         maxSendBytes: SendCoordinator.maxSendBytes,
-                        lastSendAt: snapshot.lastSendAt.map(formatter.string(from:))
+                        lastSendAt: snapshot.lastSendAt.map(formatter.string(from:)),
+                        scheduledSendCount: snapshot.scheduledSendCount,
+                        nextScheduledAt: snapshot.nextScheduledAt.map(formatter.string(from:))
                     )
                 )
+            }
+            return
+        }
+
+        if request.method == "GET", request.path == "/scheduled-sends" {
+            requestTask = Task { [self] in
+                sendJSON(status: 200, value: await coordinator.scheduledPlans())
+            }
+            return
+        }
+
+        if request.method == "POST", request.path == "/scheduled-sends" {
+            requestTask = Task { [self] in
+                do {
+                    let payload = try JSONDecoder().decode(
+                        ScheduledSendCreatePayload.self,
+                        from: request.body
+                    )
+                    let scheduledAt = try Self.scheduledDate(
+                        scheduledAt: payload.scheduledAt,
+                        delaySeconds: payload.delaySeconds
+                    )
+                    let creation = try await coordinator.createScheduledSend(
+                        requests: payload.items,
+                        scheduledAt: scheduledAt,
+                        source: payload.source ?? "local-api",
+                        idempotencyKey: payload.idempotencyKey
+                    )
+                    sendJSON(status: creation.created ? 201 : 200, value: creation.plan)
+                } catch {
+                    sendError(status: httpStatus(for: error), message: error.localizedDescription)
+                }
+            }
+            return
+        }
+
+        if let id = Self.scheduledSendID(path: request.path), request.method == "GET" {
+            requestTask = Task { [self] in
+                if let plan = await coordinator.scheduledPlan(id: id) {
+                    sendJSON(status: 200, value: plan)
+                } else {
+                    sendError(status: 404, message: ScheduledSendError.notFound(id).localizedDescription)
+                }
+            }
+            return
+        }
+
+        if let id = Self.scheduledSendID(path: request.path), request.method == "PATCH" {
+            requestTask = Task { [self] in
+                do {
+                    let payload = try JSONDecoder().decode(
+                        ScheduledSendUpdatePayload.self,
+                        from: request.body
+                    )
+                    let scheduledAt = try Self.scheduledDate(
+                        scheduledAt: payload.scheduledAt,
+                        delaySeconds: payload.delaySeconds
+                    )
+                    let plan = try await coordinator.rescheduleScheduledSend(
+                        id: id,
+                        to: scheduledAt
+                    )
+                    sendJSON(status: 200, value: plan)
+                } catch {
+                    sendError(status: httpStatus(for: error), message: error.localizedDescription)
+                }
+            }
+            return
+        }
+
+        if let id = Self.scheduledSendID(path: request.path), request.method == "DELETE" {
+            requestTask = Task { [self] in
+                do {
+                    let plan = try await coordinator.cancelScheduledSend(id: id)
+                    sendJSON(status: 200, value: plan)
+                } catch {
+                    sendError(status: httpStatus(for: error), message: error.localizedDescription)
+                }
+            }
+            return
+        }
+
+        if let id = Self.scheduledSendActionID(path: request.path, action: "send-now"),
+           request.method == "POST" {
+            requestTask = Task { [self] in
+                do {
+                    let plan = try await coordinator.sendScheduledNow(id: id)
+                    let status = plan.status == .sending ? 202 : 200
+                    sendJSON(status: status, value: plan)
+                } catch {
+                    sendError(status: httpStatus(for: error), message: error.localizedDescription)
+                }
             }
             return
         }
@@ -262,7 +427,9 @@ private final class HTTPConnectionHandler: @unchecked Sendable {
 
     private func sendJSON<T: Encodable>(status: Int, value: T) {
         do {
-            let body = try JSONEncoder().encode(value)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let body = try encoder.encode(value)
             sendResponse(status: status, contentType: "application/json; charset=utf-8", body: body)
         } catch {
             sendError(status: 500, message: error.localizedDescription)
@@ -292,10 +459,60 @@ private final class HTTPConnectionHandler: @unchecked Sendable {
         let text = "HTTP/1.1 \(status) \(reasonPhrase(status))\r\n\(fieldLines)\r\nConnection: close\r\n\r\n"
         return Data(text.utf8)
     }
+
+    private static func scheduledSendID(path: String) -> UUID? {
+        let parts = path.split(separator: "/")
+        guard parts.count == 2, parts[0] == "scheduled-sends" else { return nil }
+        return UUID(uuidString: String(parts[1]))
+    }
+
+    private static func scheduledSendActionID(path: String, action: String) -> UUID? {
+        let parts = path.split(separator: "/")
+        guard parts.count == 3, parts[0] == "scheduled-sends", parts[2] == Substring(action) else {
+            return nil
+        }
+        return UUID(uuidString: String(parts[1]))
+    }
+
+    private static func scheduledDate(
+        scheduledAt: String?,
+        delaySeconds: Int64?
+    ) throws -> Date {
+        guard (scheduledAt == nil) != (delaySeconds == nil) else {
+            throw ScheduledSendError.invalidRequest(
+                "scheduled_at 和 delay_seconds 必须二选一"
+            )
+        }
+        if let delaySeconds {
+            guard delaySeconds > 0 else {
+                throw ScheduledSendError.invalidRequest("delay_seconds 必须大于 0")
+            }
+            return Date().addingTimeInterval(TimeInterval(delaySeconds))
+        }
+        guard let scheduledAt, let date = Self.parseISO8601Date(scheduledAt) else {
+            throw ScheduledSendError.invalidRequest("scheduled_at 必须是 ISO 8601 时间")
+        }
+        return date
+    }
+
+    private static func parseISO8601Date(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
 }
 
 private func httpStatus(for error: Error) -> Int {
     if error is DecodingError { return 400 }
+    if case .notFound = error as? ScheduledSendError { return 404 }
+    if case .conflict = error as? ScheduledSendError { return 409 }
+    if case .invalidRequest = error as? ScheduledSendError { return 400 }
+    if case .persistence = error as? ScheduledSendError { return 500 }
+    if error is ScheduledSendError {
+        return 500
+    }
     if case let BackendError.rejected(message) = error {
         if message.hasPrefix("文件不存在") { return 404 }
         if message.hasPrefix("不是普通文件") { return 400 }
@@ -308,8 +525,11 @@ private func httpStatus(for error: Error) -> Int {
 private func reasonPhrase(_ status: Int) -> String {
     switch status {
     case 200: "OK"
+    case 201: "Created"
+    case 202: "Accepted"
     case 400: "Bad Request"
     case 404: "Not Found"
+    case 409: "Conflict"
     case 413: "Payload Too Large"
     case 503: "Service Unavailable"
     default: "Internal Server Error"

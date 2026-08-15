@@ -529,8 +529,8 @@ struct ServicesView: View {
 
                     settingRow(
                         icon: "paperplane",
-                        title: "发送后清空",
-                        subtitle: "当前文件篮进入发送队列后清空",
+                        title: "立即发送后清空",
+                        subtitle: "仅立即发送进入上传队列后清空；延时计划保留文件篮",
                         isOn: Binding(
                             get: { model.shelfClearAfterSend },
                             set: { model.setShelfClearAfterSend($0) }

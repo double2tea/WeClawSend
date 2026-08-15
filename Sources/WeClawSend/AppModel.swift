@@ -34,6 +34,21 @@ enum FileBasketArchiveSendResult: Equatable {
     case failed(String)
 }
 
+enum FileBasketScheduleResult: Equatable {
+    case scheduled
+    case empty
+    case requiresArchive
+    case unavailableFilesRemoved(Int)
+    case failed(String)
+}
+
+enum FileBasketArchiveScheduleResult: Equatable {
+    case scheduled(String)
+    case empty
+    case unavailableFilesRemoved(Int)
+    case failed(String)
+}
+
 private final class AppRuntime: Sendable {
     let weChat: WeChatService
     let coordinator: SendCoordinator
@@ -65,6 +80,7 @@ final class AppModel: ObservableObject {
     @Published var bridgeStatus: ServiceStatus = .checking
     @Published var weChatStatus: ServiceStatus = .checking
     @Published var recentTransfers: [TransferRecord] = []
+    @Published private(set) var scheduledSends: [ScheduledSendPlan] = []
     @Published var isDropTargeted = false
     @Published var showsServices = false
     @Published var presentedError: String?
@@ -119,6 +135,7 @@ final class AppModel: ObservableObject {
     private let runtime: AppRuntime
     private var startupTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
+    private var scheduledEventTask: Task<Void, Never>?
     private var serverStateTask: Task<Void, Never>?
     private var serviceMonitorTask: Task<Void, Never>?
     private var loginTask: Task<Void, Never>?
@@ -148,13 +165,11 @@ final class AppModel: ObservableObject {
         }
         let runtime = AppRuntime()
         self.runtime = runtime
-        FileBasketArchiver.cleanupOrphans(
-            preserving: recentTransfers.filter { $0.status == .failed }.map(\.fileURL)
-        )
         if shouldPersistLegacyTransfers {
             persistTransfers()
         }
         observe(runtime)
+        observeScheduledSends(runtime)
         if localAPIEnabled {
             runtime.server.start()
         } else {
@@ -400,6 +415,21 @@ final class AppModel: ObservableObject {
 
     var queuedTransferCount: Int {
         recentTransfers.count { $0.status == .queued }
+    }
+
+    var displayedScheduledSends: [ScheduledSendPlan] {
+        scheduledSends
+            .filter { $0.status == .scheduled || $0.status == .needsAttention }
+            .sorted {
+                if $0.status != $1.status {
+                    return $0.status == .needsAttention
+                }
+                return $0.scheduledAt < $1.scheduledAt
+            }
+    }
+
+    var scheduledSendCount: Int {
+        displayedScheduledSends.count
     }
 
     var displayedTransfers: [TransferRecord] {
@@ -952,6 +982,77 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    func schedule(
+        urls: [URL],
+        at scheduledAt: Date,
+        source: String = "app",
+        idempotencyKey: String? = nil
+    ) async throws -> ScheduledSendPlan {
+        let requests = urls.filter { url in
+            (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        }
+        .map { url in
+            SendRequest(filePath: url.path, fileName: url.lastPathComponent)
+        }
+        guard !requests.isEmpty else {
+            throw ScheduledSendError.invalidRequest("没有可加入待发送的文件")
+        }
+        let creation = try await runtime.coordinator.createScheduledSend(
+            requests: requests,
+            scheduledAt: scheduledAt,
+            source: source,
+            idempotencyKey: idempotencyKey
+        )
+        showTransientNotice(
+            creation.created
+                ? "已加入待发送：\(scheduledSendTimeText(creation.plan.scheduledAt))"
+                : "该发送计划已存在"
+        )
+        return creation.plan
+    }
+
+    func sendScheduledNow(_ plan: ScheduledSendPlan) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let updated = try await runtime.coordinator.sendScheduledNow(id: plan.id)
+                if updated.status == .needsAttention {
+                    showTransientNotice(updated.message ?? "发送计划需要处理")
+                }
+            } catch {
+                presentedError = error.localizedDescription
+            }
+        }
+    }
+
+    func rescheduleScheduled(_ plan: ScheduledSendPlan, to scheduledAt: Date) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await runtime.coordinator.rescheduleScheduledSend(
+                    id: plan.id,
+                    to: scheduledAt
+                )
+                showTransientNotice("发送时间已更新")
+            } catch {
+                presentedError = error.localizedDescription
+            }
+        }
+    }
+
+    func cancelScheduled(_ plan: ScheduledSendPlan) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let cancelled = try await runtime.coordinator.cancelScheduledSend(id: plan.id)
+                cancelled.items.forEach { FileBasketArchiver.cleanup($0.fileURL) }
+                showTransientNotice("已取消发送计划")
+            } catch {
+                presentedError = error.localizedDescription
+            }
+        }
+    }
+
     @discardableResult
     func sendBasketItems(id: UUID) -> FileBasketSendResult {
         guard let basket = fileBaskets.basket(id: id) else { return .empty }
@@ -1007,6 +1108,63 @@ final class AppModel: ObservableObject {
             return weChatStatus.isOnline ? .empty : .loginRequired
         }
         return .enqueued(archive.fileURL.lastPathComponent)
+    }
+
+    func scheduleBasketItems(id: UUID, at scheduledAt: Date) async -> FileBasketScheduleResult {
+        guard let basket = fileBaskets.basket(id: id) else { return .empty }
+        let unavailableCount = basket.removeUnavailableItems()
+        guard unavailableCount == 0 else {
+            return .unavailableFilesRemoved(unavailableCount)
+        }
+        guard !basket.items.contains(where: \.isDirectory) else {
+            return .requiresArchive
+        }
+        guard !basket.items.isEmpty else { return .empty }
+        do {
+            _ = try await schedule(
+                urls: basket.urls,
+                at: scheduledAt,
+                source: "file-basket"
+            )
+            return .scheduled
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+    }
+
+    func scheduleBasketArchive(
+        id: UUID,
+        archiveName: String,
+        at scheduledAt: Date
+    ) async -> FileBasketArchiveScheduleResult {
+        guard let basket = fileBaskets.basket(id: id) else { return .empty }
+        let unavailableCount = basket.removeUnavailableItems()
+        guard unavailableCount == 0 else {
+            return .unavailableFilesRemoved(unavailableCount)
+        }
+        guard !basket.items.isEmpty else { return .empty }
+
+        let archive: FileBasketArchiveArtifact
+        do {
+            let urls = basket.urls
+            archive = try await Task.detached(priority: .userInitiated) {
+                try FileBasketArchiver.createArchive(urls: urls, archiveName: archiveName)
+            }.value
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+
+        do {
+            _ = try await schedule(
+                urls: [archive.fileURL],
+                at: scheduledAt,
+                source: "file-basket"
+            )
+            return .scheduled(archive.fileURL.lastPathComponent)
+        } catch {
+            FileBasketArchiver.cleanup(archive.fileURL)
+            return .failed(error.localizedDescription)
+        }
     }
 
     func sendOpened(urls: [URL]) async {
@@ -1187,6 +1345,41 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    private func observeScheduledSends(_ runtime: AppRuntime) {
+        scheduledEventTask = Task { [weak self, coordinator = runtime.coordinator] in
+            let plans = await coordinator.scheduledPlans()
+            guard let self else { return }
+            scheduledSends = plans
+            let preservedArchives = recentTransfers
+                .filter { $0.status == .failed }
+                .map(\.fileURL)
+                + plans
+                    .filter { $0.status != .sent && $0.status != .cancelled }
+                    .flatMap { $0.items.map(\.fileURL) }
+            FileBasketArchiver.cleanupOrphans(preserving: preservedArchives)
+
+            if let error = await coordinator.scheduledPersistenceFailure() {
+                presentedError = "无法读取发送计划：\(error)"
+            }
+
+            for await event in coordinator.scheduledEvents {
+                guard !Task.isCancelled else { return }
+                switch event {
+                case let .updated(plan):
+                    upsertScheduledSend(plan)
+                    if plan.status == .sent || plan.status == .cancelled {
+                        plan.items.forEach { FileBasketArchiver.cleanup($0.fileURL) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func upsertScheduledSend(_ plan: ScheduledSendPlan) {
+        scheduledSends.removeAll { $0.id == plan.id }
+        scheduledSends.append(plan)
     }
 
     @discardableResult

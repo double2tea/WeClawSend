@@ -19,18 +19,22 @@ struct ContentView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var fileBaskets: FileBasketStore
     let chooseFiles: () -> Void
+    let chooseScheduledFiles: (Date) -> Void
     let fileBasketCommands: FileBasketCommands
     @State private var isDropHovered = false
     @State private var pendingBasketDeletion: FileBasketDeletionRequest?
+    @State private var showsSchedulePicker = false
 
     init(
         model: AppModel,
         chooseFiles: @escaping () -> Void,
+        chooseScheduledFiles: @escaping (Date) -> Void,
         fileBasketCommands: FileBasketCommands
     ) {
         self.model = model
         _fileBaskets = ObservedObject(wrappedValue: model.fileBaskets)
         self.chooseFiles = chooseFiles
+        self.chooseScheduledFiles = chooseScheduledFiles
         self.fileBasketCommands = fileBasketCommands
     }
 
@@ -100,6 +104,11 @@ struct ContentView: View {
             }
         } message: {
             Text(pendingBasketDeletionMessage)
+        }
+        .sheet(isPresented: $showsSchedulePicker) {
+            ScheduledSendDatePicker(itemDescription: "从主界面选择文件") { scheduledAt in
+                chooseScheduledFiles(scheduledAt)
+            }
         }
     }
 
@@ -267,6 +276,7 @@ struct ContentView: View {
         }
         if model.sendingTransferCount > 0 { return "发送中 \(model.sendingTransferCount)" }
         if model.queuedTransferCount > 0 { return "排队 \(model.queuedTransferCount)" }
+        if model.scheduledSendCount > 0 { return "待发送 \(model.scheduledSendCount)" }
         if case .checking = model.weChatStatus { return "连接中" }
         return model.isReady ? "已连接" : "未登录"
     }
@@ -274,6 +284,7 @@ struct ContentView: View {
     private var headerStatusColor: Color {
         if model.sendingTransferCount > 0 { return Brand.accent }
         if model.queuedTransferCount > 0 { return Brand.warning }
+        if model.scheduledSendCount > 0 { return Brand.warning }
         if case .checking = model.weChatStatus { return .secondary }
         return model.isReady ? Brand.success : Brand.danger
     }
@@ -358,12 +369,14 @@ struct ContentView: View {
         }
         if model.sendingTransferCount > 0 { return "正在处理 \(model.sendingTransferCount) 个文件" }
         if model.queuedTransferCount > 0 { return "\(model.queuedTransferCount) 个文件排队中" }
+        if model.scheduledSendCount > 0 { return "\(model.scheduledSendCount) 个计划等待发送" }
         if case .checking = model.weChatStatus { return "正在连接微信" }
         return model.isReady ? "拖入或点击选择文件" : "请先登录微信"
     }
 
     private var dropZoneSubtitle: String {
         if model.hasActiveTransfers { return "可继续添加文件" }
+        if model.scheduledSendCount > 0 { return "可预览、改时间或立即发送" }
         if case .checking = model.weChatStatus { return "请稍候" }
         return model.isReady ? "支持多选" : "点击前往设置扫码"
     }
@@ -371,13 +384,33 @@ struct ContentView: View {
     // MARK: - Transfers
 
     private var transferSectionHeader: some View {
-        HStack {
-            Text("最近传输")
+        HStack(spacing: 10) {
+            Text(model.scheduledSendCount > 0 ? "待发送与最近传输" : "最近传输")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
                 .tracking(0.6)
             Spacer()
+            Menu {
+                ForEach(ScheduledSendPreset.allCases) { preset in
+                    Button(preset.title) {
+                        chooseScheduledFiles(preset.scheduledAt())
+                    }
+                }
+                Divider()
+                Button("自定义时间…") {
+                    showsSchedulePicker = true
+                }
+            } label: {
+                Label("延时发送", systemImage: "clock.badge.plus")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Brand.accent)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("选择文件并加入待发送")
+
             if model.recentTransfers.contains(where: \.isTerminal) {
                 Button("清空") {
                     model.clearFinishedTransfers()
@@ -393,12 +426,12 @@ struct ContentView: View {
 
     @ViewBuilder
     private var transferList: some View {
-        if model.recentTransfers.isEmpty {
+        if model.displayedScheduledSends.isEmpty, model.recentTransfers.isEmpty {
             VStack(spacing: 6) {
                 Text("暂无记录")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
-                Text(model.isReady ? "发送后会显示在这里" : "登录后即可发送")
+                Text(model.isReady ? "可立即发送，也可选择时间延时发送" : "延时计划可先创建，发送时需登录")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.tertiary)
             }
@@ -406,8 +439,24 @@ struct ContentView: View {
             .padding(.bottom, 12)
         } else {
             let transfers = model.displayedTransfers
+            let plans = model.displayedScheduledSends
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    ForEach(Array(plans.enumerated()), id: \.element.id) { index, plan in
+                        ScheduledSendPlanView(
+                            plan: plan,
+                            sendNow: { model.sendScheduledNow(plan) },
+                            reschedule: { model.rescheduleScheduled(plan, to: $0) },
+                            cancel: { model.cancelScheduled(plan) }
+                        )
+
+                        if index < plans.count - 1 || !transfers.isEmpty {
+                            Divider()
+                                .padding(.leading, 60)
+                                .opacity(0.4)
+                        }
+                    }
+
                     ForEach(Array(transfers.enumerated()), id: \.element.id) { index, transfer in
                         transferItem(transfer)
 
@@ -615,6 +664,7 @@ struct ContentView: View {
         }
         if model.sendingTransferCount > 0 { return "\(model.sendingTransferCount) 个处理中" }
         if model.queuedTransferCount > 0 { return "\(model.queuedTransferCount) 个排队中" }
+        if model.scheduledSendCount > 0 { return "\(model.scheduledSendCount) 个待发送" }
         return "就绪"
     }
 }

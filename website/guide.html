@@ -46,7 +46,7 @@
             <li><span>2</span>在隐私与安全性中允许首次打开</li>
             <li><span>3</span>完成连接后，拖入文件</li>
           </ol>
-          <a class="button button-primary" href="/dl/dmg">下载 DMG</a>
+          <a class="button button-primary" href="https://github.com/double2tea/WeClawSend/releases/download/v2.2.0-beta.28/WeClaw-Send.dmg">下载 2.2 内测版</a>
         </div>
       </section>
 
@@ -74,7 +74,7 @@
               <span>macOS 14 或更新 · Apple 芯片 / Intel 芯片</span>
             </div>
             <ol class="instruction-list">
-              <li><span>1</span><p>下载并打开 <code>WeClaw-Send.dmg</code>；也可以<a class="inline-link" href="/dl/zip">下载 ZIP</a> 后解压。</p></li>
+              <li><span>1</span><p>下载并打开 <a class="inline-link" href="https://github.com/double2tea/WeClawSend/releases/download/v2.2.0-beta.28/WeClaw-Send.dmg"><code>WeClaw-Send.dmg</code></a>；也可以<a class="inline-link" href="https://github.com/double2tea/WeClawSend/releases/download/v2.2.0-beta.28/WeClaw-Send.zip">下载 ZIP</a> 后解压。</p></li>
               <li><span>2</span><p>把 <strong>WeClaw Send</strong> 拖进“应用程序”文件夹，然后双击打开。</p></li>
               <li><span>3</span><p>如果系统提示无法验证开发者，先关闭提示，再前往 <strong>系统设置 → 隐私与安全性</strong>。</p></li>
               <li><span>4</span><p>找到 WeClaw Send 被阻止的提示，点击<strong>仍要打开</strong>并确认。</p></li>
@@ -135,6 +135,10 @@
                 <p>先暂存文件、文件夹与 macOS 包，再从当前文件篮统一发送。</p>
               </article>
             </div>
+            <div class="callout callout-blue">
+              <b>延时发送（2.2 内测版）</b>
+              <p>在主面板或文件篮选择预设或自定义时间，计划会进入“待发送”区，显示文件预览和倒计时，并支持立即发送、改时间或取消。创建计划不要求微信当前在线，计划会持久化保存；到点离线、文件缺失或发生变化时会进入“需要注意”。应用退出期间错过时间，重启后需要你确认，不会静默补发。直接拖到菜单栏纸飞机，以及本地接口的 <code>POST /send</code>，仍然是立即发送。</p>
+            </div>
             <table class="limits">
               <tbody>
                 <tr><th>单文件上限</th><td>默认 200 MB，设置中可调到 2 GB</td></tr>
@@ -175,6 +179,8 @@
             <ul class="check-list">
               <li>仅含普通文件时，“发送”会立即处理当前文件篮中的全部文件。</li>
               <li>包含文件夹或 macOS 包时，按钮会变为“压缩发送”；输入 ZIP 名称后再发送。</li>
+              <li>文件篮支持立即发送和延时发送；创建延时计划后保留文件篮内容，计划保存创建时的文件快照。</li>
+              <li>包含文件夹或 macOS 包的延时计划会先生成命名 ZIP，再把 ZIP 作为计划项保存。</li>
               <li>“压缩为 ZIP 并发送”可随时主动使用，发送不会改变篮内内容。</li>
               <li>每个文件篮独立保存内容、位置、折叠与置顶状态，并可跨 App 启动恢复。</li>
               <li>关闭空文件篮会自动删除；移除项目、清空或删除文件篮都不会删除原内容。</li>
@@ -208,7 +214,7 @@
               </article>
               <article>
                 <h3>本地接口</h3>
-                <p>供 Premiere、DaVinci 和本机脚本调用，默认无需开启。</p>
+                <p>供 Premiere、DaVinci 和本机脚本调用，默认无需开启。除始终立即发送的 <code>POST /send</code> 外，还提供 <code>/scheduled-sends</code> 计划的创建、查看、改时、立即发送和取消。</p>
               </article>
               <article>
                 <h3>在线更新</h3>
@@ -296,7 +302,11 @@
             </details>
             <details>
               <summary>发送一直排队</summary>
-              <p>同时处理数已满 3 个时会排队；大文件的加密和上传也需要时间。请在“最近传输”查看当前阶段。</p>
+              <p>同时处理数已满 3 个时会排队；大文件的加密和上传也需要时间。延时计划会先在“待发送”区等待，到点后才进入“最近传输”。</p>
+            </details>
+            <details>
+              <summary>延时计划没有自动发送</summary>
+              <p>如果到点时微信未连接、计划中的文件已缺失或发生变化，计划会进入“需要注意”，需要在计划卡片中确认后再发送。应用退出期间错过时间，重启后也会等待确认，不会静默补发。</p>
             </details>
             <details>
               <summary>Final Cut 显示分享成功，但没有发送</summary>
@@ -353,7 +363,7 @@
           <p>下载 WeClaw Send，发出第一个文件。更新日志与反馈见飞书文档。</p>
         </div>
         <div class="guide-ending-actions">
-          <a class="button button-primary" href="/dl/dmg">下载 macOS 版</a>
+          <a class="button button-primary" href="https://github.com/double2tea/WeClawSend/releases/download/v2.2.0-beta.28/WeClaw-Send.dmg">下载 2.2 内测版</a>
           <a class="button button-quiet" href="https://my.feishu.cn/docx/ZBq3dUnj1o55Q3xfJrpc9hfRnlh" target="_blank" rel="noopener noreferrer">更新与反馈</a>
         </div>
       </section>

@@ -64,7 +64,9 @@ Base URL：`http://127.0.0.1:18790`
   "send_cooldown_ms": 2000,
   "max_concurrent_transfers": 3,
   "max_send_bytes": 209715200,
-  "last_send_at": "2026-07-14T12:49:26Z"
+  "last_send_at": "2026-07-14T12:49:26Z",
+  "scheduled_send_count": 2,
+  "next_scheduled_at": "2030-07-14T13:00:00Z"
 }
 ```
 
@@ -77,6 +79,8 @@ Base URL：`http://127.0.0.1:18790`
 | `max_concurrent_transfers` | int | 最大并行处理文件数 |
 | `max_send_bytes` | int | 设置页当前选择的单文件字节上限 |
 | `last_send_at` | string? | 上次成功发送完成时间（ISO8601） |
+| `scheduled_send_count` | int | 当前待发送或需要注意的计划数 |
+| `next_scheduled_at` | string? | 待发送计划中最早的计划时间（ISO8601） |
 
 ### 3.2 `POST /send`
 
@@ -134,7 +138,67 @@ Content-Type: application/json
 
 请求会**阻塞到本次发送完成**（含并发槽位排队）。大文件上传可能长达数分钟，请将客户端超时设为 **≥ 300s**。
 
-### 3.3 传输恢复与错误阶段
+### 3.3 延时发送计划
+
+延时计划是独立于立即发送队列的本机持久化记录。主界面和文件篮可以创建计划；创建时不要求微信在线。计划进入时间后，应用会把文件交给现有发送队列，实际上传从此时开始。
+
+`POST /send` 始终立即发送；延时功能使用以下接口：
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| `POST` | `/scheduled-sends` | 创建计划；首次创建返回 `201`，相同 `idempotency_key` 重复提交返回已有计划 `200` |
+| `GET` | `/scheduled-sends` | 列出计划（含 `scheduled`、`needs_attention`、`sending`、`sent`、`cancelled`、`failed`） |
+| `GET` | `/scheduled-sends/{id}` | 查看单个计划 |
+| `PATCH` | `/scheduled-sends/{id}` | 修改尚未发送的计划时间 |
+| `POST` | `/scheduled-sends/{id}/send-now` | 立即触发计划；接受后通常返回 `202` |
+| `DELETE` | `/scheduled-sends/{id}` | 取消尚未发送的计划 |
+
+创建请求：
+
+```json
+{
+  "items": [
+    {
+      "file_path": "/Users/me/Movies/export.m4v",
+      "file_name": "项目_导出.m4v"
+    }
+  ],
+  "scheduled_at": "2030-07-14T13:00:00Z",
+  "source": "davinci",
+  "idempotency_key": "render-2030-07-14-1300"
+}
+```
+
+`items` 至少包含一个本机普通文件；`file_path` 必填，`file_name` 可选。`scheduled_at` 与 `delay_seconds` 必须二选一：前者为未来 ISO 8601 时间，后者为大于 0 的秒数。`source` 可选，缺省为 `local-api`；`idempotency_key` 可选，用于避免脚本重试时重复创建计划。
+
+也可以用相对延时创建：
+
+```json
+{
+  "items": [{"file_path": "/Users/me/Movies/export.m4v"}],
+  "delay_seconds": 900,
+  "source": "local-api"
+}
+```
+
+计划响应中的主要字段为 `id`、`items`、`created_at`、`scheduled_at`、`source`、`idempotency_key`、`status`、`message`、`started_at` 和 `completed_at`。计划项会记录创建时的路径、显示名、大小和修改时间，作为发送前的文件快照。
+
+状态含义：
+
+| 状态 | 含义 |
+|---|---|
+| `scheduled` | 等待到点发送 |
+| `sending` | 已触发，正在进入实际发送队列 |
+| `sent` | 计划内文件全部发送完成 |
+| `needs_attention` | 微信离线、文件缺失/变化，或应用退出期间错过时间，需要用户确认 |
+| `cancelled` | 已取消 |
+| `failed` | 发送已触发但最终失败；请查看 `message` |
+
+应用在退出期间错过计划时间，重新启动后会标记为 `needs_attention`，不会静默补发。文件篮创建计划后保留原项目；包含文件夹或 macOS 包时，应用会先生成 ZIP，再把 ZIP 作为计划项保存。计划本身保存在当前用户的 Application Support，重启后仍可查看。
+
+`PATCH` 只作用于 `scheduled` 或 `needs_attention` 计划；对已发送、发送中或已取消的计划会返回 `409`。`send-now` 对已发送、发送中、已取消或已失败计划返回当前计划，不会重复创建发送任务。`DELETE` 返回更新后的计划，重复取消已取消计划不会报错。
+
+### 3.4 传输恢复与错误阶段
 
 腾讯公开的 iLink 参考实现和当前响应模型没有提供分片编号、上传会话 ID、已上传 offset 查询或 `Content-Range` 字段，因此 WeClaw Send **不声明支持断点续传**。
 

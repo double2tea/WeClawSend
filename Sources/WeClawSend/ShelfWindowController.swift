@@ -273,9 +273,15 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             session: session,
             chooseFiles: chooseFiles,
             sendAll: { [weak self] in self?.sendBasketItems() },
+            scheduleAll: { [weak self] scheduledAt in
+                self?.scheduleBasketItems(at: scheduledAt)
+            },
             close: { [weak self] in self?.requestClose() },
             deleteBasket: { [weak self] in self?.requestDelete() },
             sendZIP: { [weak self] name in self?.sendBasketZIP(named: name) },
+            scheduleZIP: { [weak self] name, scheduledAt in
+                self?.scheduleBasketZIP(named: name, at: scheduledAt)
+            },
             copyFiles: { [weak self] items in self?.copyFiles(items) },
             shareFiles: { [weak self] items, destination in
                 self?.shareFiles(items, via: destination)
@@ -495,6 +501,28 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    private func scheduleBasketItems(at scheduledAt: Date) {
+        session.showStatus("正在加入待发送…")
+        let model = model
+        let basketID = basket.id
+        Task { [weak self, model] in
+            let result = await model.scheduleBasketItems(id: basketID, at: scheduledAt)
+            guard let self else { return }
+            switch result {
+            case .scheduled:
+                session.flash("已计划于 \(scheduledSendTimeText(scheduledAt)) 发送", duration: 2.4)
+            case .empty:
+                session.flash("文件篮为空")
+            case .requiresArchive:
+                session.flash("文件夹需要压缩后发送")
+            case let .unavailableFilesRemoved(count):
+                session.flash("\(count) 个项目已失效并移除，请重试", duration: 2.4)
+            case let .failed(message):
+                session.flash(message, duration: 3)
+            }
+        }
+    }
+
     private func sendBasketZIP(named archiveName: String) {
         guard archiveTask == nil else {
             session.flash("正在压缩 ZIP…")
@@ -514,6 +542,35 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
                 session.flash("文件篮为空")
             case .loginRequired:
                 session.flash("请先登录微信")
+            case let .unavailableFilesRemoved(count):
+                session.flash("\(count) 个项目已失效并移除，请重试", duration: 2.4)
+            case let .failed(message):
+                session.flash(message, duration: 3)
+            }
+        }
+    }
+
+    private func scheduleBasketZIP(named archiveName: String, at scheduledAt: Date) {
+        guard archiveTask == nil else {
+            session.flash("正在压缩 ZIP…")
+            return
+        }
+        session.showStatus("正在准备待发送 ZIP…")
+        let model = model
+        let basketID = basket.id
+        archiveTask = Task { [weak self, model] in
+            let result = await model.scheduleBasketArchive(
+                id: basketID,
+                archiveName: archiveName,
+                at: scheduledAt
+            )
+            guard let self else { return }
+            archiveTask = nil
+            switch result {
+            case let .scheduled(fileName):
+                session.flash("“\(fileName)”已加入待发送", duration: 2.4)
+            case .empty:
+                session.flash("文件篮为空")
             case let .unavailableFilesRemoved(count):
                 session.flash("\(count) 个项目已失效并移除，请重试", duration: 2.4)
             case let .failed(message):

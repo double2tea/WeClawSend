@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="WeClaw Send 是 macOS 菜单栏工具：用文件篮暂存文件、文件夹与 macOS 包，再直接发到自己的微信；支持 Premiere、Final Cut Pro 和 DaVinci Resolve。">
+    <meta name="description" content="WeClaw Send 是 macOS 菜单栏工具：用文件篮暂存文件、安排发送时间，再把文件、文件夹与 macOS 包发到自己的微信；支持 Premiere、Final Cut Pro 和 DaVinci Resolve。">
     <meta name="theme-color" content="#f6f5f2">
     <meta property="og:title" content="WeClaw Send | 导出完成，微信就收到">
-    <meta property="og:description" content="用多个文件篮暂存文件、文件夹与 macOS 包，再把 Mac 和剪辑软件里的内容直接发到自己的微信。">
+    <meta property="og:description" content="用多个文件篮暂存文件、文件夹与 macOS 包，选择现在或稍后发送，再把 Mac 和剪辑软件里的内容发到自己的微信。">
     <meta property="og:image" content="/assets/brand-mark.png">
     <title>WeClaw Send | 导出完成，微信就收到</title>
     <link rel="icon" href="/assets/brand-mark.png">
@@ -38,12 +38,12 @@
     <main id="main">
       <section class="hero section-shell">
         <div class="hero-copy reveal">
-          <p class="eyebrow">2.1 正式版 · macOS 菜单栏应用</p>
+          <p class="eyebrow">2.2 内测版 · macOS 菜单栏应用</p>
           <h1>导出完成<br>微信就收到</h1>
-          <p class="hero-lede">把 Mac 或剪辑软件导出的内容直接发到自己的微信，也可以先放进文件篮；短暂网络波动会自动重试。</p>
+          <p class="hero-lede">把 Mac 或剪辑软件导出的内容直接发到自己的微信，也可以先放进文件篮，选择现在或稍后发送；短暂网络波动会自动重试。</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="/dl/dmg">
-              <span>下载 macOS 版</span>
+            <a class="button button-primary" href="https://github.com/double2tea/WeClawSend/releases/download/v2.2.0-beta.28/WeClaw-Send.dmg">
+              <span>下载 2.2 内测版</span>
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v10m0 0 4-4m-4 4L6 8M3 15v2h14v-2"/></svg>
             </a>
             <a class="button button-quiet" href="/guide.html">查看使用说明</a>
@@ -72,9 +72,9 @@
 
       <section class="basket-feature section-shell" id="baskets">
         <div class="basket-copy reveal">
-          <p class="section-kicker">2.1 正式版</p>
+          <p class="section-kicker">2.2 内测版</p>
           <h2>先放进文件篮<br>发送也更安心</h2>
-          <p>同时打开多个悬浮文件篮，把分散在不同位置的文件、文件夹和 macOS 包先收在一起。文件篮只保存路径引用，不复制、不移动原内容。</p>
+          <p>同时打开多个悬浮文件篮，把分散在不同位置的文件、文件夹和 macOS 包先收在一起，再选择立即发送或安排时间。文件篮只保存路径引用，不复制、不移动原内容。</p>
           <div class="basket-points">
             <article>
               <b>随手收集</b>
@@ -87,6 +87,10 @@
             <article>
               <b>自动恢复</b>
               <span>短暂网络错误会自动重试；会话刷新后原文件会继续发送，无需重新选择。</span>
+            </article>
+            <article>
+              <b>定时安排</b>
+              <span>选择预设或自定义时间；计划可预览、倒计时、立即发送、改时间或取消，文件篮创建计划后仍保留。</span>
             </article>
           </div>
           <a class="text-link" href="/guide.html#baskets">查看文件篮完整用法</a>
@@ -125,8 +129,8 @@
             </div>
           </div>
           <div class="basket-version-note">
-            <span>2.1 正式版</span>
-            <p>文件篮、传输自动重试与会话提醒均已完善</p>
+            <span>2.2 内测版</span>
+            <p>新增可预览、改时和随时触发的延时发送计划</p>
           </div>
         </div>
       </section>
@@ -304,8 +308,12 @@
             <p>不会。文件篮只保存路径引用；从篮内移除项目、清空或删除文件篮，都不会删除磁盘上的原内容。</p>
           </details>
           <details class="reveal">
-            <summary>2.1 正式版有哪些改进<span>+</span></summary>
-            <p>文件篮现支持网格预览、多选、批量拖出和系统分享；短暂网络故障会有限自动重试，会话刷新提醒也会在恢复后自动撤销。仍可在设置中开启“接收内测版本”体验后续功能。</p>
+            <summary>可以安排稍后发送吗<span>+</span></summary>
+            <p>可以。在主面板或文件篮选择预设或自定义时间，计划会在“待发送”区持久化显示，可预览倒计时、立即发送、改时间或取消。创建计划不要求微信当下在线；到点离线、文件缺失或文件发生变化时会进入“需要注意”，应用退出期间错过时间也不会在重启后静默补发。本地接口同步提供 <code>/scheduled-sends</code> 计划管理，<code>/send</code> 仍始终立即发送。</p>
+          </details>
+          <details class="reveal">
+            <summary>2.2 内测版有哪些改进<span>+</span></summary>
+            <p>新增主面板、文件篮和本地 API 共用的延时发送计划，可预览文件与倒计时，并支持立即发送、改时间和取消；计划会跨重启保存，错过时间或文件变化时等待用户确认，不会静默补发。</p>
           </details>
           <details class="reveal">
             <summary>在哪里看版本更新或提反馈<span>+</span></summary>

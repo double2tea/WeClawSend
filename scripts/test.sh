@@ -38,6 +38,7 @@ swiftc \
     "$ROOT/Sources/WeClawSend/TransferRecord.swift" \
     "$ROOT/Sources/WeClawSend/WeChatCredentials.swift" \
     "$ROOT/Sources/WeClawSend/WeChatCrypto.swift" \
+    "$ROOT/Sources/WeClawSend/ScheduledSendPlan.swift" \
     "$ROOT/Sources/WeClawSend/WeChatService.swift" \
     "$ROOT/Sources/WeClawSend/SendCoordinator.swift" \
     "$ROOT/Sources/WeClawSend/SendResultNotificationBatch.swift" \

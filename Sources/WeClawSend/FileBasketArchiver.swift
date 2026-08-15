@@ -98,7 +98,7 @@ enum FileBasketArchiver {
     }
 
     private static var rootDirectory: URL {
-        FileManager.default.temporaryDirectory
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appending(path: "WeClawSend", directoryHint: .isDirectory)
             .appending(path: directoryName, directoryHint: .isDirectory)
     }

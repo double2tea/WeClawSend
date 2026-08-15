@@ -71,6 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
             rootView: ContentView(
                 model: model,
                 chooseFiles: { [weak self] in self?.chooseFiles() },
+                chooseScheduledFiles: { [weak self] scheduledAt in
+                    self?.chooseScheduledFiles(at: scheduledAt)
+                },
                 fileBasketCommands: FileBasketCommands(
                     create: { [weak self] in self?.createBasketFromPopover() },
                     show: { [weak self] id in self?.showBasketFromPopover(id: id) },
@@ -288,13 +291,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         chooseFiles(for: .send)
     }
 
+    private func chooseScheduledFiles(at scheduledAt: Date) {
+        chooseFiles(for: .schedule(scheduledAt))
+    }
+
     private func chooseBasketFiles(id: UUID) {
         chooseFiles(for: .basket(id))
     }
 
     private func chooseFiles(for destination: FileSelectionDestination) {
-        if case .send = destination {
+        switch destination {
+        case .send, .schedule:
             popover.close()
+        case .basket:
+            break
         }
         if let openPanel {
             openPanelDestination = destination
@@ -321,6 +331,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
                 showPopover()
                 guard !urls.isEmpty else { return }
                 model.send(urls: urls)
+            case let .schedule(scheduledAt):
+                showPopover()
+                guard !urls.isEmpty else { return }
+                Task { [weak self] in
+                    guard let self else { return }
+                    do {
+                        _ = try await model.schedule(urls: urls, at: scheduledAt)
+                    } catch {
+                        model.presentedError = error.localizedDescription
+                    }
+                }
             case let .basket(id):
                 guard !urls.isEmpty else { return }
                 guard let basket = model.fileBaskets.basket(id: id) else {
@@ -354,11 +375,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
 
 private enum FileSelectionDestination {
     case send
+    case schedule(Date)
     case basket(UUID)
 
     var prompt: String {
         switch self {
         case .send: "发送"
+        case .schedule: "加入待发送"
         case .basket: "加入文件篮"
         }
     }
