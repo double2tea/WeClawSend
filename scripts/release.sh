@@ -9,6 +9,7 @@ PREMIERE_ZIP="$DIST/WeClaw-Send-Premiere-CEP12.zip"
 DAVINCI_ZIP="$DIST/WeClaw-Send-DaVinci-Resolve.zip"
 COMPONENTS="$DIST/WeClaw-Send-Components.json"
 CHECKSUMS="$DIST/SHA256SUMS.txt"
+TUTORIAL_LINK="$ROOT/docs/视频教程.webloc"
 VERIFY="$(mktemp -d "${TMPDIR:-/tmp/}weclaw-send-release.XXXXXX")"
 PACKAGE="$VERIFY/package"
 DMG_PACKAGE="$VERIFY/dmg"
@@ -30,6 +31,8 @@ BUILD_PATTERN='^[0-9]+$'
 [[ "$APP_CHANNEL" == "stable" || "$APP_CHANNEL" == "beta" ]]
 [[ "$PREMIERE_VERSION" =~ $VERSION_PATTERN ]]
 [[ "$DAVINCI_VERSION" =~ $VERSION_PATTERN ]]
+[[ -f "$TUTORIAL_LINK" ]]
+grep -q 'https://weclaw-send.pages.dev/#film' "$TUTORIAL_LINK"
 
 cleanup() {
     if [[ "$MOUNTED" == true ]]; then
@@ -61,11 +64,13 @@ rm -f \
 mkdir -p "$PACKAGE"
 COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$APP" "$PACKAGE/WeClaw Send.app"
 cp "$ROOT/docs/使用说明.html" "$PACKAGE/使用说明.html"
+cp "$TUTORIAL_LINK" "$PACKAGE/视频教程.webloc"
 COPYFILE_DISABLE=1 ditto --norsrc --noextattr -c -k "$PACKAGE" "$ZIP"
 
 mkdir -p "$DMG_PACKAGE"
 COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$APP" "$DMG_PACKAGE/WeClaw Send.app"
 cp "$ROOT/docs/使用说明.html" "$DMG_PACKAGE/使用说明.html"
+cp "$TUTORIAL_LINK" "$DMG_PACKAGE/视频教程.webloc"
 ln -s /Applications "$DMG_PACKAGE/Applications"
 hdiutil create -volname "WeClaw Send" -srcfolder "$DMG_PACKAGE" -format UDZO -ov "$DMG" >/dev/null
 COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$DMG" "$VERSIONED_DMG"
@@ -127,10 +132,14 @@ ditto -x -k "$ZIP" "$VERIFY"
 EXTRACTED_APP="$VERIFY/WeClaw Send.app"
 EXTRACTED_BINARY="$EXTRACTED_APP/Contents/MacOS/WeClawSend"
 EXTRACTED_GUIDE="$VERIFY/使用说明.html"
+EXTRACTED_TUTORIAL_LINK="$VERIFY/视频教程.webloc"
 
 [[ -d "$EXTRACTED_APP" && ! -L "$EXTRACTED_APP" ]]
 [[ -f "$EXTRACTED_GUIDE" ]]
+[[ -f "$EXTRACTED_TUTORIAL_LINK" ]]
 grep -q '系统设置 → 隐私与安全性' "$EXTRACTED_GUIDE"
+grep -q 'https://weclaw-send.pages.dev/#film' "$EXTRACTED_GUIDE"
+grep -q 'https://weclaw-send.pages.dev/#film' "$EXTRACTED_TUTORIAL_LINK"
 lipo "$EXTRACTED_BINARY" -verify_arch arm64 x86_64
 codesign --verify --deep --strict "$EXTRACTED_APP"
 [[ "$(shasum -a 256 "$BINARY" | awk '{print $1}')" == "$(shasum -a 256 "$EXTRACTED_BINARY" | awk '{print $1}')" ]]
@@ -140,6 +149,8 @@ hdiutil attach "$VERSIONED_DMG" -readonly -nobrowse -mountpoint "$MOUNT" >/dev/n
 MOUNTED=true
 [[ -d "$MOUNT/WeClaw Send.app" ]]
 [[ -f "$MOUNT/使用说明.html" ]]
+[[ -f "$MOUNT/视频教程.webloc" ]]
+grep -q 'https://weclaw-send.pages.dev/#film' "$MOUNT/视频教程.webloc"
 [[ "$(readlink "$MOUNT/Applications")" == "/Applications" ]]
 lipo "$MOUNT/WeClaw Send.app/Contents/MacOS/WeClawSend" -verify_arch arm64 x86_64
 codesign --verify --deep --strict "$MOUNT/WeClaw Send.app"
@@ -167,4 +178,4 @@ print "校验：$CHECKSUMS"
 print "架构：$(lipo -archs "$EXTRACTED_BINARY")"
 print "系统：macOS 14+"
 print "签名：ad-hoc（首次打开需在系统设置中手动批准）"
-print "说明：ZIP 与 DMG 均内含图解版《使用说明.html》"
+print "说明：ZIP 与 DMG 均内含《使用说明.html》和可双击的《视频教程.webloc》"
