@@ -23,6 +23,7 @@ struct ContentView: View {
     let fileBasketCommands: FileBasketCommands
     @State private var isDropHovered = false
     @State private var hoveredTransferID: UUID?
+    @State private var isDataSafetyHovered = false
     @State private var pendingBasketDeletion: FileBasketDeletionRequest?
 
     init(
@@ -154,6 +155,14 @@ struct ContentView: View {
             transferList
                 .frame(maxHeight: .infinity)
             footer
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if isDataSafetyHovered {
+                DataSafetyHint.card
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 42)
+                    .allowsHitTesting(false)
+            }
         }
     }
 
@@ -745,8 +754,11 @@ struct ContentView: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(.tertiary)
             }
-            Spacer()
-            SocialLinksView(appVersion: model.appVersion)
+            Spacer(minLength: 8)
+            HStack(spacing: 6) {
+                DataSafetyHint(isHovered: $isDataSafetyHovered)
+                SocialLinksView(appVersion: model.appVersion)
+            }
         }
         .padding(.horizontal, 20)
         .frame(height: 36)

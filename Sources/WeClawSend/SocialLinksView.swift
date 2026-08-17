@@ -1,5 +1,52 @@
 import SwiftUI
 
+struct DataSafetyHint: View {
+    static let detail = """
+    本应用不设服务器，文件和账号都不会经过开发者。
+    发送走微信官方通道，到达后的保存与传输由微信负责。
+    登录、设置和发送记录只留在本机。
+    """
+
+    @Binding var isHovered: Bool
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 10, weight: .medium))
+            Text("数据安全")
+                .font(.system(size: 11))
+        }
+        .foregroundStyle(isHovered ? Color.secondary : Color.primary.opacity(0.38))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onDisappear { isHovered = false }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("数据安全")
+        .accessibilityHint(Self.detail)
+    }
+
+    static var card: some View {
+        Text(detail)
+            .font(.system(size: 11.5))
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: 248, alignment: .leading)
+            .padding(10)
+            .background(
+                .regularMaterial,
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Brand.hairline, lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+    }
+}
+
 struct SocialLinksView: View {
     let appVersion: String
 
