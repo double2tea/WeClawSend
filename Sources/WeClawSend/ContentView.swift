@@ -19,22 +19,22 @@ struct ContentView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var fileBaskets: FileBasketStore
     let chooseFiles: () -> Void
-    let chooseScheduledFiles: (Date) -> Void
+    let chooseFilesForTiming: () -> Void
     let fileBasketCommands: FileBasketCommands
     @State private var isDropHovered = false
+    @State private var hoveredTransferID: UUID?
     @State private var pendingBasketDeletion: FileBasketDeletionRequest?
-    @State private var showsSchedulePicker = false
 
     init(
         model: AppModel,
         chooseFiles: @escaping () -> Void,
-        chooseScheduledFiles: @escaping (Date) -> Void,
+        chooseFilesForTiming: @escaping () -> Void,
         fileBasketCommands: FileBasketCommands
     ) {
         self.model = model
         _fileBaskets = ObservedObject(wrappedValue: model.fileBaskets)
         self.chooseFiles = chooseFiles
-        self.chooseScheduledFiles = chooseScheduledFiles
+        self.chooseFilesForTiming = chooseFilesForTiming
         self.fileBasketCommands = fileBasketCommands
     }
 
@@ -44,6 +44,11 @@ struct ContentView: View {
                 ServicesView(model: model)
             } else {
                 sendView
+                    .overlay {
+                        if let selection = model.pendingSendSelection {
+                            timingOverlay(selection)
+                        }
+                    }
             }
         }
         .frame(width: Brand.panelWidth, height: Brand.panelHeight)
@@ -105,10 +110,35 @@ struct ContentView: View {
         } message: {
             Text(pendingBasketDeletionMessage)
         }
-        .sheet(isPresented: $showsSchedulePicker) {
-            ScheduledSendDatePicker(itemDescription: "从主界面选择文件") { scheduledAt in
-                chooseScheduledFiles(scheduledAt)
+    }
+
+    private func timingOverlay(_ selection: PendingSendSelection) -> some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.black.opacity(0.16))
+                .contentShape(Rectangle())
+                .onTapGesture(perform: model.cancelPendingSendSelection)
+
+            ScheduledSendTimingPicker(
+                itemDescription: selection.itemDescription,
+                previewURLs: selection.urls,
+                canSendImmediately: model.isReady,
+                initialDelaySeconds: model.sendDefaultDelaySeconds,
+                cancel: model.cancelPendingSendSelection,
+                sendImmediately: { model.sendPendingSelectionNow(selection) },
+                schedule: { model.schedulePendingSelection(selection, afterDelay: $0) }
+            )
+            .frame(width: 352)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Brand.hairline, lineWidth: 1)
             }
+            .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
         }
     }
 
@@ -276,7 +306,6 @@ struct ContentView: View {
         }
         if model.sendingTransferCount > 0 { return "发送中 \(model.sendingTransferCount)" }
         if model.queuedTransferCount > 0 { return "排队 \(model.queuedTransferCount)" }
-        if model.scheduledSendCount > 0 { return "待发送 \(model.scheduledSendCount)" }
         if case .checking = model.weChatStatus { return "连接中" }
         return model.isReady ? "已连接" : "未登录"
     }
@@ -284,7 +313,6 @@ struct ContentView: View {
     private var headerStatusColor: Color {
         if model.sendingTransferCount > 0 { return Brand.accent }
         if model.queuedTransferCount > 0 { return Brand.warning }
-        if model.scheduledSendCount > 0 { return Brand.warning }
         if case .checking = model.weChatStatus { return .secondary }
         return model.isReady ? Brand.success : Brand.danger
     }
@@ -327,11 +355,10 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .contentShape(RoundedRectangle(cornerRadius: Brand.radiusCard, style: .continuous))
         .onHover { isDropHovered = $0 }
-        .accessibilityLabel(model.isReady ? "选择或拖入文件发送" : "打开设置登录微信")
+        .accessibilityLabel(dropZoneAccessibilityLabel)
         .animation(reduceMotion ? nil : .smooth(duration: 0.18, extraBounce: 0), value: dropZoneIsHighlighted)
         .dropDestination(for: URL.self) { urls, _ in
             model.send(urls: urls)
-            return !urls.isEmpty
         } isTargeted: { isTargeted in
             model.isDropTargeted = isTargeted
         }
@@ -344,7 +371,7 @@ struct ContentView: View {
     }
 
     private func selectFilesFromDropZone() {
-        if model.isReady {
+        if model.isReady || model.sendDefaultBehavior != .immediate {
             chooseFiles()
         } else {
             model.showsServices = true
@@ -369,47 +396,60 @@ struct ContentView: View {
         }
         if model.sendingTransferCount > 0 { return "正在处理 \(model.sendingTransferCount) 个文件" }
         if model.queuedTransferCount > 0 { return "\(model.queuedTransferCount) 个文件排队中" }
-        if model.scheduledSendCount > 0 { return "\(model.scheduledSendCount) 个计划等待发送" }
         if case .checking = model.weChatStatus { return "正在连接微信" }
-        return model.isReady ? "拖入或点击选择文件" : "请先登录微信"
+        if !model.isReady, model.sendDefaultBehavior == .immediate {
+            return "请先登录微信"
+        }
+        return "拖入或点击选择文件"
     }
 
     private var dropZoneSubtitle: String {
         if model.hasActiveTransfers { return "可继续添加文件" }
-        if model.scheduledSendCount > 0 { return "可预览、改时间或立即发送" }
         if case .checking = model.weChatStatus { return "请稍候" }
-        return model.isReady ? "支持多选" : "点击前往设置扫码"
+        switch model.sendDefaultBehavior {
+        case .immediate:
+            return model.isReady ? "支持多选" : "点击前往设置扫码"
+        case .askEveryTime:
+            return "点击后选择发送时间 · 拖入立即发送"
+        case .fixedDelay:
+            let delay = ScheduledSendDelay.compactTitle(seconds: model.sendDefaultDelaySeconds)
+            return "点击后延时 \(delay) · 拖入立即发送"
+        }
+    }
+
+    private var dropZoneAccessibilityLabel: String {
+        if !model.isReady, model.sendDefaultBehavior == .immediate {
+            return "打开设置登录微信"
+        }
+        return switch model.sendDefaultBehavior {
+        case .immediate: "选择文件立即发送；拖入文件也会立即发送"
+        case .askEveryTime: "选择文件后选择发送时间；拖入文件会立即发送"
+        case .fixedDelay:
+            "选择文件后按固定延时发送；拖入文件会立即发送"
+        }
     }
 
     // MARK: - Transfers
 
     private var transferSectionHeader: some View {
         HStack(spacing: 10) {
-            Text(model.scheduledSendCount > 0 ? "待发送与最近传输" : "最近传输")
+            Text("发送任务")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
                 .tracking(0.6)
+
             Spacer()
-            Menu {
-                ForEach(ScheduledSendPreset.allCases) { preset in
-                    Button(preset.title) {
-                        chooseScheduledFiles(preset.scheduledAt())
-                    }
-                }
-                Divider()
-                Button("自定义时间…") {
-                    showsSchedulePicker = true
-                }
-            } label: {
-                Label("延时发送", systemImage: "clock.badge.plus")
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(Brand.accent)
+            Button(action: chooseFilesForTiming) {
+                Image(systemName: "clock")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(Color.primary.opacity(0.045)))
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("选择文件并加入待发送")
+            .buttonStyle(.plain)
+            .help("选择文件并设置发送时间")
+            .accessibilityLabel("选择文件并设置发送时间")
 
             if model.recentTransfers.contains(where: \.isTerminal) {
                 Button("清空") {
@@ -431,7 +471,7 @@ struct ContentView: View {
                 Text("暂无记录")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
-                Text(model.isReady ? "可立即发送，也可选择时间延时发送" : "延时计划可先创建，发送时需登录")
+                Text(model.isReady ? "选择文件后可立即发送或设置延时" : "延时计划可先创建，发送时需登录")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.tertiary)
             }
@@ -442,19 +482,34 @@ struct ContentView: View {
             let plans = model.displayedScheduledSends
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if !plans.isEmpty {
+                        listSubheader("等待发送")
+                    }
+
                     ForEach(Array(plans.enumerated()), id: \.element.id) { index, plan in
                         ScheduledSendPlanView(
                             plan: plan,
+                            isSelected: model.queueSelection == .scheduled(plan.id),
+                            onSelect: { model.queueSelection = .scheduled(plan.id) },
+                            onPreview: { model.previewQueueItem(.scheduled(plan.id)) },
                             sendNow: { model.sendScheduledNow(plan) },
                             reschedule: { model.rescheduleScheduled(plan, to: $0) },
                             cancel: { model.cancelScheduled(plan) }
                         )
 
-                        if index < plans.count - 1 || !transfers.isEmpty {
+                        if index < plans.count - 1 {
                             Divider()
                                 .padding(.leading, 60)
                                 .opacity(0.4)
                         }
+                    }
+
+                    if !plans.isEmpty, !transfers.isEmpty {
+                        Divider()
+                            .padding(.vertical, 4)
+                            .opacity(0.45)
+
+                        listSubheader("最近传输")
                     }
 
                     ForEach(Array(transfers.enumerated()), id: \.element.id) { index, transfer in
@@ -473,16 +528,46 @@ struct ContentView: View {
         }
     }
 
+    private func listSubheader(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+        .padding(.horizontal, 2)
+        .padding(.vertical, 5)
+    }
+
     @ViewBuilder
     private func transferItem(_ transfer: TransferRecord) -> some View {
         VStack(spacing: 0) {
-            Button {
-                model.revealTransfer(transfer)
-            } label: {
-                transferRow(transfer)
+            HStack(alignment: .center, spacing: 12) {
+                FilePreviewHitTarget {
+                    model.previewQueueItem(.transfer(transfer.id))
+                } content: {
+                    FileThumbnailView(
+                        url: transfer.fileURL,
+                        fileName: transfer.fileName,
+                        width: 40,
+                        height: 30,
+                        cornerRadius: 7,
+                        policy: .visualContentOnly
+                    )
+                }
+
+                Button {
+                    model.queueSelection = .transfer(transfer.id)
+                } label: {
+                    transferText(transfer)
+                }
+                .buttonStyle(.plain)
+                .simultaneousGesture(
+                    TapGesture(count: 2).onEnded {
+                        model.revealTransfer(transfer)
+                    }
+                )
             }
-            .buttonStyle(.plain)
-            .help(displayedFailureMessage(transfer) ?? transfer.message ?? "在 Finder 中显示")
 
             if transfer.status == .queued || transfer.status == .sending {
                 HStack {
@@ -496,9 +581,8 @@ struct ContentView: View {
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(Brand.danger)
                 }
-                .padding(.top, -6)
-                .padding(.bottom, 8)
-                .padding(.trailing, 2)
+                .padding(.top, 2)
+                .padding(.bottom, 2)
             } else if transfer.status == .failed {
                 HStack {
                     Spacer()
@@ -515,67 +599,77 @@ struct ContentView: View {
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(Brand.accent)
                 }
-                .padding(.top, -6)
-                .padding(.bottom, 8)
-                .padding(.trailing, 2)
-            }
-        }
-    }
-
-    private func transferRow(_ transfer: TransferRecord) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            FileTypeIcon(fileName: transfer.fileName)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(transfer.fileName)
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 6)
-                    Text(transferStatusText(transfer))
-                        .font(.system(size: 11, weight: .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(transferStatusColor(transfer))
-                }
-
-                if transfer.status == .sending {
-                    if transfer.stage == .waitingForContext {
-                        ProgressView()
-                            .progressViewStyle(.linear)
-                            .tint(Brand.warning)
-                    } else {
-                        ProgressView(value: transfer.progress ?? 0)
-                            .progressViewStyle(.linear)
-                            .tint(Brand.accent)
-                    }
-                    Text(progressDetail(transfer))
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                } else if transfer.status == .queued {
-                    ProgressView()
-                        .progressViewStyle(.linear)
-                        .tint(Brand.accent)
-                } else {
-                    HStack(spacing: 5) {
-                        Text(formatBytes(transfer.byteCount))
-                        Text("·")
-                        Text(relativeTime(transfer.date))
-                    }
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-
-                    if let message = displayedFailureMessage(transfer) {
-                        Text(message)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(Brand.danger)
-                            .lineLimit(2)
-                    }
-                }
+                .padding(.top, 2)
+                .padding(.bottom, 2)
             }
         }
         .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(
+                    model.queueSelection == .transfer(transfer.id) || hoveredTransferID == transfer.id
+                        ? Brand.surfaceElevated
+                        : .clear
+                )
+        )
+        .onHover { hovering in
+            hoveredTransferID = hovering ? transfer.id : nil
+        }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.16), value: hoveredTransferID)
+        .help(displayedFailureMessage(transfer) ?? transfer.message ?? "点缩略图预览，连按文件名在 Finder 中显示")
+    }
+
+    private func transferText(_ transfer: TransferRecord) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(transfer.fileName)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 6)
+                Text(transferStatusText(transfer))
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(transferStatusColor(transfer))
+            }
+
+            if transfer.status == .sending {
+                if transfer.stage == .waitingForContext {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .tint(Brand.warning)
+                } else {
+                    ProgressView(value: transfer.progress ?? 0)
+                        .progressViewStyle(.linear)
+                        .tint(Brand.accent)
+                }
+                Text(progressDetail(transfer))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            } else if transfer.status == .queued {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(Brand.accent)
+            } else {
+                HStack(spacing: 5) {
+                    Text(formatBytes(transfer.byteCount))
+                    Text("·")
+                    Text(relativeTime(transfer.date))
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+
+                if let message = displayedFailureMessage(transfer) {
+                    Text(message)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Brand.danger)
+                        .lineLimit(2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
 
@@ -664,7 +758,6 @@ struct ContentView: View {
         }
         if model.sendingTransferCount > 0 { return "\(model.sendingTransferCount) 个处理中" }
         if model.queuedTransferCount > 0 { return "\(model.queuedTransferCount) 个排队中" }
-        if model.scheduledSendCount > 0 { return "\(model.scheduledSendCount) 个待发送" }
         return "就绪"
     }
 }
@@ -735,57 +828,6 @@ private struct AppUpdateNoticeCard: View {
                 .stroke(Brand.hairline, lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
-    }
-}
-
-// MARK: - File icons（低饱和）
-
-private struct FileTypeIcon: View {
-    private let kind: FileKind
-
-    init(fileName: String) {
-        kind = FileKind(fileName: fileName)
-    }
-
-    var body: some View {
-        Image(systemName: kind.symbol)
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(.secondary)
-            .frame(width: 28, height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.primary.opacity(0.04))
-            )
-            .accessibilityHidden(true)
-    }
-}
-
-private enum FileKind {
-    case video, audio, image, archive, document, code, generic
-
-    init(fileName: String) {
-        let ext = (fileName as NSString).pathExtension.lowercased()
-        switch ext {
-        case "m4v", "mp4", "mov", "webm", "mkv", "avi": self = .video
-        case "mp3", "m4a", "aac", "wav", "flac", "aiff", "ogg": self = .audio
-        case "jpg", "jpeg", "png", "gif", "heic", "webp", "tiff", "bmp", "svg", "psd", "ai": self = .image
-        case "zip", "rar", "7z", "tar", "gz": self = .archive
-        case "pdf", "doc", "docx", "pages", "txt", "md", "xls", "xlsx", "ppt", "pptx": self = .document
-        case "swift", "js", "ts", "py", "go", "rs", "json", "html", "css", "sh": self = .code
-        default: self = .generic
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .video: "film"
-        case .audio: "waveform"
-        case .image: "photo"
-        case .archive: "archivebox"
-        case .document: "doc"
-        case .code: "chevron.left.forwardslash.chevron.right"
-        case .generic: "doc"
-        }
     }
 }
 

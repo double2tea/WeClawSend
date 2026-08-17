@@ -49,6 +49,16 @@ enum FileBasketArchiveScheduleResult: Equatable {
     case failed(String)
 }
 
+struct PendingSendSelection: Identifiable, Equatable {
+    let id = UUID()
+    let urls: [URL]
+
+    var itemDescription: String {
+        guard urls.count != 1 else { return urls[0].lastPathComponent }
+        return "\(urls.count) 个文件"
+    }
+}
+
 private final class AppRuntime: Sendable {
     let weChat: WeChatService
     let coordinator: SendCoordinator
@@ -81,6 +91,8 @@ final class AppModel: ObservableObject {
     @Published var weChatStatus: ServiceStatus = .checking
     @Published var recentTransfers: [TransferRecord] = []
     @Published private(set) var scheduledSends: [ScheduledSendPlan] = []
+    @Published var queueSelection: QueueSelection?
+    @Published private(set) var pendingSendSelection: PendingSendSelection?
     @Published var isDropTargeted = false
     @Published var showsServices = false
     @Published var presentedError: String?
@@ -97,6 +109,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var isLoadingOpenClawAccounts = false
     @Published var autoRenameMP4ToM4V = UserDefaults.standard.bool(forKey: AppSettings.autoRenameMP4Key)
     @Published var sendSizeLimit = AppSettings.sendSizeLimit
+    @Published var sendDefaultBehavior = AppSettings.sendDefaultBehavior
+    @Published var sendDefaultDelaySeconds = AppSettings.sendDefaultDelaySeconds
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
     @Published var sendResultNotificationsEnabled = AppSettings.sendResultNotificationsEnabled
     @Published var shelfEnabled = AppSettings.shelfEnabled
@@ -131,6 +145,7 @@ final class AppModel: ObservableObject {
     var onContextRefreshRequired: (() -> Void)?
     var onContextRefreshResolved: (() -> Void)?
     var onShelfPreferencesChanged: (() -> Void)?
+    var onQuickLookRequested: (() -> Void)?
 
     private let runtime: AppRuntime
     private var startupTask: Task<Void, Never>?
@@ -216,11 +231,36 @@ final class AppModel: ObservableObject {
             || hasPendingContextRefresh
             || appUpdateNotice != nil
             || presentedError != nil
+            || pendingSendSelection != nil
+            || showsServices
+    }
+
+    func previewURLs(for selection: QueueSelection) -> [URL] {
+        selection.previewURLs(plans: displayedScheduledSends, transfers: recentTransfers)
+    }
+
+    func previewQueueItem(_ selection: QueueSelection) {
+        queueSelection = selection
+        onQuickLookRequested?()
+    }
+
+    func pruneQueueSelection() {
+        switch queueSelection {
+        case let .scheduled(id):
+            if !displayedScheduledSends.contains(where: { $0.id == id }) {
+                queueSelection = nil
+            }
+        case let .transfer(id):
+            if !recentTransfers.contains(where: { $0.id == id }) {
+                queueSelection = nil
+            }
+        case nil:
+            break
+        }
     }
 
     var appVersion: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
-        return Self.bundledUpdateChannel == .beta ? "\(version) 测试版" : version
+        currentAppBuildVersion?.description ?? "开发版"
     }
 
     var receivesBetaUpdates: Bool {
@@ -432,6 +472,14 @@ final class AppModel: ObservableObject {
         displayedScheduledSends.count
     }
 
+    var menuBarActivity: MenuBarActivity {
+        MenuBarActivity.make(
+            sendingProgresses: recentTransfers.filter { $0.status == .sending }.map(\.progress),
+            queuedCount: queuedTransferCount,
+            scheduledCount: scheduledSendCount
+        )
+    }
+
     var displayedTransfers: [TransferRecord] {
         recentTransfers.sorted { lhs, rhs in
             let lhsPriority = Self.displayPriority(lhs.status)
@@ -454,6 +502,17 @@ final class AppModel: ObservableObject {
     func setSendSizeLimit(_ limit: SendSizeLimit) {
         sendSizeLimit = limit
         UserDefaults.standard.set(limit.rawValue, forKey: AppSettings.sendSizeLimitMegabytesKey)
+    }
+
+    func setSendDefaultBehavior(_ behavior: SendDefaultBehavior) {
+        sendDefaultBehavior = behavior
+        UserDefaults.standard.set(behavior.rawValue, forKey: AppSettings.sendDefaultBehaviorKey)
+    }
+
+    func setSendDefaultDelaySeconds(_ seconds: Int) {
+        guard ScheduledSendDelay.isValid(seconds: seconds) else { return }
+        sendDefaultDelaySeconds = seconds
+        UserDefaults.standard.set(seconds, forKey: AppSettings.sendDefaultDelaySecondsKey)
     }
 
     func setLocalAPIEnabled(_ enabled: Bool) {
@@ -1003,12 +1062,63 @@ final class AppModel: ObservableObject {
             source: source,
             idempotencyKey: idempotencyKey
         )
+        upsertScheduledSend(creation.plan)
         showTransientNotice(
             creation.created
                 ? "已加入待发送：\(scheduledSendTimeText(creation.plan.scheduledAt))"
                 : "该发送计划已存在"
         )
         return creation.plan
+    }
+
+    func schedule(
+        urls: [URL],
+        afterDelay seconds: Int,
+        source: String = "app"
+    ) async throws -> ScheduledSendPlan {
+        guard ScheduledSendDelay.isValid(seconds: seconds) else {
+            throw ScheduledSendError.invalidRequest("延时时间无效")
+        }
+        return try await schedule(
+            urls: urls,
+            at: Date.now.addingTimeInterval(TimeInterval(seconds)),
+            source: source
+        )
+    }
+
+    func prepareSendTiming(urls: [URL]) {
+        let files = urls.filter { url in
+            (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        }
+        guard !files.isEmpty else {
+            presentedError = "没有可发送的文件"
+            return
+        }
+        pendingSendSelection = PendingSendSelection(urls: files)
+    }
+
+    func cancelPendingSendSelection() {
+        pendingSendSelection = nil
+    }
+
+    func sendPendingSelectionNow(_ selection: PendingSendSelection) {
+        pendingSendSelection = nil
+        send(urls: selection.urls)
+    }
+
+    func schedulePendingSelection(
+        _ selection: PendingSendSelection,
+        afterDelay seconds: Int
+    ) {
+        pendingSendSelection = nil
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await schedule(urls: selection.urls, afterDelay: seconds)
+            } catch {
+                presentedError = error.localizedDescription
+            }
+        }
     }
 
     func sendScheduledNow(_ plan: ScheduledSendPlan) {
@@ -1110,7 +1220,7 @@ final class AppModel: ObservableObject {
         return .enqueued(archive.fileURL.lastPathComponent)
     }
 
-    func scheduleBasketItems(id: UUID, at scheduledAt: Date) async -> FileBasketScheduleResult {
+    func scheduleBasketItems(id: UUID, afterDelay seconds: Int) async -> FileBasketScheduleResult {
         guard let basket = fileBaskets.basket(id: id) else { return .empty }
         let unavailableCount = basket.removeUnavailableItems()
         guard unavailableCount == 0 else {
@@ -1123,7 +1233,7 @@ final class AppModel: ObservableObject {
         do {
             _ = try await schedule(
                 urls: basket.urls,
-                at: scheduledAt,
+                afterDelay: seconds,
                 source: "file-basket"
             )
             return .scheduled
@@ -1135,7 +1245,7 @@ final class AppModel: ObservableObject {
     func scheduleBasketArchive(
         id: UUID,
         archiveName: String,
-        at scheduledAt: Date
+        afterDelay seconds: Int
     ) async -> FileBasketArchiveScheduleResult {
         guard let basket = fileBaskets.basket(id: id) else { return .empty }
         let unavailableCount = basket.removeUnavailableItems()
@@ -1157,7 +1267,7 @@ final class AppModel: ObservableObject {
         do {
             _ = try await schedule(
                 urls: [archive.fileURL],
-                at: scheduledAt,
+                afterDelay: seconds,
                 source: "file-basket"
             )
             return .scheduled(archive.fileURL.lastPathComponent)
@@ -1280,6 +1390,7 @@ final class AppModel: ObservableObject {
         }
         recentTransfers.removeAll(where: \.isTerminal)
         retriedTransferIDs.removeAll()
+        pruneQueueSelection()
         persistTransfers()
     }
 
@@ -1352,6 +1463,7 @@ final class AppModel: ObservableObject {
             let plans = await coordinator.scheduledPlans()
             guard let self else { return }
             scheduledSends = plans
+            pruneQueueSelection()
             let preservedArchives = recentTransfers
                 .filter { $0.status == .failed }
                 .map(\.fileURL)
@@ -1380,6 +1492,7 @@ final class AppModel: ObservableObject {
     private func upsertScheduledSend(_ plan: ScheduledSendPlan) {
         scheduledSends.removeAll { $0.id == plan.id }
         scheduledSends.append(plan)
+        pruneQueueSelection()
     }
 
     @discardableResult

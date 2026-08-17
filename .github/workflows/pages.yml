@@ -39,7 +39,7 @@ jobs:
         run: |
           mkdir -p _site/downloads
           cp -R website/. _site/
-          latest_tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')"
+          latest_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')"
           gh release download "$latest_tag" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern 'WeClaw-Send.dmg' \

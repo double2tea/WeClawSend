@@ -5,6 +5,7 @@ import SwiftUI
 struct ServicesView: View {
     @ObservedObject var model: AppModel
     @Environment(\.openURL) private var openURL
+    @State private var showsDefaultDelayPicker = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,6 +28,15 @@ struct ServicesView: View {
         }
         .onAppear {
             model.refreshLaunchAtLogin()
+        }
+        .sheet(isPresented: $showsDefaultDelayPicker) {
+            ScheduledSendCustomDelayPicker(
+                title: "固定延时",
+                itemDescription: "主界面点击选择与文件篮主按钮将使用这个延时",
+                initialMinutes: max(1, model.sendDefaultDelaySeconds / 60)
+            ) { seconds in
+                model.setSendDefaultDelaySeconds(seconds)
+            }
         }
     }
 
@@ -343,6 +353,76 @@ struct ServicesView: View {
                 Divider().opacity(0.35).padding(.vertical, 6)
 
                 HStack(spacing: 8) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.primary.opacity(0.05)))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("默认发送方式")
+                            .font(.system(size: 11.5, weight: .medium))
+                        Text(defaultSendBehaviorSubtitle)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    Picker("默认发送方式", selection: Binding(
+                        get: { model.sendDefaultBehavior },
+                        set: { model.setSendDefaultBehavior($0) }
+                    )) {
+                        ForEach(SendDefaultBehavior.allCases) { behavior in
+                            Text(behavior.title).tag(behavior)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                    .frame(width: 94)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 2)
+
+                if model.sendDefaultBehavior == .fixedDelay {
+                    HStack(spacing: 8) {
+                        Image(systemName: "timer")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 22)
+                            .background(Circle().fill(Color.primary.opacity(0.05)))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("固定延时")
+                                .font(.system(size: 11.5, weight: .medium))
+                            Text("仅影响主界面点击选择与文件篮")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                        Spacer(minLength: 8)
+                        Menu {
+                            ForEach(ScheduledSendPreset.allCases) { preset in
+                                Button(preset.compactTitle) {
+                                    model.setSendDefaultDelaySeconds(preset.rawValue)
+                                }
+                            }
+                            Divider()
+                            Button("自定义分钟…") {
+                                showsDefaultDelayPicker = true
+                            }
+                        } label: {
+                            Text(ScheduledSendDelay.compactTitle(seconds: model.sendDefaultDelaySeconds))
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(Brand.accent)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.visible)
+                        .fixedSize()
+                    }
+                    .padding(.top, 7)
+                }
+
+                Divider().opacity(0.35).padding(.vertical, 6)
+
+                HStack(spacing: 8) {
                     Image(systemName: "externaldrive")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
@@ -372,6 +452,17 @@ struct ServicesView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 2)
             }
+        }
+    }
+
+    private var defaultSendBehaviorSubtitle: String {
+        switch model.sendDefaultBehavior {
+        case .immediate:
+            "点击选择与文件篮主按钮直接发送"
+        case .askEveryTime:
+            "选好文件后再选择立即或延时"
+        case .fixedDelay:
+            "默认延时 \(ScheduledSendDelay.compactTitle(seconds: model.sendDefaultDelaySeconds))；拖入仍立即发送"
         }
     }
 

@@ -271,6 +271,49 @@ precondition(dynamicHealth["next_scheduled_at"] is NSNull)
 UserDefaults.standard.set(999, forKey: AppSettings.sendSizeLimitMegabytesKey)
 precondition(AppSettings.sendSizeLimit == .megabytes200)
 
+let sendTimingSettingKeys = [
+    AppSettings.sendDefaultBehaviorKey,
+    AppSettings.sendDefaultDelaySecondsKey
+]
+let previousSendTimingSettings = Dictionary(
+    uniqueKeysWithValues: sendTimingSettingKeys.map {
+        ($0, UserDefaults.standard.object(forKey: $0))
+    }
+)
+defer {
+    for key in sendTimingSettingKeys {
+        if let value = previousSendTimingSettings[key] {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+}
+for key in sendTimingSettingKeys {
+    UserDefaults.standard.removeObject(forKey: key)
+}
+precondition(AppSettings.sendDefaultBehavior == .immediate)
+precondition(AppSettings.sendDefaultDelaySeconds == 60)
+precondition(SendDefaultBehavior.allCases.map(\.title) == ["立即发送", "每次询问", "固定延时"])
+precondition(ScheduledSendPreset.allCases.map(\.rawValue) == [10, 15, 30, 60, 120, 180, 300, 600])
+precondition(ScheduledSendPreset.tenMinutes.title == "10 分钟后")
+precondition(ScheduledSendDelay.seconds(customMinutes: 1) == 60)
+precondition(ScheduledSendDelay.seconds(customMinutes: 10_080) == 604_800)
+precondition(ScheduledSendDelay.seconds(customMinutes: 0) == nil)
+precondition(ScheduledSendDelay.compactTitle(seconds: 180) == "3 分钟")
+precondition(ScheduledSendDelay.compactTitle(seconds: 660) == "11 分钟")
+UserDefaults.standard.set(
+    SendDefaultBehavior.askEveryTime.rawValue,
+    forKey: AppSettings.sendDefaultBehaviorKey
+)
+UserDefaults.standard.set(15, forKey: AppSettings.sendDefaultDelaySecondsKey)
+precondition(AppSettings.sendDefaultBehavior == .askEveryTime)
+precondition(AppSettings.sendDefaultDelaySeconds == 15)
+UserDefaults.standard.set("invalid", forKey: AppSettings.sendDefaultBehaviorKey)
+UserDefaults.standard.set(0, forKey: AppSettings.sendDefaultDelaySecondsKey)
+precondition(AppSettings.sendDefaultBehavior == .immediate)
+precondition(AppSettings.sendDefaultDelaySeconds == 60)
+
 let previousAppUpdateChannel = UserDefaults.standard.object(forKey: AppSettings.appUpdateChannelKey)
 defer {
     if let previousAppUpdateChannel {
@@ -1299,6 +1342,8 @@ let stable140 = AppBuildVersion(version: version140, build: 10, channel: .stable
 let stable150 = AppBuildVersion(version: version150, build: 11, channel: .stable)
 let beta150Build12 = AppBuildVersion(version: version150, build: 12, channel: .beta)
 let beta150Build13 = AppBuildVersion(releaseTag: "v1.5.0-beta.13", isPrerelease: true)!
+precondition(beta150Build13.description == "1.5.0 测试版（构建 13）")
+precondition(NSImage(systemSymbolName: "clock.badge.checkmark", accessibilityDescription: nil) != nil)
 precondition(beta150Build12 < beta150Build13)
 precondition(beta150Build13 < stable150)
 precondition(beta150Build13.identifier == "1.5.0-beta.13")
@@ -2102,6 +2147,65 @@ try ScheduledSendStore.save([scheduledPlan], to: scheduledStoreURL)
 let restoredScheduledPlans = try ScheduledSendStore.load(from: scheduledStoreURL)
 precondition(restoredScheduledPlans == [scheduledPlan])
 precondition(ScheduledSendStatus.needsAttention.rawValue == "needs_attention")
+let queuedTransfer = TransferRecord(
+    transferID: UUID(),
+    path: "/tmp/preview.png",
+    fileName: "preview.png",
+    byteCount: 12,
+    date: Date(timeIntervalSince1970: 1_700_000_100),
+    status: .sent,
+    message: nil,
+    stage: nil,
+    progress: nil,
+    sentBytes: nil
+)
+precondition(
+    QueueSelection.scheduled(scheduledPlan.id)
+        .previewURLs(plans: [scheduledPlan], transfers: [queuedTransfer])
+        == [scheduledItem.fileURL]
+)
+precondition(
+    QueueSelection.transfer(queuedTransfer.id)
+        .previewURLs(plans: [scheduledPlan], transfers: [queuedTransfer])
+        == [queuedTransfer.fileURL]
+)
+precondition(
+    QueueSelection.scheduled(UUID())
+        .previewURLs(plans: [scheduledPlan], transfers: [queuedTransfer])
+        .isEmpty
+)
+precondition(NSImage(systemSymbolName: "clock", accessibilityDescription: nil) != nil)
+precondition(FilePreviewKind(fileName: "talk.mp4").hasVisualContent)
+precondition(FilePreviewKind(fileName: "talk.m4v").hasVisualContent)
+precondition(FilePreviewKind(fileName: "page.pdf").hasVisualContent)
+precondition(FilePreviewKind(fileName: "cover.png").hasVisualContent)
+precondition(!FilePreviewKind(fileName: "note.txt").hasVisualContent)
+precondition(!FilePreviewKind(fileName: "hit.mp3").hasVisualContent)
+precondition(FilePreviewKind(fileName: "talk.mp4").symbol == "film")
+precondition(FilePreviewKind(fileName: "hit.mp3").symbol == "waveform")
+precondition(MenuBarActivity.idle.badgeText == nil)
+precondition(
+    MenuBarActivity.make(
+        sendingProgresses: [0.5],
+        queuedCount: 0,
+        scheduledCount: 0
+    ) == MenuBarActivity(isSending: true, progress: 0.5, badgeCount: 0)
+)
+precondition(
+    MenuBarActivity.make(
+        sendingProgresses: [0.2, 0.8],
+        queuedCount: 1,
+        scheduledCount: 2
+    ).badgeCount == 3
+)
+precondition(
+    MenuBarActivity.make(
+        sendingProgresses: [0.2, nil],
+        queuedCount: 0,
+        scheduledCount: 0
+    ).isIndeterminate
+)
+precondition(MenuBarActivity(isSending: false, progress: nil, badgeCount: 12).badgeText == "9")
 let scheduledPlanJSONEncoder = JSONEncoder()
 scheduledPlanJSONEncoder.dateEncodingStrategy = .iso8601
 let scheduledPlanObject = try JSONSerialization.jsonObject(

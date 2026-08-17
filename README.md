@@ -36,7 +36,8 @@
 
 - 拖放或多选文件，最多同时处理 3 个任务
 - 显示准备、加密、上传和发送进度；支持取消、失败重试，以及针对短暂网络错误的有限自动重试
-- 支持延时发送：在主面板或文件篮选择预设时间或自定义时间，计划会在“待发送”区持久化显示，可预览、倒计时、改时间、立即发送或取消
+- 支持延时发送：先选文件再选 10 秒到 10 分钟或自定义分钟，计划会在“等待发送”区显示预览和倒计时，可改时间、立即发送或取消；设置中也可改为每次询问或固定延时
+- 发送任务列表里，图片、视频和 PDF 显示内容缩略图，其它文件用类型图标；点缩略图或按空格预览，连按文件名在 Finder 中显示；右键菜单栏图标可打开、进入设置或退出
 - 保留最近 20 条记录
 - 可将微信里的 `.mp4` 附件名显示为 `.m4v`，不修改本地文件
 - 可只读复用 OpenClaw 官方微信插件的登录；多个账号由你明确选择
@@ -167,7 +168,7 @@ chmod +x scripts/*.sh
 `release.sh` 会生成通用 App 和发布附件。App、Premiere 与 DaVinci 可以独立升级；推送与 `Resources/Info.plist` 一致的标签后，GitHub Actions 会自动创建 Release：
 
 - 正式版：`WeClawReleaseChannel=stable`，标签为 `v<版本>`（例如 `v2.1.0`）。
-- 内测版：`WeClawReleaseChannel=beta`，标签为 `v<版本>-beta.<构建号>`（例如 `v2.2.0-beta.28`），并自动发布为 GitHub prerelease。
+- 内测版：`WeClawReleaseChannel=beta`，标签为 `v<版本>-beta.<构建号>`（例如 `v2.2.0-beta.37`），并自动发布为 GitHub prerelease。
 
 </details>
 

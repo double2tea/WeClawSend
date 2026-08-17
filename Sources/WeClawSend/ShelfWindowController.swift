@@ -233,6 +233,18 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    func windowWillMove(_ notification: Notification) {
+        if isPresenting || isDismissing {
+            motionCompletionTask?.cancel()
+            motionCompletionTask = nil
+            isPresenting = false
+            isDismissing = false
+            panel.contentView?.layer?.removeAllAnimations()
+            resetContentLayer()
+            panel.alphaValue = 1
+        }
+    }
+
     func windowDidMove(_ notification: Notification) {
         guard !isPresenting, !isDismissing, !isResizing else { return }
         publishWindowState()
@@ -273,14 +285,14 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             session: session,
             chooseFiles: chooseFiles,
             sendAll: { [weak self] in self?.sendBasketItems() },
-            scheduleAll: { [weak self] scheduledAt in
-                self?.scheduleBasketItems(at: scheduledAt)
+            scheduleAll: { [weak self] delaySeconds in
+                self?.scheduleBasketItems(afterDelay: delaySeconds)
             },
             close: { [weak self] in self?.requestClose() },
             deleteBasket: { [weak self] in self?.requestDelete() },
             sendZIP: { [weak self] name in self?.sendBasketZIP(named: name) },
-            scheduleZIP: { [weak self] name, scheduledAt in
-                self?.scheduleBasketZIP(named: name, at: scheduledAt)
+            scheduleZIP: { [weak self] name, delaySeconds in
+                self?.scheduleBasketZIP(named: name, afterDelay: delaySeconds)
             },
             copyFiles: { [weak self] items in self?.copyFiles(items) },
             shareFiles: { [weak self] items, destination in
@@ -501,16 +513,17 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func scheduleBasketItems(at scheduledAt: Date) {
+    private func scheduleBasketItems(afterDelay seconds: Int) {
         session.showStatus("正在加入待发送…")
         let model = model
         let basketID = basket.id
         Task { [weak self, model] in
-            let result = await model.scheduleBasketItems(id: basketID, at: scheduledAt)
+            let result = await model.scheduleBasketItems(id: basketID, afterDelay: seconds)
             guard let self else { return }
             switch result {
             case .scheduled:
-                session.flash("已计划于 \(scheduledSendTimeText(scheduledAt)) 发送", duration: 2.4)
+                let delay = ScheduledSendDelay.compactTitle(seconds: seconds)
+                session.flash("已加入待发送：\(delay)后", duration: 2.4)
             case .empty:
                 session.flash("文件篮为空")
             case .requiresArchive:
@@ -550,7 +563,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func scheduleBasketZIP(named archiveName: String, at scheduledAt: Date) {
+    private func scheduleBasketZIP(named archiveName: String, afterDelay seconds: Int) {
         guard archiveTask == nil else {
             session.flash("正在压缩 ZIP…")
             return
@@ -562,7 +575,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             let result = await model.scheduleBasketArchive(
                 id: basketID,
                 archiveName: archiveName,
-                at: scheduledAt
+                afterDelay: seconds
             )
             guard let self else { return }
             archiveTask = nil

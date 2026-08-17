@@ -41,11 +41,86 @@ enum ShelfShakeSensitivity: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum SendDefaultBehavior: String, CaseIterable, Identifiable, Sendable {
+    case immediate
+    case askEveryTime = "ask_every_time"
+    case fixedDelay = "fixed_delay"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .immediate: "立即发送"
+        case .askEveryTime: "每次询问"
+        case .fixedDelay: "固定延时"
+        }
+    }
+}
+
+enum ScheduledSendPreset: Int, CaseIterable, Identifiable, Sendable {
+    case tenSeconds = 10
+    case fifteenSeconds = 15
+    case thirtySeconds = 30
+    case oneMinute = 60
+    case twoMinutes = 120
+    case threeMinutes = 180
+    case fiveMinutes = 300
+    case tenMinutes = 600
+
+    var id: Int { rawValue }
+
+    var compactTitle: String {
+        switch self {
+        case .tenSeconds: "10 秒"
+        case .fifteenSeconds: "15 秒"
+        case .thirtySeconds: "30 秒"
+        case .oneMinute: "1 分钟"
+        case .twoMinutes: "2 分钟"
+        case .threeMinutes: "3 分钟"
+        case .fiveMinutes: "5 分钟"
+        case .tenMinutes: "10 分钟"
+        }
+    }
+
+    var title: String { "\(compactTitle)后" }
+
+    func scheduledAt(relativeTo now: Date = .now) -> Date {
+        now.addingTimeInterval(TimeInterval(rawValue))
+    }
+}
+
+enum ScheduledSendDelay {
+    static let minimumSeconds = ScheduledSendPreset.tenSeconds.rawValue
+    static let maximumCustomMinutes = 10_080
+    static let defaultSeconds = ScheduledSendPreset.oneMinute.rawValue
+
+    static func seconds(customMinutes: Int) -> Int? {
+        guard (1...maximumCustomMinutes).contains(customMinutes) else { return nil }
+        return customMinutes * 60
+    }
+
+    static func isValid(seconds: Int) -> Bool {
+        (minimumSeconds...(maximumCustomMinutes * 60)).contains(seconds)
+    }
+
+    static func compactTitle(seconds: Int) -> String {
+        if let preset = ScheduledSendPreset(rawValue: seconds) {
+            return preset.compactTitle
+        }
+        if seconds.isMultiple(of: 60) {
+            return "\(seconds / 60) 分钟"
+        }
+        return "\(seconds) 秒"
+    }
+}
+
 enum AppSettings {
     static let autoRenameMP4Key = "AutoRenameMP4ToM4V"
     static let localAPIEnabledKey = "LocalAPIEnabled"
     static let sendResultNotificationsEnabledKey = "SendResultNotificationsEnabled"
     static let sendSizeLimitMegabytesKey = "SendSizeLimitMegabytes"
+    static let sendDefaultBehaviorKey = "SendDefaultBehavior"
+    static let sendDefaultDelaySecondsKey = "SendDefaultDelaySeconds"
     static let migrateLaunchAtLoginKey = "MigrateLaunchAtLogin"
     static let launchMigrationCompleteKey = "LaunchAtLoginMigrationComplete"
     static let portfolioSeenVersionKey = "PortfolioSeenVersion"
@@ -86,6 +161,20 @@ enum AppSettings {
     static var sendSizeLimit: SendSizeLimit {
         let stored = UserDefaults.standard.integer(forKey: sendSizeLimitMegabytesKey)
         return SendSizeLimit(rawValue: stored) ?? .megabytes200
+    }
+
+    static var sendDefaultBehavior: SendDefaultBehavior {
+        guard let stored = UserDefaults.standard.string(forKey: sendDefaultBehaviorKey) else {
+            return .immediate
+        }
+        return SendDefaultBehavior(rawValue: stored) ?? .immediate
+    }
+
+    static var sendDefaultDelaySeconds: Int {
+        let stored = UserDefaults.standard.integer(forKey: sendDefaultDelaySecondsKey)
+        return ScheduledSendDelay.isValid(seconds: stored)
+            ? stored
+            : ScheduledSendDelay.defaultSeconds
     }
 
     static var maxSendBytes: Int64 {

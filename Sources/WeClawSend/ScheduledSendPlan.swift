@@ -91,6 +91,20 @@ struct ScheduledSendPlan: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+enum QueueSelection: Equatable {
+    case scheduled(UUID)
+    case transfer(UUID)
+
+    func previewURLs(plans: [ScheduledSendPlan], transfers: [TransferRecord]) -> [URL] {
+        switch self {
+        case let .scheduled(id):
+            plans.first { $0.id == id }?.items.map(\.fileURL) ?? []
+        case let .transfer(id):
+            transfers.first { $0.id == id }.map { [$0.fileURL] } ?? []
+        }
+    }
+}
+
 struct ScheduledSendCreation: Sendable {
     let plan: ScheduledSendPlan
     let created: Bool

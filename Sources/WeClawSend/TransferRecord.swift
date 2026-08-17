@@ -74,3 +74,93 @@ struct TransferRecord: Codable, Equatable, Sendable {
         sentBytes = try container.decodeIfPresent(Int64.self, forKey: .sentBytes)
     }
 }
+
+enum FilePreviewKind: Equatable {
+    case image
+    case video
+    case pdf
+    case audio
+    case archive
+    case document
+    case generic
+
+    init(fileName: String) {
+        switch (fileName as NSString).pathExtension.lowercased() {
+        case "jpg", "jpeg", "png", "gif", "heic", "heif", "webp", "tiff", "tif", "bmp", "svg":
+            self = .image
+        case "m4v", "mp4", "mov", "webm", "mkv", "avi":
+            self = .video
+        case "pdf":
+            self = .pdf
+        case "mp3", "m4a", "aac", "wav", "flac", "aiff", "ogg":
+            self = .audio
+        case "zip", "rar", "7z", "tar", "gz":
+            self = .archive
+        case "doc", "docx", "pages", "txt", "md", "xls", "xlsx", "ppt", "pptx":
+            self = .document
+        default:
+            self = .generic
+        }
+    }
+
+    var hasVisualContent: Bool {
+        switch self {
+        case .image, .video, .pdf: true
+        default: false
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .image: "photo"
+        case .video: "film"
+        case .pdf: "doc.richtext"
+        case .audio: "waveform"
+        case .archive: "archivebox"
+        case .document, .generic: "doc"
+        }
+    }
+}
+
+enum FilePreviewPolicy: Equatable {
+    case always
+    case visualContentOnly
+}
+
+struct MenuBarActivity: Equatable {
+    var isSending: Bool
+    var progress: Double?
+    var badgeCount: Int
+
+    static let idle = MenuBarActivity(isSending: false, progress: nil, badgeCount: 0)
+
+    var isIndeterminate: Bool { isSending && progress == nil }
+
+    var badgeText: String? {
+        switch badgeCount {
+        case ...0: nil
+        case 1...9: String(badgeCount)
+        default: "9"
+        }
+    }
+
+    static func make(
+        sendingProgresses: [Double?],
+        queuedCount: Int,
+        scheduledCount: Int
+    ) -> MenuBarActivity {
+        let isSending = !sendingProgresses.isEmpty
+        let known = sendingProgresses.compactMap { $0 }
+        let progress: Double?
+        if isSending, !known.isEmpty, known.count == sendingProgresses.count {
+            progress = known.reduce(0, +) / Double(known.count)
+        } else {
+            progress = nil
+        }
+        return MenuBarActivity(
+            isSending: isSending,
+            progress: progress,
+            badgeCount: queuedCount + scheduledCount
+        )
+    }
+}

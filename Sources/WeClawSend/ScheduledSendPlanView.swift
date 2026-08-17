@@ -2,17 +2,24 @@ import SwiftUI
 
 struct ScheduledSendPlanView: View {
     let plan: ScheduledSendPlan
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onPreview: () -> Void
     let sendNow: () -> Void
     let reschedule: (Date) -> Void
     let cancel: () -> Void
 
-    @State private var showsCustomTimePicker = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showsCustomDelayPicker = false
+    @State private var isHovered = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .center, spacing: 11) {
-                    previewGrid
+                    FilePreviewHitTarget(preview: onPreview) {
+                        previewGrid
+                    }
 
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -37,6 +44,8 @@ struct ScheduledSendPlanView: View {
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onSelect)
                 }
 
                 if let message = plan.message, !message.isEmpty {
@@ -59,8 +68,8 @@ struct ScheduledSendPlanView: View {
                             }
                         }
                         Divider()
-                        Button("自定义时间…") {
-                            showsCustomTimePicker = true
+                        Button("自定义分钟…") {
+                            showsCustomDelayPicker = true
                         }
                     } label: {
                         Label("改时间", systemImage: "clock.arrow.circlepath")
@@ -79,34 +88,65 @@ struct ScheduledSendPlanView: View {
                 }
             }
             .padding(.vertical, 10)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected || isHovered ? Brand.surfaceElevated : .clear)
+            )
+            .onHover { isHovered = $0 }
+            .animation(reduceMotion ? nil : .smooth(duration: 0.16), value: isHovered)
         }
-        .sheet(isPresented: $showsCustomTimePicker) {
-            ScheduledSendDatePicker(itemDescription: planTitle, confirm: reschedule)
+        .sheet(isPresented: $showsCustomDelayPicker) {
+            ScheduledSendCustomDelayPicker(
+                title: "修改延时",
+                itemDescription: planTitle
+            ) { seconds in
+                reschedule(Date.now.addingTimeInterval(TimeInterval(seconds)))
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("待发送：\(planTitle)")
     }
 
+    @ViewBuilder
     private var previewGrid: some View {
-        let columns = [
-            GridItem(.fixed(24), spacing: 2),
-            GridItem(.fixed(24), spacing: 2)
-        ]
-        return LazyVGrid(columns: columns, spacing: 2) {
-            ForEach(Array(plan.items.prefix(4))) { item in
-                FileThumbnailView(url: item.fileURL, width: 24, height: 20, cornerRadius: 4)
+        if plan.items.count == 1, let item = plan.items.first {
+            FileThumbnailView(
+                url: item.fileURL,
+                fileName: item.fileName,
+                width: 40,
+                height: 30,
+                cornerRadius: 7,
+                policy: .visualContentOnly
+            )
+        } else {
+            let columns = [
+                GridItem(.fixed(28), spacing: 2),
+                GridItem(.fixed(28), spacing: 2)
+            ]
+            LazyVGrid(columns: columns, spacing: 2) {
+                ForEach(Array(plan.items.prefix(4))) { item in
+                    FileThumbnailView(
+                        url: item.fileURL,
+                        fileName: item.fileName,
+                        width: 28,
+                        height: 22,
+                        cornerRadius: 4,
+                        policy: .visualContentOnly
+                    )
+                }
             }
-        }
-        .frame(width: 50, height: 42, alignment: .center)
-        .overlay(alignment: .bottomTrailing) {
-            if plan.items.count > 4 {
-                Text("+\(plan.items.count - 4)")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 3)
-                    .frame(minHeight: 13)
-                    .background(Capsule().fill(Brand.action))
-                    .offset(x: 3, y: 3)
+            .frame(width: 58, height: 46, alignment: .center)
+            .overlay(alignment: .bottomTrailing) {
+                if plan.items.count > 4 {
+                    Text("+\(plan.items.count - 4)")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 3)
+                        .frame(minHeight: 13)
+                        .background(Capsule().fill(Brand.action))
+                        .offset(x: 3, y: 3)
+                }
             }
         }
     }

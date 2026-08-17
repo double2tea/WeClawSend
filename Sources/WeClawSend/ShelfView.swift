@@ -40,11 +40,11 @@ struct ShelfView: View {
 
     let chooseFiles: () -> Void
     let sendAll: () -> Void
-    let scheduleAll: (Date) -> Void
+    let scheduleAll: (Int) -> Void
     let close: () -> Void
     let deleteBasket: () -> Void
     let sendZIP: (String) -> Void
-    let scheduleZIP: (String, Date) -> Void
+    let scheduleZIP: (String, Int) -> Void
     let copyFiles: ([ShelfItem]) -> Void
     let shareFiles: ([ShelfItem], ShelfShareDestination) -> Void
     let copyPaths: () -> Void
@@ -59,8 +59,9 @@ struct ShelfView: View {
     @State private var hoveredItemID: UUID?
     @State private var showsDeleteConfirmation = false
     @State private var showsZIPNaming = false
-    @State private var showsSchedulePicker = false
-    @State private var pendingZIPScheduleAt: Date?
+    @State private var showsTimingPicker = false
+    @State private var showsCustomDelayPicker = false
+    @State private var pendingZIPScheduleDelaySeconds: Int?
     @State private var zipName = ""
     @State private var hoveredChromeButton: String?
     @State private var isTitleHovered = false
@@ -102,24 +103,36 @@ struct ShelfView: View {
             .alert(zipAlertTitle, isPresented: $showsZIPNaming) {
                 TextField("压缩包名称", text: $zipName)
                 Button(zipConfirmationTitle) {
-                    if let scheduledAt = pendingZIPScheduleAt {
-                        scheduleZIP(zipName, scheduledAt)
+                    if let delaySeconds = pendingZIPScheduleDelaySeconds {
+                        scheduleZIP(zipName, delaySeconds)
                     } else {
                         sendZIP(zipName)
                     }
-                    pendingZIPScheduleAt = nil
+                    pendingZIPScheduleDelaySeconds = nil
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(FileBasketArchiver.normalizedArchiveName(zipName) == nil)
                 Button("取消", role: .cancel) {
-                    pendingZIPScheduleAt = nil
+                    pendingZIPScheduleDelaySeconds = nil
                 }
             } message: {
                 Text(zipAlertMessage)
             }
-            .sheet(isPresented: $showsSchedulePicker) {
-                ScheduledSendDatePicker(itemDescription: scheduledItemDescription) { scheduledAt in
-                    scheduleCurrentItems(at: scheduledAt)
+            .sheet(isPresented: $showsTimingPicker) {
+                ScheduledSendTimingPicker(
+                    itemDescription: scheduledItemDescription,
+                    previewURLs: shelf.urls,
+                    canSendImmediately: model.isReady,
+                    initialDelaySeconds: model.sendDefaultDelaySeconds,
+                    cancel: { showsTimingPicker = false },
+                    sendImmediately: sendCurrentItemsImmediately,
+                    schedule: scheduleCurrentItems(afterDelay:)
+                )
+                .frame(width: 340)
+            }
+            .sheet(isPresented: $showsCustomDelayPicker) {
+                ScheduledSendCustomDelayPicker(itemDescription: scheduledItemDescription) { seconds in
+                    scheduleCurrentItems(afterDelay: seconds)
                 }
             }
     }
@@ -178,6 +191,8 @@ struct ShelfView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: toggleCollapsed)
 
             Spacer(minLength: 2)
 
@@ -186,10 +201,8 @@ struct ShelfView: View {
         }
         .padding(.horizontal, 11)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: toggleCollapsed)
+        .background(WindowDragHandle())
         .accessibilityLabel(shelf.items.isEmpty ? "\(shelf.title)为空，点击展开" : "\(shelf.title)中有 \(shelf.items.count) 个项目，点击展开")
-        .accessibilityAddTraits(.isButton)
     }
 
     private var collapsedTitle: String {
@@ -266,7 +279,10 @@ struct ShelfView: View {
         }
         .padding(.horizontal, 11)
         .frame(height: 52)
-        .background(Color.primary.opacity(0.012))
+        .background {
+            WindowDragHandle()
+                .overlay(Color.primary.opacity(0.012))
+        }
     }
 
     private var titleControl: some View {
@@ -683,7 +699,7 @@ struct ShelfView: View {
 
             Button(action: sendCurrentItems) {
                 HStack(spacing: 4) {
-                    Image(systemName: hasDirectories ? "archivebox.fill" : "paperplane.fill")
+                    Image(systemName: sendButtonSymbol)
                         .font(.system(size: 9, weight: .semibold))
                     Text(sendButtonTitle)
                         .font(.system(size: 11, weight: .semibold))
@@ -701,17 +717,24 @@ struct ShelfView: View {
             .help(sendButtonHelp)
 
             Menu {
+                if model.sendDefaultBehavior != .immediate {
+                    Button("立即发送") {
+                        sendCurrentItemsImmediately()
+                    }
+                    .disabled(!model.isReady)
+                    Divider()
+                }
                 ForEach(ScheduledSendPreset.allCases) { preset in
                     Button(preset.title) {
-                        scheduleCurrentItems(at: preset.scheduledAt())
+                        scheduleCurrentItems(afterDelay: preset.rawValue)
                     }
                 }
                 Divider()
-                Button("自定义时间…") {
-                    showsSchedulePicker = true
+                Button("自定义分钟…") {
+                    showsCustomDelayPicker = true
                 }
             } label: {
-                Image(systemName: "clock.badge.plus")
+                Image(systemName: "clock")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(shelf.items.isEmpty ? Color.secondary.opacity(0.45) : Brand.accent)
                     .frame(width: 28, height: 28)
@@ -729,13 +752,30 @@ struct ShelfView: View {
     }
 
     private var sendEnabled: Bool {
-        model.isReady && !shelf.items.isEmpty
+        guard !shelf.items.isEmpty else { return false }
+        return model.sendDefaultBehavior == .immediate ? model.isReady : true
     }
 
     private var sendButtonTitle: String {
-        if !model.isReady { return "未登录" }
         if shelf.items.isEmpty { return "发送" }
-        return hasDirectories ? "压缩发送 \(shelf.items.count)" : "发送 \(shelf.items.count)"
+        switch model.sendDefaultBehavior {
+        case .immediate:
+            if !model.isReady { return "未登录" }
+            return hasDirectories ? "压缩发送 \(shelf.items.count)" : "发送 \(shelf.items.count)"
+        case .askEveryTime:
+            return "选择方式 \(shelf.items.count)"
+        case .fixedDelay:
+            let delay = ScheduledSendDelay.compactTitle(seconds: model.sendDefaultDelaySeconds)
+            return "\(delay)后发送"
+        }
+    }
+
+    private var sendButtonSymbol: String {
+        switch model.sendDefaultBehavior {
+        case .immediate: hasDirectories ? "archivebox.fill" : "paperplane.fill"
+        case .askEveryTime: "clock.badge.questionmark"
+        case .fixedDelay: "timer"
+        }
     }
 
     // MARK: - Controls
@@ -751,11 +791,29 @@ struct ShelfView: View {
     }
 
     private var sendButtonHelp: String {
-        guard model.isReady else { return "请先登录微信" }
-        return hasDirectories ? "文件夹将打包为 ZIP 后发送" : "发送当前文件篮内全部文件"
+        switch model.sendDefaultBehavior {
+        case .immediate:
+            guard model.isReady else { return "请先登录微信" }
+            return hasDirectories ? "文件夹将打包为 ZIP 后发送" : "立即发送当前文件篮内全部文件"
+        case .askEveryTime:
+            return "选择立即发送或延时发送"
+        case .fixedDelay:
+            return "按设置中的固定延时建立发送计划"
+        }
     }
 
     private func sendCurrentItems() {
+        switch model.sendDefaultBehavior {
+        case .immediate:
+            sendCurrentItemsImmediately()
+        case .askEveryTime:
+            showsTimingPicker = true
+        case .fixedDelay:
+            scheduleCurrentItems(afterDelay: model.sendDefaultDelaySeconds)
+        }
+    }
+
+    private func sendCurrentItemsImmediately() {
         if hasDirectories {
             presentZIPNaming()
         } else {
@@ -763,16 +821,16 @@ struct ShelfView: View {
         }
     }
 
-    private func scheduleCurrentItems(at scheduledAt: Date) {
+    private func scheduleCurrentItems(afterDelay seconds: Int) {
         if hasDirectories {
-            presentZIPNaming(scheduledAt: scheduledAt)
+            presentZIPNaming(delaySeconds: seconds)
         } else {
-            scheduleAll(scheduledAt)
+            scheduleAll(seconds)
         }
     }
 
-    private func presentZIPNaming(scheduledAt: Date? = nil) {
-        pendingZIPScheduleAt = scheduledAt
+    private func presentZIPNaming(delaySeconds: Int? = nil) {
+        pendingZIPScheduleDelaySeconds = delaySeconds
         zipName = "\(shelf.title).zip"
         showsZIPNaming = true
     }
@@ -782,16 +840,17 @@ struct ShelfView: View {
     }
 
     private var zipAlertTitle: String {
-        pendingZIPScheduleAt == nil ? "压缩并发送" : "压缩并加入待发送"
+        pendingZIPScheduleDelaySeconds == nil ? "压缩并发送" : "压缩并加入待发送"
     }
 
     private var zipConfirmationTitle: String {
-        pendingZIPScheduleAt == nil ? "压缩并发送" : "压缩并加入待发送"
+        pendingZIPScheduleDelaySeconds == nil ? "压缩并发送" : "压缩并加入待发送"
     }
 
     private var zipAlertMessage: String {
-        if let scheduledAt = pendingZIPScheduleAt {
-            return "将先创建 ZIP，再于 \(scheduledSendTimeText(scheduledAt)) 发送；名称不能包含 / 或 :。"
+        if let delaySeconds = pendingZIPScheduleDelaySeconds {
+            let delay = ScheduledSendDelay.compactTitle(seconds: delaySeconds)
+            return "将先创建 ZIP，再于 \(delay)后发送；名称不能包含 / 或 :。"
         }
         return "确认后立即压缩并发送；名称不能包含 / 或 :，也不会清空当前文件篮。"
     }
@@ -1276,6 +1335,18 @@ private final class ShelfItemDragSource: NSObject, ObservableObject, NSDraggingS
     }
 }
 
+private struct WindowDragHandle: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WindowDragView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class WindowDragView: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+}
+
 private struct ShelfItemDragSourceAnchor: NSViewRepresentable {
     let source: ShelfItemDragSource
 
@@ -1290,27 +1361,69 @@ private struct ShelfItemDragSourceAnchor: NSViewRepresentable {
     }
 }
 
+struct FilePreviewHitTarget<Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let preview: () -> Void
+    @ViewBuilder var content: () -> Content
+    @State private var isHovered = false
+
+    var body: some View {
+        content()
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.black.opacity(isHovered ? 0.28 : 0))
+                if isHovered {
+                    Image(systemName: "eye.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .scaleEffect(!reduceMotion && isHovered ? 1.04 : 1)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.16), value: isHovered)
+            .onHover { isHovered = $0 }
+            .onTapGesture(perform: preview)
+            .help("预览")
+    }
+}
+
 struct FileThumbnailView: View {
     let url: URL
+    var fileName: String? = nil
     let width: CGFloat
     let height: CGFloat
     let cornerRadius: CGFloat
+    var policy: FilePreviewPolicy = .always
 
     @State private var thumbnail: NSImage?
+
+    private var kind: FilePreviewKind {
+        FilePreviewKind(fileName: fileName ?? url.lastPathComponent)
+    }
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.045))
 
-            if let thumbnail {
+            if let thumbnail, kind.hasVisualContent {
+                Image(nsImage: thumbnail)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+                    .frame(width: width, height: height)
+                    .clipped()
+            } else if let thumbnail {
                 Image(nsImage: thumbnail)
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()
                     .padding(3)
-            } else {
+            } else if policy == .always {
                 FilePreviewIcon(url: url, size: min(width, height) * 0.56)
+            } else {
+                Image(systemName: kind.symbol)
+                    .font(.system(size: min(width, height) * 0.42, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(width: width, height: height)
@@ -1320,9 +1433,16 @@ struct FileThumbnailView: View {
                 .stroke(Color.primary.opacity(0.06), lineWidth: 0.7)
         }
         .task(id: cacheKey) {
+            thumbnail = nil
+            guard shouldLoadThumbnail else { return }
             await loadThumbnail()
         }
         .accessibilityHidden(true)
+    }
+
+    private var shouldLoadThumbnail: Bool {
+        FileManager.default.fileExists(atPath: url.path)
+            && (policy == .always || kind.hasVisualContent)
     }
 
     private var cacheKey: String {
@@ -1330,7 +1450,7 @@ struct FileThumbnailView: View {
             for: url,
             width: width,
             height: height
-        )
+        ) + "#\(policy == .visualContentOnly ? "visual" : "always")"
     }
 
     @MainActor
