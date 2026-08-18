@@ -55,6 +55,17 @@ struct SocialLinksView: View {
 
     var body: some View {
         HStack(spacing: 4) {
+            Link(destination: Brand.websiteURL) {
+                Image(systemName: "globe")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.primary.opacity(0.05)))
+            }
+            .buttonStyle(.plain)
+            .help("打开 WeClaw Send 官网")
+            .accessibilityLabel("WeClaw Send 官网")
+
             Link(destination: Brand.githubURL) {
                 Image(nsImage: Brand.githubMarkImage)
                     .resizable()

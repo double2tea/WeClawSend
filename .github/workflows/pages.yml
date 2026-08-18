@@ -39,14 +39,28 @@ jobs:
         run: |
           mkdir -p _site/downloads
           cp -R website/. _site/
-          latest_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')"
+          latest_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')"
           gh release download "$latest_tag" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern 'WeClaw-Send.dmg' \
             --pattern 'WeClaw-Send.zip' \
+            --pattern 'WeClaw-Send-Premiere-CEP12.zip' \
+            --pattern 'WeClaw-Send-DaVinci-Resolve.zip' \
+            --pattern 'WeClaw-Send-Components.json' \
+            --pattern 'SHA256SUMS.txt' \
             --dir _site/downloads
-          test -s _site/downloads/WeClaw-Send.dmg
-          test -s _site/downloads/WeClaw-Send.zip
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$latest_tag" > _site/downloads/release.json
+          for file in \
+            WeClaw-Send.dmg \
+            WeClaw-Send.zip \
+            WeClaw-Send-Premiere-CEP12.zip \
+            WeClaw-Send-DaVinci-Resolve.zip \
+            WeClaw-Send-Components.json \
+            SHA256SUMS.txt \
+            release.json
+          do
+            test -s "_site/downloads/$file"
+          done
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

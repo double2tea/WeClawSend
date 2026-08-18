@@ -693,10 +693,21 @@ struct ServicesView: View {
     private var feedbackSection: some View {
         compactCard {
             VStack(alignment: .leading, spacing: 0) {
-                Text("反馈")
+                Text("帮助与反馈")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.tertiary)
                     .padding(.bottom, 6)
+
+                integrationActionRow(
+                    icon: "globe",
+                    title: "官方网站",
+                    subtitle: "查看视频教程、使用说明和正式版下载",
+                    buttonTitle: "打开",
+                    isWorking: false,
+                    action: { openURL(Brand.websiteURL) }
+                )
+
+                Divider().opacity(0.35).padding(.vertical, 6)
 
                 integrationActionRow(
                     icon: "bubble.left.and.bubble.right",

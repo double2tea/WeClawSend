@@ -1461,6 +1461,39 @@ precondition(
 precondition(updateResult.refreshedRelease?.tagName == "v1.6.0")
 precondition(updateResult.metadataRequestCount == 2)
 
+let stablePrimaryEndpoint = URL(string: "https://mock.local/releases/unavailable")!
+let stableFallbackEndpoint = URL(string: "https://cdn.mock/downloads/release.json")!
+let stableFallbackResult = UpdateResultBox()
+MockURLProtocol.handler = { request in
+    stableFallbackResult.metadataRequestCount += 1
+    if request.url == stablePrimaryEndpoint {
+        return MockURLProtocol.response(request, statusCode: 503, body: "Unavailable")
+    }
+    precondition(request.url == stableFallbackEndpoint)
+    return MockURLProtocol.response(
+        request,
+        body: #"{"tag_name":"v1.6.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v1.6.0","draft":false,"prerelease":false,"assets":[]}"#
+    )
+}
+let stableFallbackManager = UpdateManager(
+    session: updateSession,
+    latestReleaseURL: stablePrimaryEndpoint,
+    stableReleaseFallbackURL: stableFallbackEndpoint
+)
+let stableFallbackFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        stableFallbackResult.release = try await stableFallbackManager.latestRelease()
+    } catch {
+        stableFallbackResult.error = error
+    }
+    stableFallbackFinished.signal()
+}
+precondition(stableFallbackFinished.wait(timeout: .now() + 10) == .success)
+if let error = stableFallbackResult.error { throw error }
+precondition(stableFallbackResult.release?.tagName == "v1.6.0")
+precondition(stableFallbackResult.metadataRequestCount == 2)
+
 let betaEndpoint = URL(string: "https://mock.local/releases?per_page=100")!
 let betaResult = UpdateResultBox()
 MockURLProtocol.handler = { request in
@@ -1601,15 +1634,19 @@ MockURLProtocol.handler = { request in
     case "/releases/latest":
         return MockURLProtocol.response(
             request,
-            body: #"{"tag_name":"v9.0.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v9.0.0","assets":[{"name":"SHA256SUMS.txt","browser_download_url":"https://mock.local/SHA256SUMS.txt"},{"name":"WeClaw-Send-Components.json","browser_download_url":"https://mock.local/WeClaw-Send-Components.json"},{"name":"WeClaw-Send-Premiere-CEP12.zip","browser_download_url":"https://mock.local/WeClaw-Send-Premiere-CEP12.zip"},{"name":"WeClaw-Send-DaVinci-Resolve.zip","browser_download_url":"https://mock.local/WeClaw-Send-DaVinci-Resolve.zip"}]}"#
+            body: #"{"tag_name":"v9.0.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v9.0.0","assets":[{"name":"SHA256SUMS.txt","browser_download_url":"https://github.mock/SHA256SUMS.txt"},{"name":"WeClaw-Send-Components.json","browser_download_url":"https://github.mock/WeClaw-Send-Components.json"},{"name":"WeClaw-Send-Premiere-CEP12.zip","browser_download_url":"https://github.mock/WeClaw-Send-Premiere-CEP12.zip"},{"name":"WeClaw-Send-DaVinci-Resolve.zip","browser_download_url":"https://github.mock/WeClaw-Send-DaVinci-Resolve.zip"}]}"#
         )
-    case "/SHA256SUMS.txt":
+    case "/SHA256SUMS.txt", "/WeClaw-Send-Premiere-CEP12.zip",
+         "/WeClaw-Send-DaVinci-Resolve.zip", "/WeClaw-Send-Components.json":
+        precondition(request.url!.host == "github.mock")
+        return MockURLProtocol.response(request, statusCode: 503, body: "Unavailable")
+    case "/downloads/SHA256SUMS.txt":
         return MockURLProtocol.response(request, body: installerChecksumManifest)
-    case "/WeClaw-Send-Premiere-CEP12.zip":
+    case "/downloads/WeClaw-Send-Premiere-CEP12.zip":
         return MockURLProtocol.response(request, data: try Data(contentsOf: premiereArchive))
-    case "/WeClaw-Send-DaVinci-Resolve.zip":
+    case "/downloads/WeClaw-Send-DaVinci-Resolve.zip":
         return MockURLProtocol.response(request, data: try Data(contentsOf: daVinciArchive))
-    case "/WeClaw-Send-Components.json":
+    case "/downloads/WeClaw-Send-Components.json":
         return MockURLProtocol.response(request, data: try Data(contentsOf: componentsFile))
     default:
         preconditionFailure("Unexpected installer request: \(request.url!.absoluteString)")
@@ -1618,6 +1655,7 @@ MockURLProtocol.handler = { request in
 let installerManager = UpdateManager(
     session: installerSession,
     latestReleaseURL: installerEndpoint,
+    cdnDownloadsBaseURL: URL(string: "https://cdn.mock/downloads/")!,
     homeDirectory: installerHome,
     defaultsExecutablePath: "/usr/bin/true"
 )

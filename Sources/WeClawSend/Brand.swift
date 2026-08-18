@@ -6,6 +6,7 @@ enum Brand {
     static let name = "WeClaw Send"
     static let shortName = "WeClaw"
     static let bundleID = "com.chacha.WeClawSend"
+    static let websiteURL = URL(string: "https://weclaw-send.pages.dev/")!
     static let githubURL = URL(string: "https://github.com/double2tea/WeClawSend")!
     static let portfolioURL = URL(string: "https://zeezhi.pages.dev/")!
     static let supportEmailURL = URL(string: "mailto:double_tea@foxmail.com")!

@@ -312,6 +312,12 @@ actor UpdateManager {
     nonisolated static let betaReleasesURL = URL(
         string: "https://api.github.com/repos/double2tea/WeClawSend/releases?per_page=100"
     )!
+    nonisolated static let stableReleaseFallbackURL = URL(
+        string: "https://weclaw-send.pages.dev/downloads/release.json"
+    )!
+    nonisolated static let cdnDownloadsBaseURL = URL(
+        string: "https://weclaw-send.pages.dev/downloads/"
+    )!
     nonisolated static let appArchiveName = "WeClaw-Send.zip"
     nonisolated static let premiereArchiveName = "WeClaw-Send-Premiere-CEP12.zip"
     nonisolated static let daVinciArchiveName = "WeClaw-Send-DaVinci-Resolve.zip"
@@ -353,6 +359,8 @@ actor UpdateManager {
     private let fileManager: FileManager
     private let latestReleaseURL: URL
     private let betaReleasesURL: URL
+    private let stableReleaseFallbackURL: URL
+    private let cdnDownloadsBaseURL: URL
     private let homeDirectory: URL
     private let defaultsExecutablePath: String
     private var cachedReleases: [AppUpdateChannel: (release: GitHubRelease, date: Date)] = [:]
@@ -368,6 +376,8 @@ actor UpdateManager {
         fileManager: FileManager = .default,
         latestReleaseURL: URL = UpdateManager.latestReleaseURL,
         betaReleasesURL: URL = UpdateManager.betaReleasesURL,
+        stableReleaseFallbackURL: URL = UpdateManager.stableReleaseFallbackURL,
+        cdnDownloadsBaseURL: URL = UpdateManager.cdnDownloadsBaseURL,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         defaultsExecutablePath: String = "/usr/bin/defaults"
     ) {
@@ -375,6 +385,8 @@ actor UpdateManager {
         self.fileManager = fileManager
         self.latestReleaseURL = latestReleaseURL
         self.betaReleasesURL = betaReleasesURL
+        self.stableReleaseFallbackURL = stableReleaseFallbackURL
+        self.cdnDownloadsBaseURL = cdnDownloadsBaseURL
         self.homeDirectory = homeDirectory
         self.defaultsExecutablePath = defaultsExecutablePath
     }
@@ -678,49 +690,61 @@ actor UpdateManager {
         let session = self.session
         let ignoresCache = ignoresCacheForNextMetadataRequest
         ignoresCacheForNextMetadataRequest = false
-        let request = request(
-            for: channel == .stable ? latestReleaseURL : betaReleasesURL,
-            timeoutInterval: Self.metadataRequestTimeout,
-            ignoresCache: ignoresCache
-        )
+        let releaseURLs = channel == .stable
+            ? [latestReleaseURL, stableReleaseFallbackURL]
+            : [betaReleasesURL]
+        let releaseRequests = releaseURLs.map {
+            request(
+                for: $0,
+                timeoutInterval: Self.metadataRequestTimeout,
+                ignoresCache: ignoresCache
+            )
+        }
         let task = Task<GitHubRelease, Error> {
-            let (data, response) = try await session.data(for: request)
-            guard let response = response as? HTTPURLResponse else {
-                throw UpdateManagerError.invalidResponse
-            }
-            guard (200...299).contains(response.statusCode) else {
-                throw UpdateManagerError.httpStatus(response.statusCode)
-            }
-            do {
-                switch channel {
-                case .stable:
-                    let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
-                    guard
-                        !release.isDraft,
-                        !release.isPrerelease,
-                        release.appVersion?.channel == .stable
-                    else {
+            var lastError: Error = UpdateManagerError.invalidResponse
+            for request in releaseRequests {
+                do {
+                    let (data, response) = try await session.data(for: request)
+                    guard let response = response as? HTTPURLResponse else {
                         throw UpdateManagerError.invalidResponse
                     }
-                    return release
-                case .beta:
-                    let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
-                    let candidates = releases.compactMap { release -> (GitHubRelease, AppBuildVersion)? in
-                        guard !release.isDraft, let version = release.appVersion else { return nil }
-                        if version.channel == .beta, !release.isPrerelease { return nil }
-                        if version.channel == .stable, release.isPrerelease { return nil }
-                        return (release, version)
+                    guard (200...299).contains(response.statusCode) else {
+                        throw UpdateManagerError.httpStatus(response.statusCode)
                     }
-                    guard let latest = candidates.max(by: { $0.1 < $1.1 })?.0
-                    else {
-                        throw UpdateManagerError.invalidResponse
+                    switch channel {
+                    case .stable:
+                        let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
+                        guard
+                            !release.isDraft,
+                            !release.isPrerelease,
+                            release.appVersion?.channel == .stable
+                        else {
+                            throw UpdateManagerError.invalidResponse
+                        }
+                        return release
+                    case .beta:
+                        let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
+                        let candidates = releases.compactMap { release -> (GitHubRelease, AppBuildVersion)? in
+                            guard !release.isDraft, let version = release.appVersion else { return nil }
+                            if version.channel == .beta, !release.isPrerelease { return nil }
+                            if version.channel == .stable, release.isPrerelease { return nil }
+                            return (release, version)
+                        }
+                        guard let latest = candidates.max(by: { $0.1 < $1.1 })?.0
+                        else {
+                            throw UpdateManagerError.invalidResponse
+                        }
+                        return latest
                     }
-                    return latest
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    lastError = error is UpdateManagerError
+                        ? error
+                        : UpdateManagerError.invalidResponse
                 }
-            } catch {
-                if let error = error as? UpdateManagerError { throw error }
-                throw UpdateManagerError.invalidResponse
             }
+            throw lastError
         }
         latestReleaseTasks[channel] = (generation, task)
         do {
@@ -961,34 +985,94 @@ actor UpdateManager {
         guard let checksumAsset = release.asset(named: Self.checksumsName) else {
             throw UpdateManagerError.missingAsset(Self.checksumsName)
         }
-        guard
-            asset.browserDownloadURL.scheme == "https",
-            checksumAsset.browserDownloadURL.scheme == "https"
-        else {
-            throw UpdateManagerError.invalidDownloadURL(name)
-        }
-        let (checksumData, checksumResponse) = try await session.data(
-            for: request(
-                for: checksumAsset.browserDownloadURL,
-                timeoutInterval: Self.metadataRequestTimeout
-            )
+        let expectedChecksum = try await expectedChecksum(
+            for: name,
+            checksumAsset: checksumAsset,
+            release: release
         )
-        try validate(checksumResponse)
-        guard let checksumManifest = String(data: checksumData, encoding: .utf8) else {
-            throw UpdateManagerError.invalidChecksum(Self.checksumsName)
-        }
-        let expectedChecksum = try Self.checksum(for: name, in: checksumManifest)
+        return try await downloadVerifiedAsset(
+            asset,
+            release: release,
+            expectedChecksum: expectedChecksum,
+            workDirectory: workDirectory
+        )
+    }
 
-        let (temporaryURL, response) = try await session.download(
-            for: request(for: asset.browserDownloadURL, timeoutInterval: Self.assetRequestTimeout)
-        )
-        try validate(response)
-        let destinationURL = workDirectory.appendingPathComponent(name)
-        try fileManager.moveItem(at: temporaryURL, to: destinationURL)
-        guard try Self.sha256(of: destinationURL) == expectedChecksum else {
-            throw UpdateManagerError.checksumMismatch(name)
+    private func assetDownloadURLs(
+        for asset: GitHubReleaseAsset,
+        release: GitHubRelease
+    ) throws -> [URL] {
+        guard asset.browserDownloadURL.scheme == "https" else {
+            throw UpdateManagerError.invalidDownloadURL(asset.name)
         }
-        return destinationURL
+        var urls = [asset.browserDownloadURL]
+        if release.appVersion?.channel == .stable {
+            guard cdnDownloadsBaseURL.scheme == "https" else {
+                throw UpdateManagerError.invalidDownloadURL(asset.name)
+            }
+            let fallback = cdnDownloadsBaseURL.appendingPathComponent(asset.name)
+            if fallback != asset.browserDownloadURL {
+                urls.append(fallback)
+            }
+        }
+        return urls
+    }
+
+    private func expectedChecksum(
+        for assetName: String,
+        checksumAsset: GitHubReleaseAsset,
+        release: GitHubRelease
+    ) async throws -> String {
+        var lastError: Error = UpdateManagerError.invalidChecksum(Self.checksumsName)
+        for url in try assetDownloadURLs(for: checksumAsset, release: release) {
+            do {
+                let (data, response) = try await session.data(
+                    for: request(for: url, timeoutInterval: Self.metadataRequestTimeout)
+                )
+                try validate(response)
+                guard let manifest = String(data: data, encoding: .utf8) else {
+                    throw UpdateManagerError.invalidChecksum(Self.checksumsName)
+                }
+                return try Self.checksum(for: assetName, in: manifest)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
+    }
+
+    private func downloadVerifiedAsset(
+        _ asset: GitHubReleaseAsset,
+        release: GitHubRelease,
+        expectedChecksum: String,
+        workDirectory: URL
+    ) async throws -> URL {
+        let destinationURL = workDirectory.appendingPathComponent(asset.name)
+        var lastError: Error = UpdateManagerError.invalidResponse
+        for url in try assetDownloadURLs(for: asset, release: release) {
+            do {
+                let (temporaryURL, response) = try await session.download(
+                    for: request(for: url, timeoutInterval: Self.assetRequestTimeout)
+                )
+                try validate(response)
+                if fileManager.fileExists(atPath: destinationURL.path) {
+                    try fileManager.removeItem(at: destinationURL)
+                }
+                try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+                guard try Self.sha256(of: destinationURL) == expectedChecksum else {
+                    throw UpdateManagerError.checksumMismatch(asset.name)
+                }
+                return destinationURL
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try? fileManager.removeItem(at: destinationURL)
+                lastError = error
+            }
+        }
+        throw lastError
     }
 
     private func request(

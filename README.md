@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/double2tea/WeClawSend/releases">下载最新版</a> ·
-  <a href="https://weclaw-send.pages.dev/">作品页</a> ·
+  <a href="https://weclaw-send.pages.dev/">官方网站</a> ·
   <a href="docs/使用说明.md">使用说明</a> ·
   <a href="docs/INTEGRATION.md">本地接口</a>
 </p>
@@ -178,6 +178,7 @@ WeClaw Send 基于 [MIT License](LICENSE) 开源。第三方组件的许可信�
 
 ## 联系
 
+- [官方网站](https://weclaw-send.pages.dev/)
 - [GitHub](https://github.com/double2tea/WeClawSend)
 - [作品集](https://zeezhi.pages.dev/)
 - [double_tea@foxmail.com](mailto:double_tea@foxmail.com)
