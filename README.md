@@ -43,11 +43,20 @@
 - 可只读复用 OpenClaw 官方微信插件的登录；多个账号由你明确选择
 - 支持登录时启动；空闲 30 秒后自动收起
 
+<p align="center">
+  <img src="docs/images/schedule-picker.png" width="45%" alt="选择延时发送时间：预设时间与自定义分钟">
+  <img src="docs/images/scheduled-send.png" width="45%" alt="等待发送任务：显示倒计时，并可立即发送、改时间或取消">
+</p>
+
 单文件上限默认 200 MB，可在设置中选择 100 MB、200 MB、500 MB、1 GB 或 2 GB。更大的档位只调整 App 本地校验，最终能否送达仍取决于微信服务。文件可以并行准备，但微信消息会按顺序提交，相邻两条至少间隔 2 秒。
 
 ## 文件篮
 
 文件篮是类似 Dropover 的悬浮文件中转窗。你可以同时打开多个独立文件篮，先收集文件、文件夹与 macOS 包，再从当前篮批量发送到 ClawBot，或把项目拖回其它 App。它只保存路径引用，不复制、不移动本地内容。
+
+<p align="center">
+  <img src="docs/images/file-basket-menu.png" width="820" alt="文件篮：多选项目，并通过菜单分享、压缩 ZIP、复制或在 Finder 中显示">
+</p>
 
 - 主面板点「＋ 文件篮」新建；管理菜单可打开、显示全部、关闭全部、删除指定篮或删除全部文件篮
 - `⌥⌘S` 显示或隐藏最近使用的文件篮；拖着文件左右摇晃会在指针旁平滑展开新篮，松手时未放入文件则自动收起
@@ -76,6 +85,10 @@ WeClaw Send 不设自有云端存储，不会向开发者上传文件或账号�
 
 插件支持 Premiere Pro 25、26；后续版本只要继续支持 CEP，也可以直接使用。
 
+<p align="center">
+  <img src="docs/images/premiere-panel.png" width="380" alt="Premiere Pro 的 WeClaw Send 面板：选择预设、输出位置和导出完成后自动发送">
+</p>
+
 - 自动使用当前序列名，可选择完整序列或 I/O 范围
 - 使用 Adobe 导出预设，并记住预设、输出文件夹与自动发送开关
 - 导出完成后即可继续操作其他序列，发送在后台进行
@@ -90,7 +103,7 @@ WeClaw Send 不设自有云端存储，不会向开发者上传文件或账号�
 Final Cut Pro 可以在分享完成后直接把成片交给 WeClaw Send，不需要插件，也不需要开启本地接口。此功能需要 **WeClaw Send 1.6.8 或更高版本**。
 
 <p align="center">
-  <img src="docs/images/final-cut-settings.jpg" width="710" alt="Final Cut Pro 目的位置设置：导出文件的操作已设为 WeClaw Send">
+  <img src="docs/images/final-cut-destination.png" width="710" alt="Final Cut Pro 目的位置设置：导出文件的操作已设为 WeClaw Send">
 </p>
 
 1. 把最新版 WeClaw Send 放进 `/Applications`，打开并确认微信已登录。
@@ -111,6 +124,10 @@ Deliver 后渲染提供两个入口（默认同装，推荐优先用 Lua）：
 |---|---|
 | **WeClawSend_Lua**（推荐） | 用 macOS `curl` 调本地接口，**不需要 Python** |
 | **WeClawSend_Python**（可选） | Resolve 内直接跑 Python，仅在你明确要用 `.py` 时选择 |
+
+<p align="center">
+  <img src="docs/images/resolve-deliver.png" width="710" alt="DaVinci Resolve Deliver 高级设置：在渲染作业结束时触发 WeClawSend_Lua">
+</p>
 
 MP4/M4V 显示名由设置「发送时 .mp4 显示为 .m4v」处理。
 
