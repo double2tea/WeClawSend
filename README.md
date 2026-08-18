@@ -18,8 +18,8 @@
 ## 界面
 
 <p align="center">
-  <img src="docs/images/app-main.png" width="48%" alt="WeClaw Send 主面板：选择文件与查看最近传输">
-  <img src="docs/images/app-settings.png" width="48%" alt="WeClaw Send 设置页：在线更新与编辑器集成">
+  <img src="docs/images/scheduled-send.png" width="48%" alt="WeClaw Send 2.2 主面板：等待发送任务、倒计时、立即发送、改时间和取消">
+  <img src="docs/images/settings-current.png" width="48%" alt="WeClaw Send 2.2 设置页：登录方式、通知、默认发送方式与文件上限">
 </p>
 
 ## 安装
@@ -44,8 +44,7 @@
 - 支持登录时启动；空闲 30 秒后自动收起
 
 <p align="center">
-  <img src="docs/images/schedule-picker.png" width="45%" alt="选择延时发送时间：预设时间与自定义分钟">
-  <img src="docs/images/scheduled-send.png" width="45%" alt="等待发送任务：显示倒计时，并可立即发送、改时间或取消">
+  <img src="docs/images/schedule-picker.png" width="520" alt="选择延时发送时间：预设时间与自定义分钟">
 </p>
 
 单文件上限默认 200 MB，可在设置中选择 100 MB、200 MB、500 MB、1 GB 或 2 GB。更大的档位只调整 App 本地校验，最终能否送达仍取决于微信服务。文件可以并行准备，但微信消息会按顺序提交，相邻两条至少间隔 2 秒。
