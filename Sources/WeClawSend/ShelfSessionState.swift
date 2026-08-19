@@ -39,6 +39,7 @@ final class ShelfSessionState: ObservableObject {
     @Published private(set) var selectedItemID: UUID?
     @Published private(set) var selectedItemIDs: Set<UUID> = []
     @Published private(set) var focusedItemID: UUID?
+    @Published private(set) var requestedTextEditorItemID: UUID?
     @Published private(set) var statusMessage: String?
 
     private var statusClearTask: Task<Void, Never>?
@@ -210,12 +211,25 @@ final class ShelfSessionState: ObservableObject {
         return true
     }
 
+    @discardableResult
+    func requestTextEditing(itemID: UUID, in items: [ShelfItem]) -> Bool {
+        guard enterReader(itemID: itemID, in: items) else { return false }
+        requestedTextEditorItemID = itemID
+        return true
+    }
+
+    func consumeTextEditingRequest(for itemID: UUID) {
+        guard requestedTextEditorItemID == itemID else { return }
+        requestedTextEditorItemID = nil
+    }
+
     func returnToCollection(in items: [ShelfItem]) {
         if presentationMode != .collection {
             isPresentationReady = false
         }
         presentationMode = .collection
         focusedItemID = nil
+        requestedTextEditorItemID = nil
         let availableIDs = Set(items.map(\.id))
         let restoredSelection = collectionSelectionSnapshot.intersection(availableIDs)
         collectionSelectionSnapshot = []

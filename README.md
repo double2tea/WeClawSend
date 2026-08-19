@@ -188,7 +188,7 @@ chmod +x scripts/*.sh
 `release.sh` 会生成通用 App 和发布附件。App、Premiere 与 DaVinci 可以独立升级；推送与 `Resources/Info.plist` 一致的标签后，GitHub Actions 会自动创建 Release：
 
 - 正式版：`WeClawReleaseChannel=stable`，标签为 `v<版本>`（例如 `v2.1.0`）。
-- 内测版：`WeClawReleaseChannel=beta`，标签为 `v<版本>-beta.<构建号>`（例如 `v2.2.0-beta.38`），并自动发布为 GitHub prerelease。
+- 内测版：`WeClawReleaseChannel=beta`，标签为 `v<版本>-beta.<构建号>`（例如 `v2.3.0-beta.39`），并自动发布为 GitHub prerelease。
 
 </details>
 

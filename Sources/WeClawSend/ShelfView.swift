@@ -39,9 +39,8 @@ private struct ShelfUndoAction: Identifiable {
     let message: String
 }
 
-private struct TextClipEditorDraft: Identifiable {
+private struct NewTextClipDraft: Identifiable {
     let id = UUID()
-    let item: ShelfItem?
     let text: String
 }
 
@@ -87,7 +86,7 @@ struct ShelfView: View {
     @State private var marqueeBaseSelection: Set<UUID> = []
     @State private var ignoresMarqueeDrag = false
     @State private var pendingUndo: ShelfUndoAction?
-    @State private var textClipEditorDraft: TextClipEditorDraft?
+    @State private var newTextClipDraft: NewTextClipDraft?
     @State private var hoveredReaderAction: String?
 
     private let cornerRadius: CGFloat = 14
@@ -169,11 +168,11 @@ struct ShelfView: View {
             .sheet(isPresented: $showsAppearanceEditor) {
                 FileBasketAppearanceEditor(shelf: shelf)
             }
-            .sheet(item: $textClipEditorDraft) { draft in
+            .sheet(item: $newTextClipDraft) { draft in
                 FileBasketTextEditor(
-                    title: draft.item == nil ? "新建文本便笺" : "编辑文本",
+                    title: "新建文本便笺",
                     initialText: draft.text,
-                    save: { saveTextClip(draft: draft, text: $0) }
+                    save: createTextClip
                 )
             }
     }
@@ -489,8 +488,12 @@ struct ShelfView: View {
                 isManaged: kind == .managedText,
                 title: item.fileName,
                 showsTitle: false,
+                startsEditing: session.requestedTextEditorItemID == item.id,
                 onSave: { saveReaderText($0, item: item) },
                 onCreateEditableCopy: { createEditableTextCopy($0) },
+                onEditingStarted: {
+                    session.consumeTextEditingRequest(for: item.id)
+                },
                 onError: { session.flash($0, duration: 3) }
             )
         case .pdf:
@@ -633,7 +636,7 @@ struct ShelfView: View {
             Button("展开所选项目", action: openSelectedItemInReader)
                 .disabled(session.selectedItemIDs.count != 1)
             Button {
-                textClipEditorDraft = TextClipEditorDraft(item: nil, text: "")
+                newTextClipDraft = NewTextClipDraft(text: "")
             } label: {
                 Label("新建文本便笺…", systemImage: "note.text.badge.plus")
             }
@@ -842,33 +845,20 @@ struct ShelfView: View {
     }
 
     private func editTextClip(_ item: ShelfItem) {
-        do {
-            textClipEditorDraft = TextClipEditorDraft(
-                item: item,
-                text: try BasketTextClipStore.readText(at: item.url)
-            )
-        } catch {
-            session.flash(error.localizedDescription, duration: 3)
-        }
+        guard BasketTextClipStore.isManaged(item.url) else { return }
+        _ = session.requestTextEditing(itemID: item.id, in: shelf.items)
     }
 
-    private func saveTextClip(draft: TextClipEditorDraft, text: String) -> Bool {
+    private func createTextClip(_ text: String) -> Bool {
         do {
-            if let item = draft.item {
-                try BasketTextClipStore.update(text: text, at: item.url)
-                ShelfItemPresentationCache.invalidateText(for: item.url)
-                shelf.itemContentDidChange()
-                session.flash("文本已更新")
-            } else {
-                let url = try BasketTextClipStore.create(text: text)
-                guard shelf.add(urls: [url]) == 1, let item = shelf.items.last else {
-                    _ = BasketTextClipStore.deleteIfManaged(url)
-                    session.flash("无法加入文本便笺")
-                    return false
-                }
-                session.select(item.id)
-                session.flash("已加入文本便笺")
+            let url = try BasketTextClipStore.create(text: text)
+            guard shelf.add(urls: [url]) == 1, let item = shelf.items.last else {
+                _ = BasketTextClipStore.deleteIfManaged(url)
+                session.flash("无法加入文本便笺")
+                return false
             }
+            session.select(item.id)
+            session.flash("已加入文本便笺")
             return true
         } catch {
             session.flash(error.localizedDescription, duration: 3)
@@ -1877,7 +1867,11 @@ private struct ShelfItemRow: View {
 
             if isHovered {
                 rowAction("展开阅读", systemImage: "arrow.up.left.and.arrow.down.right", action: onOpenReader)
-                rowAction("预览", systemImage: "eye", action: onPreview)
+                rowAction(
+                    previewMenuTitle,
+                    systemImage: BasketTextClipStore.isManaged(item.url) ? "pencil" : "eye",
+                    action: onPreview
+                )
                 rowAction("复制项目", systemImage: "doc.on.doc", action: onCopy)
                 rowAction("移除", systemImage: "xmark", action: onRemove)
             }

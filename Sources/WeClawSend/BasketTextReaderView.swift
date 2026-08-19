@@ -14,8 +14,10 @@ struct BasketTextReaderView: View {
     let isManaged: Bool
     let title: String
     let showsTitle: Bool
+    let startsEditing: Bool
     let onSave: (String) -> Bool
     let onCreateEditableCopy: (String) -> Void
+    let onEditingStarted: () -> Void
     let onError: (String) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -38,16 +40,20 @@ struct BasketTextReaderView: View {
         isManaged: Bool,
         title: String,
         showsTitle: Bool = true,
+        startsEditing: Bool = false,
         onSave: @escaping (String) -> Bool,
         onCreateEditableCopy: @escaping (String) -> Void,
+        onEditingStarted: @escaping () -> Void = {},
         onError: @escaping (String) -> Void = { _ in }
     ) {
         self.url = url
         self.isManaged = isManaged
         self.title = title
         self.showsTitle = showsTitle
+        self.startsEditing = startsEditing
         self.onSave = onSave
         self.onCreateEditableCopy = onCreateEditableCopy
+        self.onEditingStarted = onEditingStarted
         self.onError = onError
     }
 
@@ -85,6 +91,14 @@ struct BasketTextReaderView: View {
             searchMatchCount = 0
             searchMatchIndex = 0
             isSearchVisible = false
+        }
+        .onChange(of: startsEditing) { _, requested in
+            guard requested else { return }
+            beginEditingIfRequested()
+        }
+        .onChange(of: isLoading) { _, loading in
+            guard !loading else { return }
+            beginEditingIfRequested()
         }
         .onExitCommand {
             if isSearchFocused {
@@ -406,6 +420,13 @@ struct BasketTextReaderView: View {
         withReaderAnimation {
             isEditing = false
         }
+    }
+
+    private func beginEditingIfRequested() {
+        guard startsEditing, isManaged, hasLoaded, !isLoading else { return }
+        draftText = text
+        isEditing = true
+        onEditingStarted()
     }
 
     private func withReaderAnimation(_ action: () -> Void) {
