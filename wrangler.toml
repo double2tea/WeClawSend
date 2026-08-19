@@ -5,3 +5,7 @@ pages_build_output_dir = "_site"
 [[analytics_engine_datasets]]
 binding = "DOWNLOADS"
 dataset = "weclawsend_downloads"
+
+[[analytics_engine_datasets]]
+binding = "UPDATE_CHECKS"
+dataset = "weclawsend_update_checks"

@@ -28,6 +28,12 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 lipo -create "$ARM_BINARY" "$X86_BINARY" -output "$APP/Contents/MacOS/WeClawSend"
 lipo "$APP/Contents/MacOS/WeClawSend" -verify_arch arm64 x86_64
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+if [[ -n "${WECLAW_UPDATE_COUNT_ENDPOINT:-}" ]]; then
+    [[ "$WECLAW_UPDATE_COUNT_ENDPOINT" == https://* ]]
+    /usr/libexec/PlistBuddy -c \
+        "Add :WeClawUpdateCountEndpoint string $WECLAW_UPDATE_COUNT_ENDPOINT" \
+        "$APP/Contents/Info.plist"
+fi
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$ROOT/Resources/MenuBarIcon.png" "$APP/Contents/Resources/MenuBarIcon.png"
 if [[ -f "$ROOT/Resources/MenuBarIcon@2x.png" ]]; then

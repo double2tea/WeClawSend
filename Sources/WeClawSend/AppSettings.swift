@@ -126,6 +126,7 @@ enum AppSettings {
     static let portfolioSeenVersionKey = "PortfolioSeenVersion"
     static let appUpdateNoticeSeenVersionKey = "AppUpdateNoticeSeenVersion"
     static let appUpdateChannelKey = "AppUpdateChannel"
+    static let updateCheckCountLastReportedAtKey = "UpdateCheckCountLastReportedAt"
     static let weChatCredentialSourceKey = "WeChatCredentialSource"
     static let openClawAccountIDKey = "OpenClawAccountID"
     static let shelfEnabledKey = "ShelfEnabled"

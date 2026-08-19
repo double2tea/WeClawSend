@@ -38,8 +38,11 @@ python3 -m http.server 4173 --directory website
 - 访问量、页面、来源、设备、浏览器和国家/地区：在 Cloudflare Pages 项目 `weclaw-send` 的 **Metrics → Web Analytics → Enable** 开启。下次部署后会自动注入无 Cookie 统计脚本。
 - 下载发起次数：页面链接指向 `/dl/dmg` 与 `/dl/zip`；优先由 `website/functions/dl/[file].js` 匿名记录后 302 到真实安装包。数据写入 Analytics Engine 数据集 `weclawsend_downloads`（绑定名 `DOWNLOADS`，见根目录 `wrangler.toml`）。
 - 若 Function / Analytics 绑定不可用，`website/_redirects` 会把 `/dl/dmg` 与 `/dl/zip` 静态 302 到 `/downloads/WeClaw-Send.*`，保证下载不中断。
-- Functions 仅匹配 `/dl/*`（见 `website/_routes.json`），其余静态资源不走 Functions 计费路径。
+- Functions 仅匹配 `/dl/*` 与 `/api/update-check`（见 `website/_routes.json`），其余静态资源不走 Functions 计费路径。
+- 官方 App 在成功检查更新后，每 24 小时最多向 `/api/update-check` 写入一次版本聚合事件。Analytics Engine 数据点只包含 App 版本、构建号和 stable/beta 通道，不写入设备或安装标识、IP、国家、文件及微信数据；因此只能估算每日活跃安装，不能识别用户或计算跨日唯一人数。
+- GitHub Release 资产只在最新稳定标签变化时下载一次；普通官网部署会复用当前 Cloudflare 资产，避免 CI 反复增加 GitHub `download_count`。
 - 部署命令使用 `wrangler pages deploy`（读取 `wrangler.toml` 的 `pages_build_output_dir` 与 bindings），产物目录为 `_site/`。
+- `website/functions/` 会在部署前移动到工作区根目录的 `functions/`；Cloudflare Wrangler 只会从命令执行目录识别并编译 Pages Functions，不能把它当作静态文件留在 `_site/functions/`。
 - 查询下载数据示例：
 
 ```sh
@@ -49,3 +52,13 @@ curl -X POST "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_
 ```
 
 区域粒度为国家级。统计的是“发起下载”，不能证明文件已完整下载完成。
+
+查询近 30 天的版本检查聚合次数：
+
+```sh
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/analytics_engine/sql" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -d "SELECT blob1 AS version, blob2 AS build, blob3 AS channel, SUM(_sample_interval) AS checks FROM weclawsend_update_checks WHERE timestamp >= NOW() - INTERVAL '30' DAY GROUP BY version, build, channel ORDER BY checks DESC"
+```
+
+版本检查次数是客户端按 24 小时限频后的近似活跃安装量，不是注册用户、设备唯一数或精确 MAU。

@@ -37,18 +37,39 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          rm -rf _site functions
           mkdir -p _site/downloads
           cp -R website/. _site/
+          mv _site/functions functions
+
           latest_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')"
-          gh release download "$latest_tag" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern 'WeClaw-Send.dmg' \
-            --pattern 'WeClaw-Send.zip' \
-            --pattern 'WeClaw-Send-Premiere-CEP12.zip' \
-            --pattern 'WeClaw-Send-DaVinci-Resolve.zip' \
-            --pattern 'WeClaw-Send-Components.json' \
-            --pattern 'SHA256SUMS.txt' \
-            --dir _site/downloads
+          production_tag="$(curl -fsSL https://weclaw-send.pages.dev/downloads/release.json \
+            | jq -r '.tag_name // empty' || true)"
+
+          if [[ "$production_tag" == "$latest_tag" ]]; then
+            for file in \
+              WeClaw-Send.dmg \
+              WeClaw-Send.zip \
+              WeClaw-Send-Premiere-CEP12.zip \
+              WeClaw-Send-DaVinci-Resolve.zip \
+              WeClaw-Send-Components.json \
+              SHA256SUMS.txt
+            do
+              curl -fsSL "https://weclaw-send.pages.dev/downloads/$file" \
+                -o "_site/downloads/$file"
+            done
+          else
+            gh release download "$latest_tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'WeClaw-Send.dmg' \
+              --pattern 'WeClaw-Send.zip' \
+              --pattern 'WeClaw-Send-Premiere-CEP12.zip' \
+              --pattern 'WeClaw-Send-DaVinci-Resolve.zip' \
+              --pattern 'WeClaw-Send-Components.json' \
+              --pattern 'SHA256SUMS.txt' \
+              --dir _site/downloads
+          fi
+
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$latest_tag" > _site/downloads/release.json
           for file in \
             WeClaw-Send.dmg \
@@ -72,3 +93,16 @@ jobs:
           # and Analytics Engine bindings are applied. Directory is prepared as _site/.
           command: pages deploy --project-name=weclaw-send --branch=main
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Pages Functions
+        run: |
+          status=""
+          for _ in {1..10}; do
+            status="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -X POST https://weclaw-send.pages.dev/api/update-check \
+              -H 'Content-Type: application/json' \
+              -d '{}')"
+            [[ "$status" == "400" ]] && break
+            sleep 2
+          done
+          [[ "$status" == "400" ]]

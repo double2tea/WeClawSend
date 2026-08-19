@@ -63,11 +63,13 @@ private final class AppRuntime: Sendable {
     let weChat: WeChatService
     let coordinator: SendCoordinator
     let server: EmbeddedBridgeServer
+    let updateCheckReporter: UpdateCheckReporter
 
     init() {
         weChat = WeChatService()
         coordinator = SendCoordinator(weChat: weChat)
         server = EmbeddedBridgeServer(coordinator: coordinator)
+        updateCheckReporter = UpdateCheckReporter()
     }
 }
 
@@ -730,6 +732,8 @@ final class AppModel: ObservableObject {
                     forKey: AppSettings.appUpdateNoticeSeenVersionKey
                 ) ?? ""
             )
+            let reporter = runtime.updateCheckReporter
+            Task { await reporter.reportIfNeeded() }
         } catch {
             appUpdateAvailability = nil
             appUpdateNotice = nil

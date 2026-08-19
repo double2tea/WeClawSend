@@ -1522,6 +1522,53 @@ precondition(betaFinished.wait(timeout: .now() + 10) == .success)
 if let error = betaResult.error { throw error }
 precondition(betaResult.release?.tagName == "v1.5.0-beta.13")
 precondition(betaResult.appAvailability == .updateAvailable(beta150Build13))
+
+let updateCountDefaultsName = "WeClawSend.UpdateCountChecks.\(UUID())"
+let updateCountDefaults = UserDefaults(suiteName: updateCountDefaultsName)!
+defer { UserDefaults.standard.removePersistentDomain(forName: updateCountDefaultsName) }
+let updateCountEndpoint = URL(string: "https://mock.local/api/update-check")!
+let updateCountPayload = UpdateCheckCountPayload(
+    version: "2.2.0",
+    build: "38",
+    channel: "stable"
+)
+let updateCountResult = UpdateCheckReportBox()
+MockURLProtocol.handler = { request in
+    precondition(request.url == updateCountEndpoint)
+    precondition(request.httpMethod == "POST")
+    precondition(request.timeoutInterval == 3)
+    precondition(request.value(forHTTPHeaderField: "User-Agent") == "WeClawSend-UpdateCheck")
+    updateCountResult.payload = try JSONDecoder().decode(
+        UpdateCheckCountPayload.self,
+        from: requestBody(request)
+    )
+    updateCountResult.requestCount += 1
+    return MockURLProtocol.response(request, statusCode: 204, body: "")
+}
+let updateCountReporter = UpdateCheckReporter(
+    endpoint: updateCountEndpoint,
+    payload: updateCountPayload,
+    userDefaults: updateCountDefaults,
+    session: updateSession
+)
+let updateCountFinished = DispatchSemaphore(value: 0)
+let updateCountStart = Date(timeIntervalSince1970: 1_800_000_000)
+Task {
+    updateCountResult.firstSent = await updateCountReporter.reportIfNeeded(now: updateCountStart)
+    updateCountResult.secondSent = await updateCountReporter.reportIfNeeded(
+        now: updateCountStart.addingTimeInterval(3_600)
+    )
+    updateCountResult.thirdSent = await updateCountReporter.reportIfNeeded(
+        now: updateCountStart.addingTimeInterval(UpdateCheckReporter.minimumInterval + 1)
+    )
+    updateCountFinished.signal()
+}
+precondition(updateCountFinished.wait(timeout: .now() + 10) == .success)
+precondition(updateCountResult.firstSent)
+precondition(!updateCountResult.secondSent)
+precondition(updateCountResult.thirdSent)
+precondition(updateCountResult.requestCount == 2)
+precondition(updateCountResult.payload == updateCountPayload)
 precondition(betaResult.metadataRequestCount == 1)
 
 let installerRoot = FileManager.default.temporaryDirectory
@@ -1954,6 +2001,14 @@ final class UpdateResultBox: @unchecked Sendable {
     var refreshedRelease: GitHubRelease?
     var appAvailability: AppUpdateAvailability?
     var metadataRequestCount = 0
+}
+
+final class UpdateCheckReportBox: @unchecked Sendable {
+    var requestCount = 0
+    var payload: UpdateCheckCountPayload?
+    var firstSent = false
+    var secondSent = false
+    var thirdSent = false
 }
 
 final class UpdateInstallResultBox: @unchecked Sendable {

@@ -54,6 +54,8 @@ jobs:
         run: ./scripts/test.sh
 
       - name: Build release assets
+        env:
+          WECLAW_UPDATE_COUNT_ENDPOINT: https://weclaw-send.pages.dev/api/update-check
         run: ./scripts/release.sh
 
       - name: Create GitHub Release

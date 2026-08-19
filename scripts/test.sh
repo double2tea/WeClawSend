@@ -17,6 +17,9 @@ APP_CHANNEL="$(/usr/libexec/PlistBuddy -c 'Print :WeClawReleaseChannel' "$ROOT/R
 
 "$ROOT/scripts/build-premiere-plugin.sh"
 
+node --test \
+    "$ROOT/Tests/WebFunctions/"*.test.mjs
+
 swiftc \
     -framework AppKit \
     -framework Carbon \
@@ -34,6 +37,7 @@ swiftc \
     "$ROOT/Sources/WeClawSend/FileBasketStore.swift" \
     "$ROOT/Sources/WeClawSend/ShelfSessionState.swift" \
     "$ROOT/Sources/WeClawSend/UpdateManager.swift" \
+    "$ROOT/Sources/WeClawSend/UpdateCheckReporter.swift" \
     "$ROOT/Sources/WeClawSend/PopoverAutoClosePolicy.swift" \
     "$ROOT/Sources/WeClawSend/TransferRecord.swift" \
     "$ROOT/Sources/WeClawSend/WeChatCredentials.swift" \
