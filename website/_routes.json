@@ -1,5 +1,5 @@
 {
   "version": 1,
-  "include": ["/dl/*", "/api/update-check"],
+  "include": ["/dl/*", "/api/health", "/api/update-check"],
   "exclude": []
 }

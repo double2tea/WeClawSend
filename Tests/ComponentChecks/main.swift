@@ -1561,13 +1561,17 @@ Task {
     updateCountResult.thirdSent = await updateCountReporter.reportIfNeeded(
         now: updateCountStart.addingTimeInterval(UpdateCheckReporter.minimumInterval + 1)
     )
+    updateCountResult.clockRollbackSent = await updateCountReporter.reportIfNeeded(
+        now: updateCountStart.addingTimeInterval(-1)
+    )
     updateCountFinished.signal()
 }
 precondition(updateCountFinished.wait(timeout: .now() + 10) == .success)
 precondition(updateCountResult.firstSent)
 precondition(!updateCountResult.secondSent)
 precondition(updateCountResult.thirdSent)
-precondition(updateCountResult.requestCount == 2)
+precondition(updateCountResult.clockRollbackSent)
+precondition(updateCountResult.requestCount == 3)
 precondition(updateCountResult.payload == updateCountPayload)
 precondition(betaResult.metadataRequestCount == 1)
 
@@ -2009,6 +2013,7 @@ final class UpdateCheckReportBox: @unchecked Sendable {
     var firstSent = false
     var secondSent = false
     var thirdSent = false
+    var clockRollbackSent = false
 }
 
 final class UpdateInstallResultBox: @unchecked Sendable {

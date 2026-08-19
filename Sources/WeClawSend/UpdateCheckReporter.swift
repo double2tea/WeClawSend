@@ -48,8 +48,10 @@ actor UpdateCheckReporter {
         if let lastReportedAt = userDefaults.object(
             forKey: AppSettings.updateCheckCountLastReportedAtKey
         ) as? Date,
-           now.timeIntervalSince(lastReportedAt) < Self.minimumInterval {
-            return false
+           now.timeIntervalSince(lastReportedAt) >= 0 {
+            if now.timeIntervalSince(lastReportedAt) < Self.minimumInterval {
+                return false
+            }
         }
 
         isReporting = true

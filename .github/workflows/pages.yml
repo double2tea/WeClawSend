@@ -71,6 +71,18 @@ jobs:
           fi
 
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$latest_tag" > _site/downloads/release.json
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            | jq '[
+                .[]
+                | select(.draft == false)
+                | .tag_name as $tag
+                | if ($tag | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-beta\\.[0-9]+$")) then
+                    ($tag | capture("^v(?<version>[0-9]+\\.[0-9]+\\.[0-9]+)-beta\\.(?<build>[0-9]+)$")) as $match
+                    | {version: $match.version, build: $match.build, channel: "beta"}
+                  elif ($tag | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) then
+                    {version: ($tag | ltrimstr("v")), build: null, channel: "stable"}
+                  else empty end
+              ]' > _site/downloads/update-versions.json
           for file in \
             WeClaw-Send.dmg \
             WeClaw-Send.zip \
@@ -78,10 +90,27 @@ jobs:
             WeClaw-Send-DaVinci-Resolve.zip \
             WeClaw-Send-Components.json \
             SHA256SUMS.txt \
-            release.json
+            release.json \
+            update-versions.json
           do
             test -s "_site/downloads/$file"
           done
+
+          (
+            cd _site/downloads
+            for file in \
+              WeClaw-Send.dmg \
+              WeClaw-Send.zip \
+              WeClaw-Send-Premiere-CEP12.zip \
+              WeClaw-Send-DaVinci-Resolve.zip \
+              WeClaw-Send-Components.json
+            do
+              expected="$(awk -v file="$file" '$2 == file { print $1; exit }' SHA256SUMS.txt)"
+              [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
+              actual="$(sha256sum "$file" | cut -d ' ' -f 1)"
+              [[ "$actual" == "$expected" ]]
+            done
+          )
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
@@ -96,13 +125,14 @@ jobs:
 
       - name: Verify Pages Functions
         run: |
-          status=""
+          healthy=false
           for _ in {1..10}; do
-            status="$(curl -sS -o /dev/null -w '%{http_code}' \
-              -X POST https://weclaw-send.pages.dev/api/update-check \
-              -H 'Content-Type: application/json' \
-              -d '{}')"
-            [[ "$status" == "400" ]] && break
+            if curl -fsS https://weclaw-send.pages.dev/api/health \
+              | jq -e '.ok and .bindings.downloads and .bindings.updateChecks' >/dev/null
+            then
+              healthy=true
+              break
+            fi
             sleep 2
           done
-          [[ "$status" == "400" ]]
+          [[ "$healthy" == "true" ]]
