@@ -167,6 +167,7 @@ struct ScheduledSendTimingPicker: View {
 private struct DelayPresetChip: View {
     let preset: ScheduledSendPreset
     let action: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -187,6 +188,7 @@ private struct DelayPresetChip: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
         .accessibilityLabel("\(preset.compactTitle)后发送")
     }
 }

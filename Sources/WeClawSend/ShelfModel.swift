@@ -69,6 +69,14 @@ struct ShelfItem: Codable, Equatable, Identifiable {
         kind?.isDirectory == true
     }
 
+    var isTextDocument: Bool {
+        guard kind == .file else { return false }
+        return switch url.pathExtension.lowercased() {
+        case "txt", "md", "markdown": true
+        default: false
+        }
+    }
+
     static func kind(for url: URL) -> ShelfItemKind? {
         guard url.isFileURL else { return nil }
         let values = try? url.resourceValues(
@@ -126,6 +134,11 @@ final class ShelfModel: ObservableObject {
         guard self.color != color || self.backgroundOpacity != normalizedOpacity else { return }
         self.color = color
         self.backgroundOpacity = normalizedOpacity
+        onChange?()
+    }
+
+    func itemContentDidChange() {
+        objectWillChange.send()
         onChange?()
     }
 

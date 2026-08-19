@@ -20,7 +20,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     private enum Layout {
         static let expandedSize = NSSize(width: 340, height: 340)
         static let collapsedSize = NSSize(width: 248, height: 52)
-        static let animationDuration: TimeInterval = 0.3
+        static let animationDuration: TimeInterval = 0.22
         static let standardDismissalDuration: TimeInterval = 0.18
         static let shakeDismissalDuration: TimeInterval = 0.26
         static let pointerGap: CGFloat = 12
@@ -42,12 +42,16 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     private var savedOrigin: String?
     private var archiveTask: Task<Void, Never>?
     private var motionCompletionTask: Task<Void, Never>?
+    private var presentationTransitionTask: Task<Void, Never>?
     private var isPresenting = false
     private var isDismissing = false
     private var isResizing = false
     private var resizeGeneration = 0
     private var dismissWhenPointerLeaves = false
     private var isUndoAvailable = false
+    private var readerSize: NSSize?
+    private var reminderSize: NSSize?
+    private var isUserLiveResizing = false
     private var hadItems: Bool
 
     init(
@@ -71,9 +75,23 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         self.onWindowStateChange = onWindowStateChange
         hadItems = !basket.items.isEmpty
         savedOrigin = initialWindowState.origin
-        session = ShelfSessionState(
+        let initialSession = ShelfSessionState(
             isCollapsed: initialWindowState.isCollapsed,
             isAlwaysOnTop: initialWindowState.isAlwaysOnTop
+        )
+        if let reminderItemID = initialWindowState.reminderItemID,
+           let reminderItem = basket.items.first(where: { $0.id == reminderItemID }),
+           reminderItem.isTextDocument {
+            _ = initialSession.enterReminder(itemID: reminderItemID, in: basket.items)
+        }
+        session = initialSession
+        readerSize = ReaderWindowSizing.validStoredSize(
+            width: initialWindowState.readerWidth,
+            height: initialWindowState.readerHeight
+        )
+        reminderSize = ReaderWindowSizing.validStoredSize(
+            width: initialWindowState.reminderWidth,
+            height: initialWindowState.reminderHeight
         )
         panel = ShelfPanel(
             contentRect: NSRect(origin: .zero, size: Layout.expandedSize),
@@ -130,8 +148,10 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             setCollapsed(false)
         }
         if !wasVisible {
-            let size = session.isCollapsed ? Layout.collapsedSize : Layout.expandedSize
+            configurePanelForPresentationMode(session.presentationMode)
+            let size = targetSize(for: session.presentationMode)
             resize(to: size, animated: false)
+            session.completePresentationTransition()
             panel.setFrameOrigin(origin(for: point))
         }
         session.ensureSelection(in: basket.items)
@@ -159,6 +179,8 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         isDismissing = false
         motionCompletionTask?.cancel()
         motionCompletionTask = nil
+        presentationTransitionTask?.cancel()
+        presentationTransitionTask = nil
         session.clearStatus()
         closeQuickLookIfNeeded()
         removeKeyMonitor()
@@ -234,6 +256,20 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+#if DEBUG
+    func enterReaderForDebug(mode: String) {
+        guard let item = basket.items.first else { return }
+        session.select(item.id)
+        if mode == "collection" {
+            return
+        } else if mode == "reminder" {
+            _ = session.enterReminder(itemID: item.id, in: basket.items)
+        } else {
+            _ = session.enterReader(itemID: item.id, in: basket.items)
+        }
+    }
+#endif
+
     func windowWillMove(_ notification: Notification) {
         if isPresenting || isDismissing {
             motionCompletionTask?.cancel()
@@ -247,8 +283,50 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowDidMove(_ notification: Notification) {
-        guard !isPresenting, !isDismissing, !isResizing else { return }
+        guard !isPresenting, !isDismissing, !isResizing, !isUserLiveResizing else { return }
         publishWindowState()
+    }
+
+    func windowWillStartLiveResize(_ notification: Notification) {
+        guard session.presentationMode != .collection else { return }
+        isUserLiveResizing = true
+        resizeGeneration += 1
+        panel.contentView?.layer?.removeAllAnimations()
+        resetContentLayer()
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        neutralizeContentSafeArea()
+        guard isUserLiveResizing else { return }
+        switch session.presentationMode {
+        case .collection:
+            break
+        case .reader:
+            readerSize = panel.frame.size
+        case .reminder:
+            reminderSize = panel.frame.size
+        }
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        guard isUserLiveResizing else { return }
+        isUserLiveResizing = false
+        publishWindowState()
+    }
+
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        if isResizing {
+            return frameSize
+        }
+        guard session.presentationMode != .collection else {
+            return session.isCollapsed ? Layout.collapsedSize : Layout.expandedSize
+        }
+        let visibleFrame = sender.screen?.visibleFrame
+        return ReaderWindowSizing.resolvedSize(
+            for: session.presentationMode,
+            storedSize: frameSize,
+            visibleFrame: visibleFrame
+        )
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -312,6 +390,9 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             },
             undoAvailabilityChanged: { [weak self] available in
                 self?.setUndoAvailable(available)
+            },
+            resetPresentationSize: { [weak self] in
+                self?.resetPresentationSize()
             }
         )
         panel.contentViewController = NSHostingController(rootView: root)
@@ -324,11 +405,20 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             .removeDuplicates()
             .sink { [weak self] collapsed in
                 guard let self else { return }
+                guard session.presentationMode == .collection else { return }
                 resize(
                     to: collapsed ? Layout.collapsedSize : Layout.expandedSize,
                     animated: panel.isVisible
                 )
                 publishWindowState()
+            }
+            .store(in: &cancellables)
+
+        session.$presentationMode
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] mode in
+                self?.applyPresentationMode(mode)
             }
             .store(in: &cancellables)
     }
@@ -351,6 +441,9 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
                     dismissWhenPointerLeaves = false
                 }
                 session.ensureSelection(in: items)
+                if !session.ensureFocusedItem(in: items) {
+                    session.flash("阅读项目已不可用，已返回文件篮", duration: 2.4)
+                }
                 quickLook.urls = validPreviewURLs(from: items)
                 if let ql = QLPreviewPanel.shared(), ql.isVisible, ql.dataSource === quickLook {
                     ql.reloadData()
@@ -371,6 +464,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     private func setCollapsed(_ collapsed: Bool) {
+        guard session.presentationMode == .collection else { return }
         guard collapsed != session.isCollapsed else { return }
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -385,7 +479,115 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func resize(to size: NSSize, animated: Bool) {
+    private func applyPresentationMode(_ mode: ShelfPresentationMode) {
+        closeQuickLookIfNeeded()
+        presentationTransitionTask?.cancel()
+        presentationTransitionTask = nil
+        configurePanelForPresentationMode(mode)
+        let targetSize = targetSize(for: mode)
+        let finishTransition: @MainActor @Sendable () -> Void = { [weak self] in
+            guard let self else { return }
+            guard session.presentationMode == mode else { return }
+            presentationTransitionTask?.cancel()
+            presentationTransitionTask = nil
+            if mode == .collection {
+                panel.styleMask.remove(.resizable)
+                panel.minSize = targetSize
+                panel.maxSize = targetSize
+                hideStandardWindowButtons()
+            }
+            session.completePresentationTransition()
+            publishWindowState()
+        }
+        let shouldAnimate = panel.isVisible && !prefersReducedMotion
+        resize(to: targetSize, animated: shouldAnimate, completion: finishTransition)
+        if shouldAnimate {
+            presentationTransitionTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(for: .seconds(Layout.animationDuration + 0.08))
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                presentationTransitionTask = nil
+                finishTransition()
+            }
+        }
+    }
+
+    private func configurePanelForPresentationMode(_ mode: ShelfPresentationMode) {
+        switch mode {
+        case .collection:
+            panel.minSize = session.isCollapsed ? Layout.collapsedSize : Layout.expandedSize
+            panel.maxSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            panel.level = session.isAlwaysOnTop ? .floating : .normal
+        case .reader:
+            panel.styleMask.insert(.resizable)
+            panel.level = session.isAlwaysOnTop ? .floating : .normal
+            applyResizableLimits(for: .reader)
+        case .reminder:
+            panel.styleMask.insert(.resizable)
+            panel.level = .floating
+            applyResizableLimits(for: .reminder)
+        }
+        hideStandardWindowButtons()
+        neutralizeContentSafeArea()
+    }
+
+    private func hideStandardWindowButtons() {
+        panel.standardWindowButton(.closeButton)?.isHidden = true
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
+    }
+
+    private func applyResizableLimits(for mode: ShelfPresentationMode) {
+        let visibleFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        let minimum = ReaderWindowSizing.resolvedSize(
+            for: mode,
+            storedSize: ReaderWindowSizing.minimumSize(for: mode == .reader ? .reader : .reminder),
+            visibleFrame: visibleFrame
+        )
+        let maximum = ReaderWindowSizing.resolvedSize(
+            for: mode,
+            storedSize: visibleFrame?.insetBy(dx: 12, dy: 12).size,
+            visibleFrame: visibleFrame
+        )
+        panel.minSize = minimum
+        panel.maxSize = maximum
+    }
+
+    private func targetSize(for mode: ShelfPresentationMode) -> NSSize {
+        if mode == .collection {
+            return session.isCollapsed ? Layout.collapsedSize : Layout.expandedSize
+        }
+        let storedSize = mode == .reader ? readerSize : reminderSize
+        return ReaderWindowSizing.resolvedSize(
+            for: mode,
+            storedSize: storedSize,
+            visibleFrame: panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        )
+    }
+
+    private func resetPresentationSize() {
+        switch session.presentationMode {
+        case .collection:
+            return
+        case .reader:
+            readerSize = nil
+        case .reminder:
+            reminderSize = nil
+        }
+        applyPresentationMode(session.presentationMode)
+    }
+
+    private func resize(
+        to size: NSSize,
+        animated: Bool,
+        completion: (@MainActor @Sendable () -> Void)? = nil
+    ) {
         resizeGeneration += 1
         let generation = resizeGeneration
         let oldFrame = panel.frame
@@ -401,6 +603,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             isResizing = false
             panel.setFrame(newFrame, display: true, animate: false)
             neutralizeContentSafeArea()
+            completion?()
             return
         }
         isResizing = true
@@ -413,6 +616,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
                 guard let self, self.resizeGeneration == generation else { return }
                 self.isResizing = false
                 self.publishWindowState()
+                completion?()
             }
         }
     }
@@ -636,11 +840,82 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
+        if availableItems.count == 1,
+           let item = availableItems.first,
+           BasketTextClipStore.isManaged(item.url),
+           let text = try? BasketTextClipStore.readText(at: item.url) {
+            if pasteboard.setString(text, forType: .string) {
+                session.flash("已复制文本")
+            } else {
+                session.flash("复制失败")
+            }
+            return
+        }
         guard pasteboard.writeObjects(availableItems.map { $0.url as NSURL }) else {
             session.flash("复制失败")
             return
         }
         session.flash(availableItems.count == 1 ? "已复制项目" : "已复制 \(availableItems.count) 个项目")
+    }
+
+    private func pasteIntoBasket() {
+        let pasteboard = NSPasteboard.general
+        let urls = fileURLs(from: pasteboard, includingDirectories: true)
+        if !urls.isEmpty {
+            let added = basket.add(urls: urls)
+            guard added > 0 else {
+                session.flash("文件已在篮中")
+                return
+            }
+            revealPastedItem()
+            session.flash(added == 1 ? "已粘贴 1 个文件" : "已粘贴 \(added) 个项目")
+            return
+        }
+
+        if let image = NSImage(pasteboard: pasteboard) {
+            do {
+                let url = try BasketImageClipStore.create(image: image)
+                guard basket.add(urls: [url]) == 1 else {
+                    _ = BasketImageClipStore.deleteIfManaged(url)
+                    session.flash("无法加入图片便笺")
+                    return
+                }
+                revealPastedItem()
+                session.flash("已粘贴图片")
+            } catch {
+                session.flash(error.localizedDescription, duration: 3)
+            }
+            return
+        }
+
+        guard let text = pasteboard.string(forType: .string),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            session.flash("剪贴板中没有可粘贴的文件、图片或文本")
+            return
+        }
+
+        do {
+            let url = try BasketTextClipStore.create(text: text)
+            guard basket.add(urls: [url]) == 1 else {
+                _ = BasketTextClipStore.deleteIfManaged(url)
+                session.flash("无法加入文本便笺")
+                return
+            }
+            revealPastedItem()
+            session.flash("已粘贴文本")
+        } catch {
+            session.flash(error.localizedDescription, duration: 3)
+        }
+    }
+
+    private func revealPastedItem() {
+        if session.isCollapsed {
+            setCollapsed(false)
+        }
+        if let item = basket.items.last {
+            session.select(item.id)
+        }
     }
 
     private func shareFiles(
@@ -693,7 +968,17 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         if let ql = QLPreviewPanel.shared(), ql.isVisible, ql.isKeyWindow {
             return false
         }
+        if let firstResponder = panel.firstResponder,
+           firstResponder is NSTextView || firstResponder is NSTextField {
+            return false
+        }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if session.presentationMode != .collection {
+            return handlePresentedContentKeyDown(event, flags: flags)
+        }
+        if flags == .command, event.keyCode == 36 || event.keyCode == 76 {
+            return enterReaderForSelection()
+        }
         if flags == .command {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "a":
@@ -703,6 +988,9 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
                 let items = session.selectedItems(in: basket.items)
                 guard !items.isEmpty else { return false }
                 copyFiles(items)
+                return true
+            case "v":
+                pasteIntoBasket()
                 return true
             default:
                 break
@@ -753,6 +1041,48 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         default:
             return false
         }
+    }
+
+    private func handlePresentedContentKeyDown(
+        _ event: NSEvent,
+        flags: NSEvent.ModifierFlags
+    ) -> Bool {
+        if event.keyCode == 53, flags.isEmpty {
+            session.returnToCollection(in: basket.items)
+            return true
+        }
+        guard flags == .command else { return false }
+        switch event.keyCode {
+        case 123:
+            _ = session.moveFocus(by: -1, in: basket.items)
+            return true
+        case 124:
+            _ = session.moveFocus(by: 1, in: basket.items)
+            return true
+        case 36 where session.presentationMode == .reminder,
+             76 where session.presentationMode == .reminder:
+            guard let focusedItemID = session.focusedItemID else { return false }
+            return session.enterReader(itemID: focusedItemID, in: basket.items)
+        default:
+            return false
+        }
+    }
+
+    private func enterReaderForSelection() -> Bool {
+        guard let item = session.selectedItem(in: basket.items) else {
+            session.flash("请先选择一个项目")
+            return true
+        }
+        switch BasketReaderRouter.route(
+            for: item.url,
+            isManagedText: BasketTextClipStore.isManaged(item.url)
+        ) {
+        case .reader:
+            _ = session.enterReader(itemID: item.id, in: basket.items)
+        case .failure:
+            session.flash("该项目暂时无法展开阅读")
+        }
+        return true
     }
 
     private enum ArrowDirection {
@@ -889,7 +1219,14 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             FileBasketWindowState(
                 origin: origin,
                 isCollapsed: session.isCollapsed,
-                isAlwaysOnTop: session.isAlwaysOnTop
+                isAlwaysOnTop: session.isAlwaysOnTop,
+                readerWidth: readerSize.map { Double($0.width) },
+                readerHeight: readerSize.map { Double($0.height) },
+                reminderWidth: reminderSize.map { Double($0.width) },
+                reminderHeight: reminderSize.map { Double($0.height) },
+                reminderItemID: session.presentationMode == .reminder
+                    ? session.focusedItemID
+                    : nil
             )
         )
     }

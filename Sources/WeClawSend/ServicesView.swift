@@ -16,45 +16,30 @@ private enum ServicesPage: String, CaseIterable, Identifiable {
         case .integrations: "集成"
         }
     }
+
+    var systemImage: String {
+        switch self {
+        case .general: "slider.horizontal.3"
+        case .baskets: "rectangle.stack"
+        case .integrations: "puzzlepiece.extension"
+        }
+    }
 }
 
 struct ServicesView: View {
     @ObservedObject var model: AppModel
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsDefaultDelayPicker = false
     @State private var page: ServicesPage = .general
+    @State private var hoveredPage: ServicesPage?
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider().opacity(0.4)
-            Picker("设置分类", selection: $page) {
-                ForEach(ServicesPage.allCases) { page in
-                    Text(page.title).tag(page)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 8) {
-                    switch page {
-                    case .general:
-                        weChatSection
-                        settingsSection
-                    case .baskets:
-                        shelfSettingsSection
-                    case .integrations:
-                        localAPISection
-                        updatesAndIntegrationsSection
-                        feedbackSection
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-            }
+            settingsTabBar
+            settingsContent
             Divider().opacity(0.4)
             footer
         }
@@ -70,6 +55,103 @@ struct ServicesView: View {
                 model.setSendDefaultDelaySeconds(seconds)
             }
         }
+    }
+
+    private var settingsTabBar: some View {
+        HStack(spacing: 4) {
+            ForEach(ServicesPage.allCases) { option in
+                settingsTab(option)
+            }
+        }
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Color.primary.opacity(0.075), lineWidth: 0.8)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+    }
+
+    private func settingsTab(_ option: ServicesPage) -> some View {
+        let isSelected = page == option
+        let isHovered = hoveredPage == option
+        return Button {
+            page = option
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: option.systemImage)
+                    .symbolVariant(isSelected ? .fill : .none)
+                    .font(.system(size: 10.5, weight: .semibold))
+                Text(option.title)
+                    .font(.system(size: 11.5, weight: .semibold))
+            }
+            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 31)
+            .background {
+                RoundedRectangle(cornerRadius: 9.5, style: .continuous)
+                    .fill(tabBackground(isSelected: isSelected, isHovered: isHovered))
+                    .shadow(
+                        color: isSelected ? Color.black.opacity(0.12) : .clear,
+                        radius: 4,
+                        y: 2
+                    )
+            }
+            .overlay(alignment: .bottom) {
+                if isSelected {
+                    Capsule(style: .continuous)
+                        .fill(Brand.accent)
+                        .frame(width: 18, height: 2)
+                        .offset(y: -2)
+                }
+            }
+            .animation(
+                reduceMotion ? nil : .smooth(duration: 0.2, extraBounce: 0),
+                value: isSelected
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9.5, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+                hoveredPage = hovering ? option : (hoveredPage == option ? nil : hoveredPage)
+            }
+        }
+        .accessibilityLabel(option.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func tabBackground(isSelected: Bool, isHovered: Bool) -> Color {
+        if isSelected { return Color.primary.opacity(0.105) }
+        if isHovered { return Color.primary.opacity(0.055) }
+        return .clear
+    }
+
+    private var settingsContent: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 8) {
+                switch page {
+                case .general:
+                    weChatSection
+                    settingsSection
+                case .baskets:
+                    shelfSettingsSection
+                case .integrations:
+                    localAPISection
+                    updatesAndIntegrationsSection
+                    feedbackSection
+                }
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 7)
+            .padding(.vertical, 10)
+        }
+        .id(page)
+        .background(CompactScrollViewConfigurator())
     }
 
     private var header: some View {

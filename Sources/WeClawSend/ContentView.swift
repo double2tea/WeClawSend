@@ -43,6 +43,7 @@ struct ContentView: View {
     @State private var isDataSafetyHovered = false
     @State private var pendingBasketDeletion: FileBasketDeletionRequest?
     @State private var transferFilter: TransferHistoryFilter = .all
+    @State private var hoveredTransferFilter: TransferHistoryFilter?
 
     init(
         model: AppModel,
@@ -257,6 +258,7 @@ struct ContentView: View {
                 .accessibilityLabel("文件篮，当前有 \(fileBaskets.baskets.count) 个")
             }
             Button {
+                model.queueHoverSelection = nil
                 model.showsServices = true
             } label: {
                 Image(systemName: "ellipsis")
@@ -346,7 +348,6 @@ struct ContentView: View {
                 Image(systemName: dropZoneSymbol)
                     .font(.system(size: 22, weight: .regular))
                     .foregroundStyle(dropZoneIsHighlighted ? Brand.accent : Color.secondary)
-                    .symbolEffect(.pulse, isActive: model.hasActiveTransfers && !reduceMotion)
 
                 Text(dropZoneTitle)
                     .font(.system(size: 13.5, weight: .medium))
@@ -463,15 +464,7 @@ struct ContentView: View {
                 .tracking(0.6)
 
             Spacer()
-            Picker("发送历史筛选", selection: $transferFilter) {
-                ForEach(TransferHistoryFilter.allCases) { filter in
-                    Text(filter.title).tag(filter)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .controlSize(.mini)
-            .frame(width: 132)
+            historyFilterBar
 
             Button(action: chooseFilesForTiming) {
                 Image(systemName: "clock")
@@ -495,6 +488,77 @@ struct ContentView: View {
         }
         .padding(.horizontal, 20)
         .frame(height: 24)
+    }
+
+    private var historyFilterBar: some View {
+        HStack(spacing: 2) {
+            ForEach(TransferHistoryFilter.allCases) { filter in
+                historyFilterButton(filter)
+            }
+        }
+        .padding(2.5)
+        .frame(width: 132)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(Color.primary.opacity(0.065), lineWidth: 0.8)
+        }
+    }
+
+    private func historyFilterButton(_ filter: TransferHistoryFilter) -> some View {
+        let isSelected = transferFilter == filter
+        let isHovered = hoveredTransferFilter == filter
+        return Button {
+            model.queueHoverSelection = nil
+            transferFilter = filter
+        } label: {
+            Text(filter.title)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 22)
+                .background {
+                    RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                        .fill(historyFilterBackground(isSelected: isSelected, isHovered: isHovered))
+                        .shadow(
+                            color: isSelected ? Color.black.opacity(0.08) : .clear,
+                            radius: 2,
+                            y: 1
+                        )
+                }
+                .overlay(alignment: .bottom) {
+                    if isSelected {
+                        Capsule(style: .continuous)
+                            .fill(Brand.accent)
+                            .frame(width: 14, height: 1.5)
+                            .offset(y: -1.5)
+                    }
+                }
+                .animation(
+                    reduceMotion ? nil : .smooth(duration: 0.16, extraBounce: 0),
+                    value: isSelected
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 6.5, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+                hoveredTransferFilter = hovering
+                    ? filter
+                    : (hoveredTransferFilter == filter ? nil : hoveredTransferFilter)
+            }
+        }
+        .accessibilityLabel(filter.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func historyFilterBackground(isSelected: Bool, isHovered: Bool) -> Color {
+        if isSelected { return Color.primary.opacity(0.085) }
+        if isHovered { return Color.primary.opacity(0.045) }
+        return .clear
     }
 
     @ViewBuilder
@@ -527,7 +591,10 @@ struct ContentView: View {
                             onPreview: { model.previewQueueItem(.scheduled(plan.id)) },
                             sendNow: { model.sendScheduledNow(plan) },
                             reschedule: { model.rescheduleScheduled(plan, to: $0) },
-                            cancel: { model.cancelScheduled(plan) }
+                            cancel: { model.cancelScheduled(plan) },
+                            onHoverChange: { hovering in
+                                updateQueueHoverSelection(.scheduled(plan.id), hovering: hovering)
+                            }
                         )
 
                         if index < plans.count - 1 {
@@ -555,9 +622,11 @@ struct ContentView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.leading, 18)
+                .padding(.trailing, 8)
                 .padding(.bottom, 8)
             }
+            .background(CompactScrollViewConfigurator())
         }
     }
 
@@ -687,9 +756,21 @@ struct ContentView: View {
         )
         .onHover { hovering in
             hoveredTransferID = hovering ? transfer.id : nil
+            updateQueueHoverSelection(.transfer(transfer.id), hovering: hovering)
         }
-        .animation(reduceMotion ? nil : .smooth(duration: 0.16), value: hoveredTransferID)
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.12),
+            value: model.queueSelection == .transfer(transfer.id) || hoveredTransferID == transfer.id
+        )
         .help(displayedFailureMessage(transfer) ?? transfer.message ?? "点缩略图预览，连按文件名在 Finder 中显示")
+    }
+
+    private func updateQueueHoverSelection(_ selection: QueueSelection, hovering: Bool) {
+        if hovering {
+            model.queueHoverSelection = selection
+        } else if model.queueHoverSelection == selection {
+            model.queueHoverSelection = nil
+        }
     }
 
     private func transferText(_ transfer: TransferRecord) -> some View {
@@ -715,6 +796,10 @@ struct ContentView: View {
                     ProgressView(value: transfer.progress ?? 0)
                         .progressViewStyle(.linear)
                         .tint(Brand.accent)
+                        .animation(
+                            reduceMotion ? nil : .linear(duration: 0.14),
+                            value: transfer.progress
+                        )
                 }
                 Text(progressDetail(transfer))
                     .font(.system(size: 10.5))

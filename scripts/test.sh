@@ -27,12 +27,19 @@ swiftc \
     -framework Security \
     -framework ServiceManagement \
     -framework SwiftUI \
+    -framework UniformTypeIdentifiers \
     -I "$ROOT/Sources/CCommonCrypto" \
     -Xcc -fmodule-map-file="$ROOT/Sources/CCommonCrypto/module.modulemap" \
     "$ROOT/Sources/WeClawSend/PasteboardURLs.swift" \
     "$ROOT/Sources/WeClawSend/AppSettings.swift" \
     "$ROOT/Sources/WeClawSend/ShelfActivationController.swift" \
     "$ROOT/Sources/WeClawSend/ShelfModel.swift" \
+    "$ROOT/Sources/WeClawSend/BasketTextClipStore.swift" \
+    "$ROOT/Sources/WeClawSend/BasketImageClipStore.swift" \
+    "$ROOT/Sources/WeClawSend/BasketTextFormatting.swift" \
+    "$ROOT/Sources/WeClawSend/ShelfPresentationMode.swift" \
+    "$ROOT/Sources/WeClawSend/BasketReaderRouter.swift" \
+    "$ROOT/Sources/WeClawSend/ReaderWindowSizing.swift" \
     "$ROOT/Sources/WeClawSend/FileBasketArchiver.swift" \
     "$ROOT/Sources/WeClawSend/FileBasketStore.swift" \
     "$ROOT/Sources/WeClawSend/ShelfSessionState.swift" \

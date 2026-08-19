@@ -149,7 +149,7 @@ final class FileBasketWindowCoordinator {
 
     private func deleteImmediately(id: UUID) {
         controllers.removeValue(forKey: id)?.hide()
-        model.fileBaskets.removeBasket(id: id)
+        model.removeFileBasket(id: id)
         Self.logger.info("文件篮已删除，剩余：\(self.model.fileBaskets.baskets.count, privacy: .public)")
     }
 
@@ -170,6 +170,16 @@ final class FileBasketWindowCoordinator {
     func applyPreferences() {
         controllers.values.forEach { $0.applyPreferences() }
     }
+
+#if DEBUG
+    func showReaderForDebug(url: URL, mode: String) {
+        let basket = model.fileBaskets.createBasket()
+        guard basket.add(urls: [url]) == 1 else { return }
+        let controller = controller(for: basket)
+        controller.show(expanded: true, appearance: .none)
+        controller.enterReaderForDebug(mode: mode)
+    }
+#endif
 
     private func controller(for basket: ShelfModel) -> ShelfWindowController {
         if let controller = controllers[basket.id] {

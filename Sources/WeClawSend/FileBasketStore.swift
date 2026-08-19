@@ -5,6 +5,11 @@ struct FileBasketWindowState: Codable, Equatable {
     var origin: String?
     var isCollapsed: Bool
     var isAlwaysOnTop: Bool
+    var readerWidth: Double? = nil
+    var readerHeight: Double? = nil
+    var reminderWidth: Double? = nil
+    var reminderHeight: Double? = nil
+    var reminderItemID: UUID? = nil
 }
 
 private struct FileBasketSnapshot: Codable {

@@ -497,6 +497,21 @@ MainActor.assumeIsolated {
     session.moveSelection(by: 1, in: items)
     precondition(session.selectedItemIDs == [second.id])
     precondition(session.selectedItemID == second.id)
+
+    session.setSelection([first.id, third.id], in: items)
+    precondition(session.enterReader(itemID: second.id, in: items))
+    precondition(session.presentationMode == .reader)
+    precondition(session.focusedItem(in: items)?.id == second.id)
+    session.completePresentationTransition()
+    precondition(session.enterReader(itemID: third.id, in: items))
+    precondition(session.isPresentationReady)
+    precondition(session.moveFocus(by: 1, in: items)?.id == third.id)
+    precondition(session.enterReminder(itemID: third.id, in: items))
+    precondition(session.presentationMode == .reminder)
+    session.returnToCollection(in: items)
+    precondition(session.presentationMode == .collection)
+    precondition(session.focusedItemID == nil)
+    precondition(session.selectedItemIDs == [first.id, third.id])
 }
 
 let shelfFile = FileManager.default.temporaryDirectory
@@ -594,7 +609,12 @@ try MainActor.assumeIsolated {
     let movedState = FileBasketWindowState(
         origin: "{180, 300}",
         isCollapsed: false,
-        isAlwaysOnTop: true
+        isAlwaysOnTop: true,
+        readerWidth: 680,
+        readerHeight: 760,
+        reminderWidth: 460,
+        reminderHeight: 260,
+        reminderItemID: firstBasket.items.first?.id
     )
     store.updateWindowState(movedState, for: firstBasket.id)
     precondition(UserDefaults.standard.data(forKey: AppSettings.fileBasketArchiveKey) == archiveBeforeWindowMove)
@@ -680,6 +700,111 @@ try MainActor.assumeIsolated {
     let filteredStore = FileBasketStore()
     precondition(filteredStore.baskets[0].items.isEmpty)
 }
+
+let textClipDirectory = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-text-clips-\(UUID())", directoryHint: .isDirectory)
+let textClipStore = BasketTextClipStore(directory: textClipDirectory)
+defer { try? FileManager.default.removeItem(at: textClipDirectory) }
+let textClipURL = try textClipStore.create(
+    text: "第一行提醒\n第二行内容",
+    preferredTitle: "提醒/客户:反馈",
+    now: Date(timeIntervalSince1970: 0)
+)
+precondition(textClipStore.isManaged(textClipURL))
+precondition(!textClipURL.lastPathComponent.contains("/"))
+precondition(!textClipURL.lastPathComponent.contains(":"))
+let originalTextClip = try textClipStore.readText(at: textClipURL)
+precondition(originalTextClip == "第一行提醒\n第二行内容")
+precondition(textClipStore.readPreview(at: textClipURL, maxCharacters: 4) == "第一行提")
+try textClipStore.update(text: "更新后的便笺", at: textClipURL)
+let updatedTextClip = try textClipStore.readText(at: textClipURL)
+precondition(updatedTextClip == "更新后的便笺")
+let outsideTextClipURL = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-outside-text-\(UUID()).txt")
+try Data("外部文本".utf8).write(to: outsideTextClipURL)
+defer { try? FileManager.default.removeItem(at: outsideTextClipURL) }
+precondition(!textClipStore.isManaged(outsideTextClipURL))
+let deletedOutsideTextClip = try textClipStore.deleteIfManaged(outsideTextClipURL)
+precondition(!deletedOutsideTextClip)
+do {
+    _ = try textClipStore.create(text: "")
+    preconditionFailure("empty text clip must fail")
+} catch BasketTextClipStoreError.emptyText {
+    // Expected.
+}
+do {
+    _ = try textClipStore.create(text: String(repeating: "a", count: BasketTextClipStore.maximumTextBytes + 1))
+    preconditionFailure("oversized text clip must fail")
+} catch BasketTextClipStoreError.textTooLarge {
+    // Expected.
+}
+precondition(BasketReaderRouter.route(for: textClipURL, isManagedText: true) == .reader(.managedText))
+precondition(BasketReaderRouter.route(for: outsideTextClipURL) == .reader(.externalText))
+precondition(BasketReaderRouter.route(for: shelfDirectory) == .reader(.fileInfo))
+let missingReaderURL = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-missing-reader-\(UUID()).txt")
+precondition(BasketReaderRouter.route(for: missingReaderURL) == .failure(.missingPath))
+precondition(
+    ReaderWindowSizing.resolvedSize(
+        for: ShelfPresentationMode.reader,
+        visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+    ) == CGSize(width: 640, height: 720)
+)
+precondition(
+    ReaderWindowSizing.resolvedSize(
+        for: ShelfPresentationMode.reader,
+        storedWidth: .nan,
+        storedHeight: 700,
+        visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+    ) == CGSize(width: 640, height: 720)
+)
+precondition(
+    ReaderWindowSizing.resolvedSize(
+        for: ShelfPresentationMode.reminder,
+        storedSize: CGSize(width: 1_000, height: 900),
+        visibleFrame: CGRect(x: 0, y: 0, width: 900, height: 700)
+    ) == CGSize(width: 760, height: 500)
+)
+let deletedTextClip = try textClipStore.deleteIfManaged(textClipURL)
+precondition(deletedTextClip)
+precondition(!FileManager.default.fileExists(atPath: textClipURL.path))
+
+let checklist = "准备素材\n联络客户\n\n结尾"
+precondition(
+    BasketTextFormatting.makeChecklist(checklist)
+        == "- [ ] 准备素材\n- [ ] 联络客户\n\n- [ ] 结尾"
+)
+let completedChecklist = BasketTextFormatting.toggleTodo(
+    "- [ ] 准备素材\n- [ ] 联络客户\n说明\n- [ ] 单独项目",
+    lineIndex: 0
+)
+precondition(completedChecklist == "- [ ] 联络客户\n- [x] 准备素材\n说明\n- [ ] 单独项目")
+precondition(BasketTextFormatting.makeNumbered("甲\n\n乙") == "1. 甲\n\n2. 乙")
+
+let imageClipDirectory = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-image-clips-\(UUID())", directoryHint: .isDirectory)
+let imageClipStore = BasketImageClipStore(directory: imageClipDirectory)
+defer { try? FileManager.default.removeItem(at: imageClipDirectory) }
+let imageRep = NSBitmapImageRep(
+    bitmapDataPlanes: nil,
+    pixelsWide: 2,
+    pixelsHigh: 2,
+    bitsPerSample: 8,
+    samplesPerPixel: 4,
+    hasAlpha: true,
+    isPlanar: false,
+    colorSpaceName: .deviceRGB,
+    bytesPerRow: 0,
+    bitsPerPixel: 0
+)!
+let basketImage = NSImage(size: NSSize(width: 2, height: 2))
+basketImage.addRepresentation(imageRep)
+let imageClipURL = try imageClipStore.create(image: basketImage, preferredTitle: "截图/重点")
+precondition(imageClipStore.isManaged(imageClipURL))
+precondition(imageClipURL.pathExtension == "png")
+precondition(FileManager.default.fileExists(atPath: imageClipURL.path))
+let deletedImageClip = try imageClipStore.deleteIfManaged(imageClipURL)
+precondition(deletedImageClip)
 
 let archiveInputDirectory = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-archive-input-\(UUID())", directoryHint: .isDirectory)

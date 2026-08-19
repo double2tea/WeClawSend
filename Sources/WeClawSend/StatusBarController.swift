@@ -134,6 +134,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         model.onQuickLookRequested = { [weak self] in
             self?.openQueueQuickLook()
         }
+
+#if DEBUG
+        if let path = ProcessInfo.processInfo.environment["WECLAW_READER_QA_FILE"] {
+            let url = URL(fileURLWithPath: path)
+            let mode = ProcessInfo.processInfo.environment["WECLAW_READER_QA_MODE"] ?? "reader"
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(250))
+                self?.fileBasketCoordinator.showReaderForDebug(url: url, mode: mode)
+            }
+        }
+#endif
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -172,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
 
     func popoverDidClose(_ notification: Notification) {
         statusItem?.button?.highlight(false)
+        model.queueHoverSelection = nil
         model.stopMonitoringServices()
         stopPopoverAutoCloseMonitoring()
         stopPopoverKeyMonitor()
@@ -576,7 +588,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     }
 
     private func openQueueQuickLook() {
-        guard let selection = model.queueSelection else { return }
+        guard let selection = model.queueHoverSelection ?? model.queueSelection else { return }
         let urls = model.previewURLs(for: selection).filter {
             FileManager.default.fileExists(atPath: $0.path)
         }

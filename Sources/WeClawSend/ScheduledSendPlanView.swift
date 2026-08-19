@@ -8,6 +8,7 @@ struct ScheduledSendPlanView: View {
     let sendNow: () -> Void
     let reschedule: (Date) -> Void
     let cancel: () -> Void
+    let onHoverChange: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsCustomDelayPicker = false
@@ -93,7 +94,10 @@ struct ScheduledSendPlanView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(isSelected || isHovered ? Brand.surfaceElevated : .clear)
             )
-            .onHover { isHovered = $0 }
+            .onHover { hovering in
+                isHovered = hovering
+                onHoverChange(hovering)
+            }
             .animation(reduceMotion ? nil : .smooth(duration: 0.16), value: isHovered)
         }
         .sheet(isPresented: $showsCustomDelayPicker) {

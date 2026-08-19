@@ -95,6 +95,7 @@ final class AppModel: ObservableObject {
     @Published var recentTransfers: [TransferRecord] = []
     @Published private(set) var scheduledSends: [ScheduledSendPlan] = []
     @Published var queueSelection: QueueSelection?
+    var queueHoverSelection: QueueSelection?
     @Published private(set) var pendingSendSelection: PendingSendSelection?
     @Published var isDropTargeted = false
     @Published var showsServices = false
@@ -1389,13 +1390,22 @@ final class AppModel: ObservableObject {
 
     func clearTransfers(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
-        recentTransfers.filter { ids.contains($0.id) && $0.isTerminal }.forEach { record in
+        let removedRecords = recentTransfers.filter { ids.contains($0.id) && $0.isTerminal }
+        removedRecords.forEach { record in
             FileBasketArchiver.cleanup(record.fileURL)
         }
         recentTransfers.removeAll { ids.contains($0.id) && $0.isTerminal }
+        removedRecords.forEach { cleanupManagedBasketArtifactIfUnreferenced($0.fileURL) }
         retriedTransferIDs.subtract(ids)
         pruneQueueSelection()
         persistTransfers()
+    }
+
+    func removeFileBasket(id: UUID) {
+        guard let basket = fileBaskets.basket(id: id) else { return }
+        let items = basket.items
+        fileBaskets.removeBasket(id: id)
+        items.forEach { cleanupManagedBasketArtifactIfUnreferenced($0.url) }
     }
 
     func quit() {
@@ -1486,7 +1496,10 @@ final class AppModel: ObservableObject {
                 case let .updated(plan):
                     upsertScheduledSend(plan)
                     if plan.status == .sent || plan.status == .cancelled {
-                        plan.items.forEach { FileBasketArchiver.cleanup($0.fileURL) }
+                        plan.items.forEach { item in
+                            FileBasketArchiver.cleanup(item.fileURL)
+                            cleanupManagedBasketArtifactIfUnreferenced(item.fileURL)
+                        }
                     }
                 }
             }
@@ -1513,6 +1526,7 @@ final class AppModel: ObservableObject {
         recentTransfers.insert(record, at: 0)
         var successfulCount = 0
         var failedCount = 0
+        var removedArtifactURLs: [URL] = []
         recentTransfers.removeAll { transfer in
             let exceedsLimit: Bool
             switch transfer.status {
@@ -1527,8 +1541,10 @@ final class AppModel: ObservableObject {
             }
             guard exceedsLimit else { return false }
             FileBasketArchiver.cleanup(transfer.fileURL)
+            removedArtifactURLs.append(transfer.fileURL)
             return true
         }
+        removedArtifactURLs.forEach(cleanupManagedBasketArtifactIfUnreferenced)
         retriedTransferIDs.formIntersection(recentTransfers.map(\.id))
     }
 
@@ -1660,6 +1676,26 @@ final class AppModel: ObservableObject {
         guard let data = try? JSONEncoder().encode(finished) else { return }
         UserDefaults.standard.set(data, forKey: recentTransfersKey)
         UserDefaults.standard.removeObject(forKey: legacyRecentTransferKey)
+    }
+
+    func cleanupManagedBasketArtifactIfUnreferenced(_ url: URL) {
+        let isManagedText = BasketTextClipStore.isManaged(url)
+        let isManagedImage = BasketImageClipStore.isManaged(url)
+        guard isManagedText || isManagedImage else { return }
+        let path = url.standardizedFileURL.path
+        let isInBasket = fileBaskets.baskets.contains { basket in
+            basket.items.contains { $0.path == path }
+        }
+        let isScheduled = displayedScheduledSends.contains { plan in
+            plan.items.contains { $0.filePath == path }
+        }
+        let isInTransferHistory = recentTransfers.contains { $0.path == path }
+        guard !isInBasket, !isScheduled, !isInTransferHistory else { return }
+        if isManagedText {
+            _ = BasketTextClipStore.deleteIfManaged(url)
+        } else {
+            _ = BasketImageClipStore.deleteIfManaged(url)
+        }
     }
 
     private func pollLogin(runtime: AppRuntime, verificationCode: String?) async {

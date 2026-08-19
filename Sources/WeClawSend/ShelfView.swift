@@ -39,6 +39,12 @@ private struct ShelfUndoAction: Identifiable {
     let message: String
 }
 
+private struct TextClipEditorDraft: Identifiable {
+    let id = UUID()
+    let item: ShelfItem?
+    let text: String
+}
+
 struct ShelfView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: AppModel
@@ -62,6 +68,7 @@ struct ShelfView: View {
     let quickLook: (ShelfItem) -> Void
     let revealInFinder: (ShelfItem) -> Void
     let undoAvailabilityChanged: (Bool) -> Void
+    let resetPresentationSize: () -> Void
 
     @State private var isDropTargeted = false
     @State private var hoveredItemID: UUID?
@@ -80,6 +87,8 @@ struct ShelfView: View {
     @State private var marqueeBaseSelection: Set<UUID> = []
     @State private var ignoresMarqueeDrag = false
     @State private var pendingUndo: ShelfUndoAction?
+    @State private var textClipEditorDraft: TextClipEditorDraft?
+    @State private var hoveredReaderAction: String?
 
     private let cornerRadius: CGFloat = 14
     private let itemListCoordinateSpace = "ShelfItemList"
@@ -87,10 +96,11 @@ struct ShelfView: View {
     var body: some View {
         shelfChrome
             .frame(
-                width: session.isCollapsed ? 248 : 340,
-                height: session.isCollapsed ? 52 : 340,
+                width: fixedWindowSize?.width,
+                height: fixedWindowSize?.height,
                 alignment: .top
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(shelfBackground)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(shelfBorder)
@@ -108,12 +118,13 @@ struct ShelfView: View {
                 } catch {
                     return
                 }
+                finalizePendingUndo()
                 pendingUndo = nil
                 undoAvailabilityChanged(false)
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(shelf.title)
-            .help("拖入文件或文件夹；空白处拖框或按 ⌘A 多选，选中后可拖出到其他 App")
+            .help("拖入文件或文件夹，或按 ⌘V 粘贴文件与文本；空白处拖框或按 ⌘A 多选")
             .alert("删除\(shelf.title)？", isPresented: $showsDeleteConfirmation) {
                 Button("删除", role: .destructive, action: deleteBasket)
                 Button("取消", role: .cancel) {}
@@ -158,26 +169,46 @@ struct ShelfView: View {
             .sheet(isPresented: $showsAppearanceEditor) {
                 FileBasketAppearanceEditor(shelf: shelf)
             }
+            .sheet(item: $textClipEditorDraft) { draft in
+                FileBasketTextEditor(
+                    title: draft.item == nil ? "新建文本便笺" : "编辑文本",
+                    initialText: draft.text,
+                    save: { saveTextClip(draft: draft, text: $0) }
+                )
+            }
     }
 
     @ViewBuilder
     private var shelfChrome: some View {
         ZStack(alignment: .bottom) {
-            Group {
+            switch session.presentationMode {
+            case .collection:
                 if session.isCollapsed {
                     collapsedChrome
                 } else {
                     expandedChrome
                 }
+            case .reader:
+                readerChrome
+            case .reminder:
+                reminderChrome
             }
-            .transition(chromeTransition)
 
-            if session.isCollapsed, let status = session.statusMessage {
+            if session.presentationMode == .collection,
+               session.isCollapsed,
+               let status = session.statusMessage {
                 toast(status)
                     .padding(.bottom, 8)
                     .transition(toastTransition)
             }
         }
+    }
+
+    private var fixedWindowSize: CGSize? {
+        guard session.presentationMode == .collection else { return nil }
+        return session.isCollapsed
+            ? ReaderWindowSizing.collapsedSize
+            : ReaderWindowSizing.collectionSize
     }
 
     private var shelfBackground: some View {
@@ -288,6 +319,197 @@ struct ShelfView: View {
         }
     }
 
+    @ViewBuilder
+    private var readerChrome: some View {
+        if !session.isPresentationReady {
+            BasketReaderLoadingView(title: "正在展开阅读…", systemImage: "doc.text.magnifyingglass")
+        } else if let item = session.focusedItem(in: shelf.items) {
+            VStack(spacing: 0) {
+                readerNavigationHeader(item: item)
+                Divider().opacity(0.3)
+                readerContent(item: item)
+            }
+        } else {
+            BasketReaderErrorView(
+                title: "阅读项目不可用",
+                message: "项目可能已被移除或移动。",
+                actionTitle: "返回文件篮",
+                action: returnToCollection
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var reminderChrome: some View {
+        if let item = session.focusedItem(in: shelf.items), item.isTextDocument {
+            BasketReminderView(
+                title: item.fileName,
+                url: item.url,
+                isEditable: BasketTextClipStore.isManaged(item.url),
+                color: shelf.color.color,
+                backgroundOpacity: shelf.backgroundOpacity,
+                onEdit: { editTextClip(item) },
+                onCopy: { copyFiles([item]) },
+                onSend: { sendReminderItem(item) },
+                onToggleTodo: { lineIndex in
+                    toggleReminderTodo(item, lineIndex: lineIndex)
+                },
+                onReturnToReader: {
+                    _ = session.enterReader(itemID: item.id, in: shelf.items)
+                },
+                onReturnToBasket: returnToCollection
+            )
+        } else {
+            BasketReaderErrorView(
+                title: "提醒内容不可用",
+                message: "提醒栏只支持仍然有效的文本内容。",
+                actionTitle: "返回文件篮",
+                action: returnToCollection
+            )
+        }
+    }
+
+    private func readerNavigationHeader(item: ShelfItem) -> some View {
+        HStack(spacing: 8) {
+            readerHeaderButton(
+                "返回文件篮",
+                systemImage: "chevron.left",
+                showsLabel: true,
+                action: returnToCollection
+            )
+            readerHeaderButton("上一个", systemImage: "chevron.up") {
+                _ = session.moveFocus(by: -1, in: shelf.items)
+            }
+            readerHeaderButton("下一个", systemImage: "chevron.down") {
+                _ = session.moveFocus(by: 1, in: shelf.items)
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.fileName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(shelf.title)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            if item.isTextDocument {
+                readerHeaderButton("提醒栏", systemImage: "pin.square") {
+                    _ = session.enterReminder(itemID: item.id, in: shelf.items)
+                }
+            }
+            readerHeaderButton("在 Finder 中显示", systemImage: "folder") {
+                revealInFinder(item)
+            }
+            readerHeaderButton("恢复默认大小", systemImage: "arrow.down.right.and.arrow.up.left") {
+                resetPresentationSize()
+            }
+            readerHeaderButton("关闭文件篮", systemImage: "xmark", action: close)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 50)
+        .background(WindowDragHandle().overlay(Color.primary.opacity(0.012)))
+        .zIndex(10)
+    }
+
+    private func readerHeaderButton(
+        _ title: String,
+        systemImage: String,
+        showsLabel: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 10.5, weight: .semibold))
+                if showsLabel {
+                    Text(title)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, showsLabel ? 9 : 0)
+            .frame(minWidth: 28, minHeight: 28)
+            .background(
+                Color.primary.opacity(hoveredReaderAction == title ? 0.1 : 0.055),
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay(alignment: .top) {
+                if !showsLabel, hoveredReaderAction == title {
+                    Text(title)
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .fixedSize()
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(.regularMaterial, in: Capsule())
+                        .offset(y: 32)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .buttonStyle(ShelfPressButtonStyle())
+        .onHover { hovering in
+            hoveredReaderAction = hovering
+                ? title
+                : (hoveredReaderAction == title ? nil : hoveredReaderAction)
+        }
+        .help(title)
+        .accessibilityLabel(title)
+    }
+
+    @ViewBuilder
+    private func readerContent(item: ShelfItem) -> some View {
+        switch BasketReaderRouter.route(
+            for: item.url,
+            isManagedText: BasketTextClipStore.isManaged(item.url)
+        ) {
+        case let .reader(kind):
+            readerView(kind: kind, item: item)
+        case let .failure(error):
+            BasketReaderErrorView(
+                title: "无法展开阅读",
+                message: readerErrorMessage(error),
+                actionTitle: "返回文件篮",
+                action: returnToCollection
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func readerView(kind: BasketReaderKind, item: ShelfItem) -> some View {
+        switch kind {
+        case .managedText, .externalText:
+            BasketTextReaderView(
+                url: item.url,
+                isManaged: kind == .managedText,
+                title: item.fileName,
+                showsTitle: false,
+                onSave: { saveReaderText($0, item: item) },
+                onCreateEditableCopy: { createEditableTextCopy($0) },
+                onError: { session.flash($0, duration: 3) }
+            )
+        case .pdf:
+            BasketPDFReaderView(url: item.url)
+        case .image:
+            BasketImageReaderView(url: item.url)
+        case .quickLook:
+            BasketQuickLookReaderView(url: item.url)
+        case .fileInfo:
+            BasketReaderErrorView(
+                title: item.fileName,
+                message: item.isDirectory ? "文件夹和包不能内嵌阅读。" : "此格式暂不支持内嵌阅读。",
+                systemImage: "folder",
+                actionTitle: "在 Finder 中显示",
+                action: { revealInFinder(item) }
+            )
+        }
+    }
+
     private var header: some View {
         HStack(spacing: 8) {
             chromeButton("关闭文件篮", systemImage: "xmark", action: close)
@@ -296,6 +518,11 @@ struct ShelfView: View {
 
             HStack(spacing: 3) {
                 displayModeControl
+                chromeButton(
+                    "展开阅读",
+                    systemImage: "book.closed",
+                    action: openSelectedItemInReader
+                )
                 chromeButton(
                     session.isAlwaysOnTop ? "取消置顶" : "置顶",
                     systemImage: session.isAlwaysOnTop ? "pin.fill" : "pin",
@@ -311,6 +538,7 @@ struct ShelfView: View {
             WindowDragHandle()
                 .overlay(Color.primary.opacity(0.012))
         }
+        .zIndex(10)
     }
 
     private var titleControl: some View {
@@ -382,7 +610,7 @@ struct ShelfView: View {
     }
 
     private var basketSummary: String {
-        guard !shelf.items.isEmpty else { return "拖入文件或文件夹" }
+        guard !shelf.items.isEmpty else { return "拖入文件或按 ⌘V 粘贴" }
         let fileBytes = shelf.items.reduce(Int64.zero) { total, item in
             guard item.kind == .file else { return total }
             return total + ShelfItemPresentationCache.fileSize(for: item.url)
@@ -401,6 +629,13 @@ struct ShelfView: View {
             Divider()
             Button(action: chooseFiles) {
                 Label("添加文件或文件夹…", systemImage: "plus")
+            }
+            Button("展开所选项目", action: openSelectedItemInReader)
+                .disabled(session.selectedItemIDs.count != 1)
+            Button {
+                textClipEditorDraft = TextClipEditorDraft(item: nil, text: "")
+            } label: {
+                Label("新建文本便笺…", systemImage: "note.text.badge.plus")
             }
             Divider()
             basketShareButton(.airDrop)
@@ -531,15 +766,17 @@ struct ShelfView: View {
         collectionItem(item)
             .id(item.id)
             .background {
-                GeometryReader { geometry in
-                    Color.clear.preference(
-                        key: ShelfItemFramePreferenceKey.self,
-                        value: [
-                            item.id: geometry.frame(
-                                in: .named(itemListCoordinateSpace)
-                            ),
-                        ]
-                    )
+                if session.isPresentationReady {
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: ShelfItemFramePreferenceKey.self,
+                            value: [
+                                item.id: geometry.frame(
+                                    in: .named(itemListCoordinateSpace)
+                                ),
+                            ]
+                        )
+                    }
                 }
             }
     }
@@ -557,6 +794,7 @@ struct ShelfView: View {
                 onSelect: { extending, toggling in select(item, extending: extending, toggling: toggling) },
                 dragItems: { session.dragItems(startingAt: item.id, in: shelf.items) },
                 onPreview: { preview(item) },
+                onOpenReader: { openItemInReader(item) },
                 onCopy: { copy(item) },
                 onShare: { destination in share(item, via: destination) },
                 onRemove: { remove(item) },
@@ -572,6 +810,7 @@ struct ShelfView: View {
                 onSelect: { extending, toggling in select(item, extending: extending, toggling: toggling) },
                 dragItems: { session.dragItems(startingAt: item.id, in: shelf.items) },
                 onPreview: { preview(item) },
+                onOpenReader: { openItemInReader(item) },
                 onCopy: { copy(item) },
                 onShare: { destination in share(item, via: destination) },
                 onRemove: { remove(item) },
@@ -595,7 +834,46 @@ struct ShelfView: View {
 
     private func preview(_ item: ShelfItem) {
         session.select(item.id)
+        if BasketTextClipStore.isManaged(item.url) {
+            editTextClip(item)
+            return
+        }
         quickLook(item)
+    }
+
+    private func editTextClip(_ item: ShelfItem) {
+        do {
+            textClipEditorDraft = TextClipEditorDraft(
+                item: item,
+                text: try BasketTextClipStore.readText(at: item.url)
+            )
+        } catch {
+            session.flash(error.localizedDescription, duration: 3)
+        }
+    }
+
+    private func saveTextClip(draft: TextClipEditorDraft, text: String) -> Bool {
+        do {
+            if let item = draft.item {
+                try BasketTextClipStore.update(text: text, at: item.url)
+                ShelfItemPresentationCache.invalidateText(for: item.url)
+                shelf.itemContentDidChange()
+                session.flash("文本已更新")
+            } else {
+                let url = try BasketTextClipStore.create(text: text)
+                guard shelf.add(urls: [url]) == 1, let item = shelf.items.last else {
+                    _ = BasketTextClipStore.deleteIfManaged(url)
+                    session.flash("无法加入文本便笺")
+                    return false
+                }
+                session.select(item.id)
+                session.flash("已加入文本便笺")
+            }
+            return true
+        } catch {
+            session.flash(error.localizedDescription, duration: 3)
+            return false
+        }
     }
 
     private func copy(_ item: ShelfItem) {
@@ -673,9 +951,9 @@ struct ShelfView: View {
                     .symbolEffect(.pulse, isActive: isDropTargeted && !reduceMotion)
 
                 VStack(spacing: 3) {
-                    Text(isDropTargeted ? "松开以加入" : "拖入文件或文件夹")
+                    Text(isDropTargeted ? "松开以加入" : "拖入文件，或按 ⌘V 粘贴")
                         .font(.system(size: 12.5, weight: .semibold))
-                    Text("空格预览 · 仅保存引用")
+                    Text("支持文件与纯文本 · 空格预览")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
                 }
@@ -694,7 +972,7 @@ struct ShelfView: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("选择或拖入文件或文件夹加入\(shelf.title)")
+        .accessibilityLabel("选择、拖入或粘贴文件与文本加入\(shelf.title)")
     }
 
     private func toast(_ text: String) -> some View {
@@ -878,6 +1156,111 @@ struct ShelfView: View {
 
     // MARK: - Controls
 
+    private func openSelectedItemInReader() {
+        guard session.selectedItemIDs.count == 1,
+              let item = session.selectedItem(in: shelf.items) else {
+            session.flash("请选择一个项目")
+            return
+        }
+        switch BasketReaderRouter.route(
+            for: item.url,
+            isManagedText: BasketTextClipStore.isManaged(item.url)
+        ) {
+        case .reader:
+            _ = session.enterReader(itemID: item.id, in: shelf.items)
+        case let .failure(error):
+            session.flash(readerErrorMessage(error), duration: 2.4)
+        }
+    }
+
+    private func openItemInReader(_ item: ShelfItem) {
+        session.select(item.id)
+        switch BasketReaderRouter.route(
+            for: item.url,
+            isManagedText: BasketTextClipStore.isManaged(item.url)
+        ) {
+        case .reader:
+            _ = session.enterReader(itemID: item.id, in: shelf.items)
+        case let .failure(error):
+            session.flash(readerErrorMessage(error), duration: 2.4)
+        }
+    }
+
+    private func returnToCollection() {
+        session.returnToCollection(in: shelf.items)
+    }
+
+    private func saveReaderText(_ text: String, item: ShelfItem) -> Bool {
+        guard BasketTextClipStore.isManaged(item.url) else { return false }
+        do {
+            try BasketTextClipStore.update(text: text, at: item.url)
+            ShelfItemPresentationCache.invalidateText(for: item.url)
+            shelf.itemContentDidChange()
+            session.flash("文本已保存")
+            return true
+        } catch {
+            session.flash(error.localizedDescription, duration: 3)
+            return false
+        }
+    }
+
+    private func createEditableTextCopy(_ text: String) {
+        do {
+            let url = try BasketTextClipStore.create(text: text)
+            guard shelf.add(urls: [url]) == 1, let item = shelf.items.last else {
+                _ = BasketTextClipStore.deleteIfManaged(url)
+                session.flash("无法创建文本副本")
+                return
+            }
+            _ = session.enterReader(itemID: item.id, in: shelf.items)
+            session.flash("已创建可编辑副本")
+        } catch {
+            session.flash(error.localizedDescription, duration: 3)
+        }
+    }
+
+    private func toggleReminderTodo(_ item: ShelfItem, lineIndex: Int) -> String? {
+        guard BasketTextClipStore.isManaged(item.url) else {
+            session.flash("外部文本为只读")
+            return nil
+        }
+        do {
+            let currentText = try BasketTextClipStore.readText(at: item.url)
+            let updatedText = BasketTextFormatting.toggleTodo(
+                currentText,
+                lineIndex: lineIndex,
+                moveCompletedToEnd: true
+            )
+            guard updatedText != currentText else { return nil }
+            try BasketTextClipStore.update(text: updatedText, at: item.url)
+            ShelfItemPresentationCache.invalidateText(for: item.url)
+            shelf.itemContentDidChange()
+            return updatedText
+        } catch {
+            session.flash(error.localizedDescription, duration: 3)
+            return nil
+        }
+    }
+
+    private func sendReminderItem(_ item: ShelfItem) {
+        guard model.isReady else {
+            session.flash("请先在主面板登录微信")
+            return
+        }
+        if model.send(urls: [item.url]) {
+            session.flash("已加入发送队列")
+        }
+    }
+
+    private func readerErrorMessage(_ error: BasketReaderRoutingError) -> String {
+        switch error {
+        case .nonFileURL: "只支持本地文件"
+        case .missingPath: "文件已被移动或删除"
+        case .symbolicLink: "不支持符号链接"
+        case .unsupportedItem: "该项目暂不支持阅读"
+        }
+    }
+
     private func clearBasket() {
         let previousItems = shelf.items
         guard !previousItems.isEmpty else { return }
@@ -974,6 +1357,19 @@ struct ShelfView: View {
                     Circle()
                         .fill(chromeButtonBackground(title, emphasized: emphasized))
                 )
+                .overlay(alignment: .top) {
+                    if hoveredChromeButton == title {
+                        Text(title)
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .fixedSize()
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(.regularMaterial, in: Capsule())
+                            .offset(y: 31)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .contentShape(Circle())
         }
         .buttonStyle(ShelfPressButtonStyle())
@@ -1038,12 +1434,21 @@ struct ShelfView: View {
 
     private func beginUndo(items: [ShelfItem], originalIndexes: [Int], message: String) {
         guard !items.isEmpty, items.count == originalIndexes.count else { return }
+        finalizePendingUndo()
         undoAvailabilityChanged(true)
         pendingUndo = ShelfUndoAction(
             items: items,
             originalIndexes: originalIndexes,
             message: message
         )
+    }
+
+    private func finalizePendingUndo() {
+        guard let pendingUndo else { return }
+        let retainedPaths = Set(shelf.items.map(\.path))
+        for item in pendingUndo.items where !retainedPaths.contains(item.path) {
+            model.cleanupManagedBasketArtifactIfUnreferenced(item.url)
+        }
     }
 
     private func setDropTargeted(_ targeted: Bool) {
@@ -1082,6 +1487,64 @@ struct ShelfView: View {
             session.flash("不支持此项目或符号链接")
         }
         return false
+    }
+}
+
+private struct FileBasketTextEditor: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let title: String
+    let save: (String) -> Bool
+    @State private var text: String
+
+    init(title: String, initialText: String, save: @escaping (String) -> Bool) {
+        self.title = title
+        self.save = save
+        _text = State(initialValue: initialText)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+
+            TextEditor(text: $text)
+                .font(.system(size: 12.5))
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .frame(width: 360, height: 230)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.primary.opacity(0.035))
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Brand.hairline, lineWidth: 1)
+                }
+
+            HStack {
+                Text("\(text.utf8.count) / \(BasketTextClipStore.maximumTextBytes) bytes")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(isValid ? Color.secondary : Brand.danger)
+                Spacer()
+                Button("取消", role: .cancel) {
+                    dismiss()
+                }
+                Button("保存") {
+                    if save(text) {
+                        dismiss()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!isValid)
+            }
+        }
+        .padding(20)
+    }
+
+    private var isValid: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && text.utf8.count <= BasketTextClipStore.maximumTextBytes
     }
 }
 
@@ -1210,6 +1673,7 @@ private struct ShelfItemTile: View {
     let onSelect: (_ extending: Bool, _ toggling: Bool) -> Void
     let dragItems: () -> [ShelfItem]
     let onPreview: () -> Void
+    let onOpenReader: () -> Void
     let onCopy: () -> Void
     let onShare: (ShelfShareDestination) -> Void
     let onRemove: () -> Void
@@ -1219,12 +1683,13 @@ private struct ShelfItemTile: View {
 
     var body: some View {
         interactiveTile
-            .help("\(item.path)\n方向键选择 · 拖出项目 · 双击预览 · ⌘C 复制")
+            .help("\(item.path)\n方向键选择 · 拖出项目 · \(previewMenuTitle) · ⌘C 复制")
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(item.fileName)，\(detailText)")
             .accessibilityValue(accessibilitySelectionValue)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .accessibilityAction(named: "快速预览", onPreview)
+            .accessibilityAction(named: previewMenuTitle, onPreview)
+            .accessibilityAction(named: "展开阅读", onOpenReader)
             .accessibilityAction(named: "复制项目", onCopy)
             .accessibilityAction(named: "隔空投送") { onShare(.airDrop) }
             .accessibilityAction(named: "在 Finder 中显示", onReveal)
@@ -1244,7 +1709,8 @@ private struct ShelfItemTile: View {
             .simultaneousGesture(dragGesture)
             .contextMenu {
                 Button(copyMenuTitle, action: onCopy)
-                Button("快速预览", action: onPreview)
+                Button(previewMenuTitle, action: onPreview)
+                Button("展开阅读", action: onOpenReader)
                 Button("在 Finder 中显示", action: onReveal)
                 Divider()
                 shareButtons
@@ -1268,12 +1734,18 @@ private struct ShelfItemTile: View {
 
     private var tileContent: some View {
         VStack(spacing: 6) {
-            FileThumbnailView(
-                url: item.url,
-                width: 84,
-                height: 62,
-                cornerRadius: 7
-            )
+            Group {
+                if item.isTextDocument {
+                    ShelfTextDocumentPreview(url: item.url, width: 84, height: 62, cornerRadius: 7)
+                } else {
+                    FileThumbnailView(
+                        url: item.url,
+                        width: 84,
+                        height: 62,
+                        cornerRadius: 7
+                    )
+                }
+            }
             .overlay(alignment: .topTrailing) {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
@@ -1332,6 +1804,10 @@ private struct ShelfItemTile: View {
         selectedCount > 1 && isSelected ? "复制所选 \(selectedCount) 个项目" : "复制项目"
     }
 
+    private var previewMenuTitle: String {
+        BasketTextClipStore.isManaged(item.url) ? "编辑文本" : "快速预览"
+    }
+
     private var accessibilitySelectionValue: String {
         guard isSelected else { return "" }
         return selectedCount > 1 ? "已选中，共 \(selectedCount) 个项目" : "已选中"
@@ -1344,7 +1820,10 @@ private struct ShelfItemTile: View {
     }
 
     private var detailText: String {
-        switch item.kind {
+        if item.isTextDocument {
+            return BasketTextClipStore.isManaged(item.url) ? "文本便笺" : "文本文件"
+        }
+        return switch item.kind {
         case .folder: "文件夹"
         case .package: "包"
         case .file: formatBytes(ShelfItemPresentationCache.fileSize(for: item.url))
@@ -1364,6 +1843,7 @@ private struct ShelfItemRow: View {
     let onSelect: (_ extending: Bool, _ toggling: Bool) -> Void
     let dragItems: () -> [ShelfItem]
     let onPreview: () -> Void
+    let onOpenReader: () -> Void
     let onCopy: () -> Void
     let onShare: (ShelfShareDestination) -> Void
     let onRemove: () -> Void
@@ -1383,7 +1863,8 @@ private struct ShelfItemRow: View {
             )
             .accessibilityHint("可快速预览、在 Finder 中显示、移除或拖出到其他应用")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .accessibilityAction(named: "快速预览", onPreview)
+            .accessibilityAction(named: previewMenuTitle, onPreview)
+            .accessibilityAction(named: "展开阅读", onOpenReader)
             .accessibilityAction(named: "复制项目", onCopy)
             .accessibilityAction(named: "隔空投送") { onShare(.airDrop) }
             .accessibilityAction(named: "在 Finder 中显示", onReveal)
@@ -1395,6 +1876,7 @@ private struct ShelfItemRow: View {
             draggableContent
 
             if isHovered {
+                rowAction("展开阅读", systemImage: "arrow.up.left.and.arrow.down.right", action: onOpenReader)
                 rowAction("预览", systemImage: "eye", action: onPreview)
                 rowAction("复制项目", systemImage: "doc.on.doc", action: onCopy)
                 rowAction("移除", systemImage: "xmark", action: onRemove)
@@ -1417,7 +1899,8 @@ private struct ShelfItemRow: View {
         .onHover(perform: onHover)
         .contextMenu {
             Button(selectedCount > 1 && isSelected ? "复制所选 \(selectedCount) 个项目" : "复制项目", action: onCopy)
-            Button("快速预览", action: onPreview)
+            Button(previewMenuTitle, action: onPreview)
+            Button("展开阅读", action: onOpenReader)
             Button("在 Finder 中显示", action: onReveal)
             Divider()
             shareButtons
@@ -1441,12 +1924,18 @@ private struct ShelfItemRow: View {
 
     private var draggableContent: some View {
         HStack(spacing: 10) {
-            FileThumbnailView(
-                url: item.url,
-                width: 36,
-                height: 36,
-                cornerRadius: 6
-            )
+            Group {
+                if item.isTextDocument {
+                    ShelfTextDocumentPreview(url: item.url, width: 36, height: 36, cornerRadius: 6, compact: true)
+                } else {
+                    FileThumbnailView(
+                        url: item.url,
+                        width: 36,
+                        height: 36,
+                        cornerRadius: 6
+                    )
+                }
+            }
 
             Text(item.fileName)
                 .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
@@ -1494,12 +1983,19 @@ private struct ShelfItemRow: View {
     }
 
     private var detailText: String {
-        switch item.kind {
+        if item.isTextDocument {
+            return BasketTextClipStore.isManaged(item.url) ? "文本便笺" : "文本文件"
+        }
+        return switch item.kind {
         case .folder: "文件夹"
         case .package: "包"
         case .file: formatBytes(fileSize)
         case nil: "不可用"
         }
+    }
+
+    private var previewMenuTitle: String {
+        BasketTextClipStore.isManaged(item.url) ? "编辑文本" : "快速预览"
     }
 
     private func rowAction(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
@@ -1615,6 +2111,42 @@ struct FilePreviewHitTarget<Content: View>: View {
     }
 }
 
+private struct ShelfTextDocumentPreview: View {
+    let url: URL
+    let width: CGFloat
+    let height: CGFloat
+    let cornerRadius: CGFloat
+    var compact = false
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.primary.opacity(0.055))
+            Text(previewText)
+                .font(.system(size: compact ? 5.5 : 8.5, weight: .medium, design: .rounded))
+                .foregroundStyle(Color.primary.opacity(0.72))
+                .lineSpacing(compact ? 0 : 1.5)
+                .lineLimit(compact ? 5 : 4)
+                .multilineTextAlignment(.leading)
+                .padding(compact ? 4 : 7)
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.primary.opacity(0.075), lineWidth: 0.7)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var previewText: String {
+        ShelfItemPresentationCache.textPreview(
+            for: url,
+            maxCharacters: compact ? 80 : 220
+        ) ?? "文本"
+    }
+}
+
 struct FileThumbnailView: View {
     let url: URL
     var fileName: String? = nil
@@ -1662,6 +2194,10 @@ struct FileThumbnailView: View {
                 .stroke(Color.primary.opacity(0.06), lineWidth: 0.7)
         }
         .task(id: cacheKey) {
+            if let cached = ShelfItemPresentationCache.thumbnail(forKey: cacheKey) {
+                thumbnail = cached
+                return
+            }
             thumbnail = nil
             guard shouldLoadThumbnail else { return }
             await loadThumbnail()
@@ -1726,6 +2262,7 @@ private enum ShelfItemPresentationCache {
     private static let fileSizes = NSCache<NSString, NSNumber>()
     private static let icons = NSCache<NSString, NSImage>()
     private static let thumbnails = NSCache<NSString, NSImage>()
+    private static let texts = NSCache<NSString, NSString>()
 
     static func fileSize(for url: URL) -> Int64 {
         let key = url.path as NSString
@@ -1762,5 +2299,26 @@ private enum ShelfItemPresentationCache {
 
     static func storeThumbnail(_ image: NSImage, forKey key: String) {
         thumbnails.setObject(image, forKey: key as NSString)
+    }
+
+    static func textPreview(for url: URL, maxCharacters: Int) -> String? {
+        guard maxCharacters > 0 else { return nil }
+        let key = url.standardizedFileURL.path as NSString
+        let text: String
+        if let cached = texts.object(forKey: key) {
+            text = cached as String
+        } else {
+            guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]),
+                  data.count <= BasketTextClipStore.maximumTextBytes,
+                  let decoded = String(data: data, encoding: .utf8)
+            else { return nil }
+            text = decoded
+            texts.setObject(decoded as NSString, forKey: key)
+        }
+        return String(text.prefix(maxCharacters))
+    }
+
+    static func invalidateText(for url: URL) {
+        texts.removeObject(forKey: url.standardizedFileURL.path as NSString)
     }
 }

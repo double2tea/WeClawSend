@@ -34,12 +34,16 @@ final class ShelfSessionState: ObservableObject {
     @Published var isCollapsed: Bool
     @Published var isAlwaysOnTop: Bool
     @Published var displayMode: ShelfDisplayMode
+    @Published var presentationMode: ShelfPresentationMode = .collection
+    @Published private(set) var isPresentationReady = true
     @Published private(set) var selectedItemID: UUID?
     @Published private(set) var selectedItemIDs: Set<UUID> = []
+    @Published private(set) var focusedItemID: UUID?
     @Published private(set) var statusMessage: String?
 
     private var statusClearTask: Task<Void, Never>?
     private var selectionAnchorID: UUID?
+    private var collectionSelectionSnapshot: Set<UUID> = []
 
     init(
         isCollapsed: Bool = false,
@@ -167,6 +171,84 @@ final class ShelfSessionState: ObservableObject {
 
     func selectedItems(in items: [ShelfItem]) -> [ShelfItem] {
         items.filter { selectedItemIDs.contains($0.id) }
+    }
+
+    func focusedItem(in items: [ShelfItem]) -> ShelfItem? {
+        guard let focusedItemID else { return nil }
+        return items.first { $0.id == focusedItemID }
+    }
+
+    @discardableResult
+    func enterReader(itemID: UUID, in items: [ShelfItem]) -> Bool {
+        guard items.contains(where: { $0.id == itemID }) else { return false }
+        let changesMode = presentationMode != .reader
+        if presentationMode == .collection {
+            collectionSelectionSnapshot = selectedItemIDs
+        }
+        focusedItemID = itemID
+        if changesMode {
+            isPresentationReady = false
+        }
+        presentationMode = .reader
+        isCollapsed = false
+        return true
+    }
+
+    @discardableResult
+    func enterReminder(itemID: UUID, in items: [ShelfItem]) -> Bool {
+        guard items.contains(where: { $0.id == itemID }) else { return false }
+        let changesMode = presentationMode != .reminder
+        if presentationMode == .collection {
+            collectionSelectionSnapshot = selectedItemIDs
+        }
+        focusedItemID = itemID
+        if changesMode {
+            isPresentationReady = false
+        }
+        presentationMode = .reminder
+        isCollapsed = false
+        return true
+    }
+
+    func returnToCollection(in items: [ShelfItem]) {
+        if presentationMode != .collection {
+            isPresentationReady = false
+        }
+        presentationMode = .collection
+        focusedItemID = nil
+        let availableIDs = Set(items.map(\.id))
+        let restoredSelection = collectionSelectionSnapshot.intersection(availableIDs)
+        collectionSelectionSnapshot = []
+        if restoredSelection.isEmpty {
+            ensureSelection(in: items)
+        } else {
+            setSelection(restoredSelection, in: items)
+        }
+    }
+
+    func completePresentationTransition() {
+        isPresentationReady = true
+    }
+
+    @discardableResult
+    func moveFocus(by offset: Int, in items: [ShelfItem]) -> ShelfItem? {
+        guard !items.isEmpty else { return nil }
+        let currentIndex = focusedItemID.flatMap { id in
+            items.firstIndex { $0.id == id }
+        } ?? 0
+        let nextIndex = min(max(currentIndex + offset, 0), items.count - 1)
+        focusedItemID = items[nextIndex].id
+        return items[nextIndex]
+    }
+
+    @discardableResult
+    func ensureFocusedItem(in items: [ShelfItem]) -> Bool {
+        guard presentationMode != .collection else { return true }
+        guard let focusedItemID, items.contains(where: { $0.id == focusedItemID }) else {
+            returnToCollection(in: items)
+            return false
+        }
+        return true
     }
 
     func dragItems(startingAt id: UUID, in items: [ShelfItem]) -> [ShelfItem] {
