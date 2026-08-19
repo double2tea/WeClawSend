@@ -219,6 +219,25 @@ code {
   background: rgba(255, 255, 255, 0.8);
   border-color: rgba(23, 25, 27, 0.18);
 }
+.button-watch {
+  color: #4e6573;
+  background: rgba(91, 109, 120, 0.08);
+  border-color: rgba(91, 109, 120, 0.2);
+}
+.button-watch:hover {
+  color: var(--ink);
+  background: rgba(91, 109, 120, 0.13);
+  border-color: rgba(91, 109, 120, 0.3);
+}
+.button-watch svg {
+  width: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+.button-watch svg path { fill: currentColor; stroke: none; }
 .hero-meta {
   margin-top: 18px;
   color: var(--muted-soft);
@@ -228,82 +247,41 @@ code {
 
 .hero-visual {
   position: relative;
-  min-height: 620px;
+  display: grid;
+  min-height: 500px;
+  place-items: center;
 }
 .hero-glow {
   position: absolute;
-  inset: 8% 4% 8% 12%;
+  inset: 12% 0 10% 4%;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(122, 143, 156, 0.18), transparent 68%);
+  background: radial-gradient(circle, rgba(164, 150, 128, 0.2), transparent 68%);
 }
-.app-window {
-  position: absolute;
-  top: 6%;
-  left: 14%;
+.hero-video-frame {
+  position: relative;
   z-index: 2;
-  width: min(68%, 420px);
+  width: 100%;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(23, 25, 27, 0.08);
-  border-radius: 22px;
-  box-shadow: var(--shadow);
+  background: #e8e2d8;
+  border: 1px solid rgba(72, 65, 55, 0.11);
+  border-radius: 30px;
+  box-shadow: 0 34px 90px rgba(77, 68, 56, 0.17);
 }
-.app-window img { width: 100%; }
-.window-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 12px;
-  background: rgba(246, 245, 242, 0.96);
-  border-bottom: 1px solid rgba(23, 25, 27, 0.06);
-}
-.window-bar span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #c8cbc7;
-}
-.window-bar b {
-  margin-left: auto;
-  color: var(--muted-soft);
-  font-size: 11px;
-  font-weight: 500;
-}
-.delivery-card {
+.hero-video-frame::after {
   position: absolute;
-  right: 0;
-  bottom: 14%;
-  z-index: 3;
-  display: flex;
-  min-width: 228px;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  color: white;
-  background: rgba(23, 25, 27, 0.92);
-  border-radius: 16px;
-  box-shadow: var(--shadow-soft);
+  inset: 0;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
 }
-.delivery-icon {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  color: white;
-  background: var(--green);
-  border-radius: 50%;
-  font-size: 13px;
-  font-weight: 600;
-}
-.delivery-card b {
+.hero-video-frame video {
   display: block;
-  font-size: 13px;
-  font-weight: 550;
-}
-.delivery-card small {
-  color: rgba(255, 255, 255, 0.68);
-  font-size: 11.5px;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .film {
@@ -1342,18 +1320,9 @@ html:not(.js) .reveal {
     padding-top: 118px;
     padding-bottom: 48px;
   }
-  .hero-visual,
-  .detail-visual {
-    min-height: 520px;
-  }
-  .app-window {
-    left: 10%;
-    width: min(78%, 420px);
-  }
-  .delivery-card {
-    right: 0;
-    bottom: 8%;
-  }
+  .hero-visual { min-height: auto; }
+  .detail-visual { min-height: 520px; }
+  .hero-video-frame { border-radius: 22px; }
   .film-layout,
   .workflow,
   .basket-feature,
@@ -1467,10 +1436,8 @@ html:not(.js) .reveal {
   .support-notice h2 {
     font-size: 34px;
   }
-  .hero-visual,
-  .detail-visual {
-    min-height: 460px;
-  }
+  .hero-visual { min-height: auto; }
+  .detail-visual { min-height: 460px; }
   .basket-visual {
     min-height: 520px;
     padding: 60px 18px 28px;
@@ -1479,15 +1446,7 @@ html:not(.js) .reveal {
   .basket-window-back { width: 52%; }
   .basket-points article { grid-template-columns: 1fr; gap: 6px; }
   .basket-version-note { margin-top: 20px; }
-  .app-window {
-    left: 8%;
-    width: 84%;
-  }
-  .delivery-card {
-    min-width: 0;
-    right: 4%;
-    left: 4%;
-  }
+  .hero-video-frame { border-radius: 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

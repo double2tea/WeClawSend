@@ -31,3 +31,9 @@ const observer = new IntersectionObserver((entries) => {
 }, { threshold: 0.12 });
 
 document.querySelectorAll(".reveal").forEach((element) => observer.observe(element));
+
+const heroVideo = document.querySelector("[data-hero-video]");
+if (heroVideo instanceof HTMLVideoElement && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  heroVideo.pause();
+  heroVideo.removeAttribute("autoplay");
+}
