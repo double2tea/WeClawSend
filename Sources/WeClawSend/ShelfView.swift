@@ -1498,6 +1498,25 @@ private struct FileBasketTextEditor: View {
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
 
+            HStack(spacing: 6) {
+                Text("快速格式")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button("待办") {
+                    text = BasketTextFormatting.makeChecklist(text)
+                }
+                Button("编号") {
+                    text = BasketTextFormatting.makeNumbered(text)
+                }
+                Button("整理") {
+                    text = BasketTextFormatting.sortChecklist(text)
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
             TextEditor(text: $text)
                 .font(.system(size: 12.5))
                 .scrollContentBackground(.hidden)

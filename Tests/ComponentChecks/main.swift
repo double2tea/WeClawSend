@@ -785,6 +785,28 @@ let completedChecklist = BasketTextFormatting.toggleTodo(
 precondition(completedChecklist == "- [ ] 联络客户\n- [x] 准备素材\n说明\n- [ ] 单独项目")
 precondition(BasketTextFormatting.makeNumbered("甲\n\n乙") == "1. 甲\n\n2. 乙")
 
+let trailingNewlineLines = BasketTextFormatting.parsedLines("- [ ] 准备素材\n- [ ] 联络客户\n")
+precondition(trailingNewlineLines.count == 2)
+precondition(trailingNewlineLines[0].isChecked == false)
+precondition(trailingNewlineLines[1].body == "联络客户")
+precondition(BasketTextFormatting.parsedLines("\n").count == 1)
+precondition(BasketTextFormatting.parseLine("  - [ ] 缩进") == .unchecked)
+precondition(BasketTextFormatting.parseLine("- [ ]无空格") == .plain)
+precondition(BasketTextFormatting.parsedLines("  - [x] 完成")[0].isChecked == true)
+precondition(BasketTextFormatting.parsedLines("- [ ] 甲\r\n- [ ] 乙").count == 2)
+precondition(
+    BasketTextFormatting.toggleTodo("- [ ] 甲\r\n- [ ] 乙", lineIndex: 0)
+        == "- [ ] 乙\r\n- [x] 甲"
+)
+precondition(
+    BasketTextFormatting.toggleTodo("- [ ] 准备素材\n- [ ] 联络客户\n", lineIndex: 1)
+        == "- [ ] 准备素材\n- [x] 联络客户\n"
+)
+precondition(
+    BasketTextFormatting.sortChecklist("- [x] 完成\n- [ ] 未完成\n说明")
+        == "- [ ] 未完成\n- [x] 完成\n说明"
+)
+
 let imageClipDirectory = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-image-clips-\(UUID())", directoryHint: .isDirectory)
 let imageClipStore = BasketImageClipStore(directory: imageClipDirectory)

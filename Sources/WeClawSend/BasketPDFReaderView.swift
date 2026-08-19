@@ -22,6 +22,7 @@ struct BasketPDFReaderView: View {
     @State private var searchMatches: [PDFSelection] = []
     @State private var searchMatchIndex = 0
     @State private var searchRevision = 0
+    @State private var interactionMode: BasketPDFInteractionMode = .pan
     @FocusState private var isSearchFocused: Bool
 
     init(
@@ -69,6 +70,7 @@ struct BasketPDFReaderView: View {
                 document: document,
                 zoomAction: zoomAction,
                 zoomRevision: zoomRevision,
+                interactionMode: interactionMode,
                 searchSelection: currentSearchSelection,
                 searchRevision: searchRevision,
                 onPageChange: { page, pages in
@@ -136,6 +138,16 @@ struct BasketPDFReaderView: View {
             Divider().frame(height: 16).padding(.horizontal, 3)
 
             Button {
+                interactionMode = interactionMode == .pan ? .selectText : .pan
+            } label: {
+                Image(systemName: interactionMode == .pan ? "hand.draw.fill" : "text.cursor")
+            }
+            .help(interactionMode == .pan ? "拖动页面浏览；点击切换到文本选择" : "选择文本；点击切换到拖动浏览")
+            .accessibilityLabel(interactionMode == .pan ? "拖动浏览" : "文本选择")
+
+            Divider().frame(height: 16).padding(.horizontal, 3)
+
+            Button {
                 issueZoom(.out)
             } label: {
                 Image(systemName: "minus.magnifyingglass")
@@ -189,6 +201,7 @@ struct BasketPDFReaderView: View {
         searchQuery = ""
         searchMatches = []
         searchMatchIndex = 0
+        interactionMode = .pan
 
         await Task.yield()
         guard !Task.isCancelled else { return }
@@ -288,10 +301,16 @@ private enum BasketPDFZoomAction {
     case fit
 }
 
+private enum BasketPDFInteractionMode {
+    case pan
+    case selectText
+}
+
 private struct BasketPDFDocumentView: NSViewRepresentable {
     let document: PDFDocument
     let zoomAction: BasketPDFZoomAction
     let zoomRevision: Int
+    let interactionMode: BasketPDFInteractionMode
     let searchSelection: PDFSelection?
     let searchRevision: Int
     let onPageChange: (Int, Int) -> Void
@@ -300,9 +319,10 @@ private struct BasketPDFDocumentView: NSViewRepresentable {
         Coordinator(onPageChange: onPageChange)
     }
 
-    func makeNSView(context: Context) -> PDFView {
-        let pdfView = PDFView(frame: .zero)
+    func makeNSView(context: Context) -> BasketPannablePDFView {
+        let pdfView = BasketPannablePDFView(frame: .zero)
         configure(pdfView)
+        pdfView.isPanEnabled = interactionMode == .pan
         context.coordinator.attach(to: pdfView)
         pdfView.document = document
         pdfView.autoScales = true
@@ -315,7 +335,8 @@ private struct BasketPDFDocumentView: NSViewRepresentable {
         return pdfView
     }
 
-    func updateNSView(_ pdfView: PDFView, context: Context) {
+    func updateNSView(_ pdfView: BasketPannablePDFView, context: Context) {
+        pdfView.isPanEnabled = interactionMode == .pan
         if pdfView.document !== document {
             pdfView.document = document
             pdfView.autoScales = true
@@ -338,7 +359,7 @@ private struct BasketPDFDocumentView: NSViewRepresentable {
         )
     }
 
-    static func dismantleNSView(_ pdfView: PDFView, coordinator: Coordinator) {
+    static func dismantleNSView(_ pdfView: BasketPannablePDFView, coordinator: Coordinator) {
         coordinator.detach()
         pdfView.document = nil
         pdfView.delegate = nil
@@ -449,5 +470,110 @@ private struct BasketPDFDocumentView: NSViewRepresentable {
             }
         }
 
+    }
+}
+
+private final class BasketPannablePDFView: PDFView {
+    var isPanEnabled = true {
+        didSet {
+            guard isPanEnabled != oldValue else { return }
+            if !isPanEnabled {
+                endPanning()
+            }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    private weak var activeScrollView: NSScrollView?
+    private var lastPanLocation: NSPoint?
+    private var isShowingClosedHandCursor = false
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard isPanEnabled else { return }
+        addCursorRect(bounds, cursor: .openHand)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isPanEnabled, event.buttonNumber == 0, let scrollView = embeddedScrollView else {
+            super.mouseDown(with: event)
+            return
+        }
+        activeScrollView = scrollView
+        lastPanLocation = event.locationInWindow
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isPanEnabled,
+              let scrollView = activeScrollView,
+              let lastPanLocation else {
+            super.mouseDragged(with: event)
+            return
+        }
+
+        if !isShowingClosedHandCursor {
+            NSCursor.closedHand.push()
+            isShowingClosedHandCursor = true
+        }
+        let currentLocation = event.locationInWindow
+        let deltaX = currentLocation.x - lastPanLocation.x
+        let deltaY = currentLocation.y - lastPanLocation.y
+        let clipView = scrollView.contentView
+        let horizontalScale = clipView.frame.width > 0
+            ? clipView.bounds.width / clipView.frame.width
+            : 1
+        let verticalScale = clipView.frame.height > 0
+            ? clipView.bounds.height / clipView.frame.height
+            : 1
+        var proposedOrigin = clipView.bounds.origin
+        proposedOrigin.x -= deltaX * horizontalScale
+        let scaledDeltaY = deltaY * verticalScale
+        proposedOrigin.y += clipView.isFlipped ? scaledDeltaY : -scaledDeltaY
+        let constrainedBounds = clipView.constrainBoundsRect(
+            NSRect(origin: proposedOrigin, size: clipView.bounds.size)
+        )
+        clipView.scroll(to: constrainedBounds.origin)
+        scrollView.reflectScrolledClipView(clipView)
+        self.lastPanLocation = currentLocation
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard isPanEnabled, activeScrollView != nil else {
+            super.mouseUp(with: event)
+            return
+        }
+        endPanning()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            endPanning()
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    private var embeddedScrollView: NSScrollView? {
+        firstScrollView(in: self)
+    }
+
+    private func firstScrollView(in view: NSView) -> NSScrollView? {
+        for subview in view.subviews {
+            if let scrollView = subview as? NSScrollView {
+                return scrollView
+            }
+            if let nested = firstScrollView(in: subview) {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private func endPanning() {
+        activeScrollView = nil
+        lastPanLocation = nil
+        if isShowingClosedHandCursor {
+            NSCursor.pop()
+            isShowingClosedHandCursor = false
+        }
     }
 }

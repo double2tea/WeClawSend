@@ -99,7 +99,7 @@ struct BasketReminderView: View {
                     .padding(.vertical, 13)
             } else {
                 LazyVStack(alignment: .leading, spacing: 7) {
-                    ForEach(Array(reminderLines.enumerated()), id: \.offset) { index, line in
+                    ForEach(Array(parsedLines.enumerated()), id: \.offset) { index, line in
                         reminderLine(line, index: index)
                     }
                 }
@@ -114,7 +114,7 @@ struct BasketReminderView: View {
     }
 
     @ViewBuilder
-    private func reminderLine(_ line: ReminderLine, index: Int) -> some View {
+    private func reminderLine(_ line: BasketTextParsedLine, index: Int) -> some View {
         if let isChecked = line.isChecked {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Button {
@@ -130,7 +130,7 @@ struct BasketReminderView: View {
                 .disabled(!isEditable)
                 .help(isEditable ? (isChecked ? "标记为未完成" : "标记为完成") : "外部文本为只读")
 
-                Text(line.body.isEmpty ? "未命名待办" : line.body)
+                Text(todoLabel(line))
                     .font(.system(size: 13))
                     .foregroundStyle(isChecked ? .secondary : .primary)
                     .strikethrough(isChecked, color: .secondary)
@@ -138,7 +138,7 @@ struct BasketReminderView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
-            Text(line.body.isEmpty ? " " : line.body)
+            Text(line.raw.isEmpty ? " " : line.raw)
                 .font(.system(size: 13))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
@@ -146,22 +146,13 @@ struct BasketReminderView: View {
         }
     }
 
-    private var reminderLines: [ReminderLine] {
-        text.components(separatedBy: "\n").map { rawLine in
-            let line = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : rawLine
-            let trimmed = line.drop(while: { $0 == " " || $0 == "\t" })
-            if trimmed.hasPrefix("- [ ]") {
-                return ReminderLine(body: checklistBody(in: trimmed), isChecked: false)
-            }
-            if trimmed.hasPrefix("- [x]") || trimmed.hasPrefix("- [X]") {
-                return ReminderLine(body: checklistBody(in: trimmed), isChecked: true)
-            }
-            return ReminderLine(body: line, isChecked: nil)
-        }
+    private var parsedLines: [BasketTextParsedLine] {
+        BasketTextFormatting.parsedLines(text)
     }
 
-    private func checklistBody(in line: Substring) -> String {
-        String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+    private func todoLabel(_ line: BasketTextParsedLine) -> String {
+        let label = line.indentation + line.body
+        return label.isEmpty ? "未命名待办" : label
     }
 
     @MainActor
@@ -282,12 +273,6 @@ struct BasketReminderView: View {
         case edit
         case send
     }
-
-    private struct ReminderLine {
-        let body: String
-        let isChecked: Bool?
-    }
-
 
     private enum ReminderLoadError: LocalizedError {
         case tooLarge

@@ -72,10 +72,10 @@ struct BasketImageReaderView: View {
                 detail: url.lastPathComponent,
                 systemImage: "photo"
             )
-        case let .ready(image, nativeSize):
+        case let .ready(image, _):
             GeometryReader { geometry in
                 ScrollView([.horizontal, .vertical]) {
-                    imageContent(image, nativeSize: nativeSize, viewport: geometry.size)
+                    imageContent(image, viewport: geometry.size)
                         .frame(
                             minWidth: geometry.size.width,
                             minHeight: geometry.size.height,
@@ -98,7 +98,6 @@ struct BasketImageReaderView: View {
     @ViewBuilder
     private func imageContent(
         _ image: NSImage,
-        nativeSize: CGSize,
         viewport: CGSize
     ) -> some View {
         let inset: CGFloat = 24
@@ -116,7 +115,10 @@ struct BasketImageReaderView: View {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: max(nativeSize.width, 1), height: max(nativeSize.height, 1))
+                .frame(
+                    width: max(image.size.width, 1),
+                    height: max(image.size.height, 1)
+                )
                 .padding(inset / 2)
         }
     }
@@ -180,7 +182,7 @@ struct BasketImageReaderView: View {
                 return .failure("该项目不是可读取的图片文件。")
             }
             if let byteCount = values.fileSize, Int64(byteCount) > maximumEmbeddedFileSize {
-                return .failure("图片文件超过 100 MiB，已切换为系统预览。")
+                return .failure("图片文件超过 100 MiB，请使用系统预览打开。")
             }
         } catch {
             return .failure("无法读取文件信息。")
@@ -190,7 +192,7 @@ struct BasketImageReaderView: View {
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as NSDictionary?,
               let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
               let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
-            return .failure("系统无法解码这张图片，已切换为系统预览。")
+            return .failure("系统无法解码这张图片，请使用系统预览打开。")
         }
         let nativeSize = CGSize(width: width.doubleValue, height: height.doubleValue)
         guard nativeSize.width > 0, nativeSize.height > 0 else {
@@ -198,7 +200,7 @@ struct BasketImageReaderView: View {
         }
         guard nativeSize.width <= CGFloat(maximumEmbeddedDimension),
               nativeSize.height <= CGFloat(maximumEmbeddedDimension) else {
-            return .failure("图片尺寸过大，已切换为系统预览。")
+            return .failure("图片尺寸过大，请使用系统预览打开。")
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -207,7 +209,7 @@ struct BasketImageReaderView: View {
             kCGImageSourceThumbnailMaxPixelSize: maximumDecodedDimension,
         ]
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return .failure("系统无法解码这张图片，已切换为系统预览。")
+            return .failure("系统无法解码这张图片，请使用系统预览打开。")
         }
         let image = NSImage(
             cgImage: cgImage,

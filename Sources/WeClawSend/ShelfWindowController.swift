@@ -970,6 +970,10 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
         if let firstResponder = panel.firstResponder,
            firstResponder is NSTextView || firstResponder is NSTextField {
+            if shouldReturnToCollectionFromReadOnlyText(event) {
+                session.returnToCollection(in: basket.items)
+                return true
+            }
             return false
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -1053,10 +1057,10 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
         guard flags == .command else { return false }
         switch event.keyCode {
-        case 123:
+        case 123, 126: // left, up
             _ = session.moveFocus(by: -1, in: basket.items)
             return true
-        case 124:
+        case 124, 125: // right, down
             _ = session.moveFocus(by: 1, in: basket.items)
             return true
         case 36 where session.presentationMode == .reminder,
@@ -1066,6 +1070,20 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         default:
             return false
         }
+    }
+
+    private func shouldReturnToCollectionFromReadOnlyText(_ event: NSEvent) -> Bool {
+        guard session.presentationMode != .collection else { return false }
+        guard event.keyCode == 53 else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.isEmpty else { return false }
+        if let textView = panel.firstResponder as? NSTextView, textView.isEditable {
+            return false
+        }
+        if panel.firstResponder is NSTextField {
+            return false
+        }
+        return true
     }
 
     private func enterReaderForSelection() -> Bool {

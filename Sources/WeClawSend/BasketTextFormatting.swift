@@ -8,6 +8,23 @@ public enum BasketTextLineKind: Equatable, Sendable {
     case numbered
 }
 
+/// One visual line, using the same splitter as `toggleTodo` so reminder
+/// checkboxes and editor transforms share indices.
+public struct BasketTextParsedLine: Equatable, Sendable {
+    public let kind: BasketTextLineKind
+    public let indentation: String
+    public let body: String
+    public let raw: String
+
+    public var isChecked: Bool? {
+        switch kind {
+        case .unchecked: false
+        case .checked: true
+        case .plain, .numbered: nil
+        }
+    }
+}
+
 /// Pure text transformations used by the basket text editor.
 ///
 /// The transformations only operate on the supplied string. They do not read
@@ -29,6 +46,20 @@ public enum BasketTextFormatting {
     /// Alias with a descriptive label for callers that prefer `kind(of:)`.
     public static func kind(of line: String) -> BasketTextLineKind {
         parseLine(line)
+    }
+
+    /// Splits `text` the same way `toggleTodo` does, including CRLF handling
+    /// and not inventing a trailing empty line after a final newline.
+    public static func parsedLines(_ text: String) -> [BasketTextParsedLine] {
+        splitLines(text).map { line in
+            let parts = lineParts(for: line.content)
+            return BasketTextParsedLine(
+                kind: parts.kind,
+                indentation: parts.indentation,
+                body: parts.body,
+                raw: line.content
+            )
+        }
     }
 
     /// Converts each non-blank line to an unchecked checklist item.
@@ -234,29 +265,37 @@ public enum BasketTextFormatting {
     }
 
     private static func splitLines(_ text: String) -> [Line] {
-        let characters = Array(text)
-        guard !characters.isEmpty else { return [] }
+        // Unicode scalars, not Character: Swift treats "\r\n" as one grapheme,
+        // so a Character walk would keep Windows line endings inside the body.
+        let scalars = text.unicodeScalars
+        guard !scalars.isEmpty else { return [] }
 
         var lines: [Line] = []
-        var content: [Character] = []
-        var index = 0
-        while index < characters.count {
-            let character = characters[index]
-            if character == "\r" || character == "\n" {
-                let separator: String
-                if character == "\r", index + 1 < characters.count, characters[index + 1] == "\n" {
-                    separator = "\r\n"
-                    index += 2
-                } else {
-                    separator = String(character)
-                    index += 1
+        var content = String.UnicodeScalarView()
+        var index = scalars.startIndex
+        while index < scalars.endIndex {
+            let scalar = scalars[index]
+            if scalar == "\r" {
+                let next = scalars.index(after: index)
+                if next < scalars.endIndex, scalars[next] == "\n" {
+                    lines.append(Line(content: String(content), separator: "\r\n"))
+                    content.removeAll(keepingCapacity: true)
+                    index = scalars.index(after: next)
+                    continue
                 }
-                lines.append(Line(content: String(content), separator: separator))
+                lines.append(Line(content: String(content), separator: "\r"))
                 content.removeAll(keepingCapacity: true)
-            } else {
-                content.append(character)
-                index += 1
+                index = next
+                continue
             }
+            if scalar == "\n" {
+                lines.append(Line(content: String(content), separator: "\n"))
+                content.removeAll(keepingCapacity: true)
+                index = scalars.index(after: index)
+                continue
+            }
+            content.append(scalar)
+            index = scalars.index(after: index)
         }
         if !content.isEmpty {
             lines.append(Line(content: String(content), separator: ""))
