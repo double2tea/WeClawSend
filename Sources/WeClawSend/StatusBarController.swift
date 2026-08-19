@@ -84,6 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
                 chooseFilesForTiming: { [weak self] in self?.chooseFilesForTiming() },
                 fileBasketCommands: FileBasketCommands(
                     create: { [weak self] in self?.createBasketFromPopover() },
+                    toggleRecent: { [weak self] in
+                        self?.popover.close()
+                        self?.fileBasketCoordinator.toggleRecent()
+                    },
                     show: { [weak self] id in self?.showBasketFromPopover(id: id) },
                     showAll: { [weak self] in self?.showAllBasketsFromPopover() },
                     closeAll: { [weak self] in self?.fileBasketCoordinator.closeAll() },

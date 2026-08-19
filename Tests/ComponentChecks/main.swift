@@ -520,6 +520,15 @@ defer {
 try MainActor.assumeIsolated {
     let shelfModel = ShelfModel(title: "文件篮测试")
     precondition(shelfModel.title == "文件篮测试")
+    precondition(shelfModel.color == .graphite)
+    precondition(shelfModel.backgroundOpacity == 0.9)
+    precondition(shelfModel.rename(to: "  客户交付  "))
+    precondition(shelfModel.title == "客户交付")
+    precondition(!shelfModel.rename(to: "  "))
+    precondition(shelfModel.title == "客户交付")
+    shelfModel.setAppearance(color: .blue, backgroundOpacity: 0.2)
+    precondition(shelfModel.color == .blue)
+    precondition(shelfModel.backgroundOpacity == 0.55)
     precondition(shelfModel.add(urls: [shelfFile, shelfDirectory, shelfPackage, shelfSymlink]) == 3)
     precondition(shelfModel.add(urls: [shelfFile, shelfDirectory, shelfPackage]) == 0)
     precondition(shelfModel.items.count == 3)
@@ -542,8 +551,15 @@ try MainActor.assumeIsolated {
     shelfModel.remove(id: shelfModel.items[0].id)
     precondition(shelfModel.items.isEmpty)
     precondition(shelfModel.add(urls: [shelfFile]) == 1)
+    let undoSnapshot = shelfModel.items
     shelfModel.clear()
     precondition(shelfModel.items.isEmpty)
+    precondition(shelfModel.add(urls: [shelfDirectory]) == 1)
+    shelfModel.restore(items: undoSnapshot, at: [0])
+    precondition(shelfModel.items.map(\.url) == [
+        shelfFile.standardizedFileURL,
+        shelfDirectory.standardizedFileURL,
+    ])
 
     UserDefaults.standard.set(false, forKey: AppSettings.shelfRestoreOnLaunchKey)
     let store = FileBasketStore()
@@ -552,6 +568,8 @@ try MainActor.assumeIsolated {
     precondition(firstBasket.title == "文件篮 1")
     precondition(secondBasket.title == "文件篮 2")
     precondition(firstBasket.add(urls: [shelfFile]) == 1)
+    precondition(firstBasket.rename(to: "交付文件"))
+    firstBasket.setAppearance(color: .purple, backgroundOpacity: 0.7)
     precondition(secondBasket.items.isEmpty)
     precondition(store.totalItemCount == 1)
     precondition(store.recentBasketID == secondBasket.id)
@@ -584,6 +602,9 @@ try MainActor.assumeIsolated {
 
     let restoredStore = FileBasketStore()
     precondition(restoredStore.baskets.count == 2)
+    precondition(restoredStore.baskets[0].title == "交付文件")
+    precondition(restoredStore.baskets[0].color == .purple)
+    precondition(restoredStore.baskets[0].backgroundOpacity == 0.7)
     precondition(restoredStore.baskets[0].items.map(\.path) == [shelfFile.standardizedFileURL.path])
     precondition(restoredStore.windowState(for: firstBasket.id) == movedState)
     precondition(restoredStore.recentBasketID == firstBasket.id)
@@ -622,6 +643,36 @@ try MainActor.assumeIsolated {
     let customBasket = customStore.createBasket()
     precondition(!customStore.windowState(for: customBasket.id).isAlwaysOnTop)
     customDefaults.removePersistentDomain(forName: customDefaultsName)
+
+    let legacyArchiveDefaultsName = "WeClawSend.FileBasketArchive.Legacy.\(UUID())"
+    guard let legacyArchiveDefaults = UserDefaults(suiteName: legacyArchiveDefaultsName) else {
+        preconditionFailure("无法创建旧版文件篮测试 UserDefaults")
+    }
+    legacyArchiveDefaults.removePersistentDomain(forName: legacyArchiveDefaultsName)
+    let legacyArchiveBasketID = UUID()
+    let legacyArchiveItemID = UUID()
+    let legacyArchiveData = try JSONSerialization.data(withJSONObject: [
+        "baskets": [[
+            "id": legacyArchiveBasketID.uuidString,
+            "title": "旧版文件篮",
+            "items": [[
+                "id": legacyArchiveItemID.uuidString,
+                "path": shelfFile.standardizedFileURL.path,
+            ]],
+            "windowState": [
+                "isCollapsed": false,
+                "isAlwaysOnTop": true,
+            ],
+        ]],
+        "recentBasketID": legacyArchiveBasketID.uuidString,
+    ])
+    legacyArchiveDefaults.set(true, forKey: AppSettings.shelfRestoreOnLaunchKey)
+    legacyArchiveDefaults.set(legacyArchiveData, forKey: AppSettings.fileBasketArchiveKey)
+    let legacyArchiveStore = FileBasketStore(defaults: legacyArchiveDefaults)
+    precondition(legacyArchiveStore.baskets.count == 1)
+    precondition(legacyArchiveStore.baskets[0].color == .graphite)
+    precondition(legacyArchiveStore.baskets[0].backgroundOpacity == 0.9)
+    legacyArchiveDefaults.removePersistentDomain(forName: legacyArchiveDefaultsName)
 
     try FileManager.default.removeItem(at: shelfFile)
     precondition(migratedStore.baskets[0].removeUnavailableItems() == 1)

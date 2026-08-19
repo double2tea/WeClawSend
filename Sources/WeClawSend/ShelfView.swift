@@ -32,6 +32,13 @@ enum ShelfShareDestination {
     }
 }
 
+private struct ShelfUndoAction: Identifiable {
+    let id = UUID()
+    let items: [ShelfItem]
+    let originalIndexes: [Int]
+    let message: String
+}
+
 struct ShelfView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: AppModel
@@ -54,6 +61,7 @@ struct ShelfView: View {
     let pointerPresenceChanged: (Bool) -> Void
     let quickLook: (ShelfItem) -> Void
     let revealInFinder: (ShelfItem) -> Void
+    let undoAvailabilityChanged: (Bool) -> Void
 
     @State private var isDropTargeted = false
     @State private var hoveredItemID: UUID?
@@ -61,6 +69,7 @@ struct ShelfView: View {
     @State private var showsZIPNaming = false
     @State private var showsTimingPicker = false
     @State private var showsCustomDelayPicker = false
+    @State private var showsAppearanceEditor = false
     @State private var pendingZIPScheduleDelaySeconds: Int?
     @State private var zipName = ""
     @State private var hoveredChromeButton: String?
@@ -70,6 +79,7 @@ struct ShelfView: View {
     @State private var marqueeRect: CGRect?
     @State private var marqueeBaseSelection: Set<UUID> = []
     @State private var ignoresMarqueeDrag = false
+    @State private var pendingUndo: ShelfUndoAction?
 
     private let cornerRadius: CGFloat = 14
     private let itemListCoordinateSpace = "ShelfItemList"
@@ -91,6 +101,16 @@ struct ShelfView: View {
                 reduceMotion ? nil : .smooth(duration: 0.2, extraBounce: 0),
                 value: session.statusMessage
             )
+            .task(id: pendingUndo?.id) {
+                guard pendingUndo != nil else { return }
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                } catch {
+                    return
+                }
+                pendingUndo = nil
+                undoAvailabilityChanged(false)
+            }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(shelf.title)
             .help("拖入文件或文件夹；空白处拖框或按 ⌘A 多选，选中后可拖出到其他 App")
@@ -135,6 +155,9 @@ struct ShelfView: View {
                     scheduleCurrentItems(afterDelay: seconds)
                 }
             }
+            .sheet(isPresented: $showsAppearanceEditor) {
+                FileBasketAppearanceEditor(shelf: shelf)
+            }
     }
 
     @ViewBuilder
@@ -160,16 +183,21 @@ struct ShelfView: View {
     private var shelfBackground: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(.regularMaterial)
+            .opacity(shelf.backgroundOpacity)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.42))
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.3 * shelf.backgroundOpacity))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(shelf.color.color.opacity(shelf.color == .graphite ? 0.025 : 0.08))
             }
     }
 
     private var shelfBorder: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .stroke(
-                isDropTargeted ? Brand.accent.opacity(0.48) : Brand.hairline,
+                isDropTargeted ? Brand.accent.opacity(0.48) : shelf.color.color.opacity(0.18),
                 lineWidth: isDropTargeted ? 1.2 : 0.8
             )
     }
@@ -365,6 +393,12 @@ struct ShelfView: View {
 
     private var basketActionsMenu: some View {
         Menu {
+            Button {
+                showsAppearanceEditor = true
+            } label: {
+                Label("名称与外观…", systemImage: "paintpalette")
+            }
+            Divider()
             Button(action: chooseFiles) {
                 Label("添加文件或文件夹…", systemImage: "plus")
             }
@@ -679,8 +713,28 @@ struct ShelfView: View {
     }
 
     private var footer: some View {
+        Group {
+            if pendingUndo == nil, session.selectedItemIDs.count > 1 {
+                selectionFooter
+            } else {
+                standardFooter
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 42)
+    }
+
+    private var standardFooter: some View {
         HStack(spacing: 8) {
-            if let status = session.statusMessage {
+            if let pendingUndo {
+                Text(pendingUndo.message)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Button("撤销", action: undoLastRemoval)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(Brand.accent)
+            } else if let status = session.statusMessage {
                 Text(status)
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -747,8 +801,52 @@ struct ShelfView: View {
             .help("延时发送当前文件篮")
             .accessibilityLabel("延时发送当前文件篮")
         }
-        .padding(.horizontal, 10)
-        .frame(height: 42)
+    }
+
+    private var selectionFooter: some View {
+        HStack(spacing: 9) {
+            Text("已选 \(session.selectedItemIDs.count) 项")
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 2)
+
+            Menu("分享") {
+                selectionShareButton(.airDrop)
+                selectionShareButton(.mail)
+                selectionShareButton(.messages)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            Button("复制") {
+                copyFiles(session.selectedItems(in: shelf.items))
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 10.5, weight: .medium))
+
+            Button("移除", role: .destructive, action: removeSelectedItems)
+                .buttonStyle(.plain)
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(Brand.danger)
+
+            Button {
+                session.select(nil)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help("取消选择")
+            .accessibilityLabel("取消多选")
+        }
+    }
+
+    private func selectionShareButton(_ destination: ShelfShareDestination) -> some View {
+        Button(destination.title) {
+            shareFiles(session.selectedItems(in: shelf.items), destination)
+        }
     }
 
     private var sendEnabled: Bool {
@@ -781,9 +879,15 @@ struct ShelfView: View {
     // MARK: - Controls
 
     private func clearBasket() {
+        let previousItems = shelf.items
+        guard !previousItems.isEmpty else { return }
+        beginUndo(
+            items: previousItems,
+            originalIndexes: Array(previousItems.indices),
+            message: "已清空"
+        )
         shelf.clear()
         session.select(nil)
-        session.flash("已清空")
     }
 
     private var hasDirectories: Bool {
@@ -899,6 +1003,7 @@ struct ShelfView: View {
         let items = shelf.items
         let index = items.firstIndex(where: { $0.id == item.id }) ?? 0
         let wasOnlySelection = session.selectedItemIDs == [item.id]
+        beginUndo(items: [item], originalIndexes: [index], message: "已移除 1 项")
         shelf.remove(id: item.id)
         let remaining = shelf.items
         if wasOnlySelection, !remaining.isEmpty {
@@ -906,6 +1011,39 @@ struct ShelfView: View {
         } else {
             session.ensureSelection(in: remaining)
         }
+    }
+
+    private func removeSelectedItems() {
+        let selectedIDs = session.selectedItemIDs
+        guard !selectedIDs.isEmpty else { return }
+        let previousItems = shelf.items
+        let removedEntries = previousItems.enumerated().filter { selectedIDs.contains($0.element.id) }
+        beginUndo(
+            items: removedEntries.map(\.element),
+            originalIndexes: removedEntries.map(\.offset),
+            message: "已移除 \(removedEntries.count) 项"
+        )
+        shelf.remove(ids: selectedIDs)
+        session.ensureSelection(in: shelf.items)
+    }
+
+    private func undoLastRemoval() {
+        guard let pendingUndo else { return }
+        shelf.restore(items: pendingUndo.items, at: pendingUndo.originalIndexes)
+        session.ensureSelection(in: shelf.items)
+        self.pendingUndo = nil
+        undoAvailabilityChanged(false)
+        session.flash("已恢复")
+    }
+
+    private func beginUndo(items: [ShelfItem], originalIndexes: [Int], message: String) {
+        guard !items.isEmpty, items.count == originalIndexes.count else { return }
+        undoAvailabilityChanged(true)
+        pendingUndo = ShelfUndoAction(
+            items: items,
+            originalIndexes: originalIndexes,
+            message: message
+        )
     }
 
     private func setDropTargeted(_ targeted: Bool) {
@@ -944,6 +1082,97 @@ struct ShelfView: View {
             session.flash("不支持此项目或符号链接")
         }
         return false
+    }
+}
+
+private struct FileBasketAppearanceEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var shelf: ShelfModel
+    @State private var title: String
+    @State private var color: FileBasketColor
+    @State private var backgroundOpacity: Double
+
+    init(shelf: ShelfModel) {
+        self.shelf = shelf
+        _title = State(initialValue: shelf.title)
+        _color = State(initialValue: shelf.color)
+        _backgroundOpacity = State(initialValue: shelf.backgroundOpacity)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("名称与外观")
+                .font(.system(size: 15, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("名称")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                TextField("文件篮名称", text: $title)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("颜色")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 11) {
+                    ForEach(FileBasketColor.allCases) { option in
+                        Button {
+                            color = option
+                        } label: {
+                            Circle()
+                                .fill(option.color.opacity(option == .graphite ? 0.7 : 0.9))
+                                .frame(width: 24, height: 24)
+                                .overlay {
+                                    if color == option {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundStyle(.white)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .help(option.title)
+                        .accessibilityLabel(option.title)
+                        .accessibilityAddTraits(color == option ? .isSelected : [])
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("背景透明度")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(Int(backgroundOpacity * 100))%")
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $backgroundOpacity, in: 0.55...1, step: 0.05)
+            }
+
+            HStack {
+                Spacer()
+                Button("取消", role: .cancel) {
+                    dismiss()
+                }
+                Button("保存") {
+                    shelf.rename(to: title)
+                    shelf.setAppearance(color: color, backgroundOpacity: backgroundOpacity)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(normalizedTitle.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 320)
+    }
+
+    private var normalizedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

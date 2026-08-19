@@ -121,6 +121,7 @@ enum AppSettings {
     static let sendSizeLimitMegabytesKey = "SendSizeLimitMegabytes"
     static let sendDefaultBehaviorKey = "SendDefaultBehavior"
     static let sendDefaultDelaySecondsKey = "SendDefaultDelaySeconds"
+    static let scheduledSendLaunchHintShownKey = "ScheduledSendLaunchHintShown"
     static let migrateLaunchAtLoginKey = "MigrateLaunchAtLogin"
     static let launchMigrationCompleteKey = "LaunchAtLoginMigrationComplete"
     static let portfolioSeenVersionKey = "PortfolioSeenVersion"

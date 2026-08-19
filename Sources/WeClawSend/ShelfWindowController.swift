@@ -47,6 +47,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     private var isResizing = false
     private var resizeGeneration = 0
     private var dismissWhenPointerLeaves = false
+    private var isUndoAvailable = false
     private var hadItems: Bool
 
     init(
@@ -308,6 +309,9 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             quickLook: { [weak self] item in self?.showQuickLook(item) },
             revealInFinder: { item in
                 NSWorkspace.shared.activateFileViewerSelecting([item.url])
+            },
+            undoAvailabilityChanged: { [weak self] available in
+                self?.setUndoAvailable(available)
             }
         )
         panel.contentViewController = NSHostingController(rootView: root)
@@ -330,6 +334,13 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     private func observeItems() {
+        basket.$title
+            .removeDuplicates()
+            .sink { [weak self] title in
+                self?.panel.title = title
+            }
+            .store(in: &cancellables)
+
         basket.$items
             .receive(on: RunLoop.main)
             .sink { [weak self] items in
@@ -347,7 +358,9 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
                 }
                 if becameEmpty {
                     dismissWhenPointerLeaves = true
-                    deleteEmptyBasketIfPointerIsOutside()
+                    if !isUndoAvailable {
+                        deleteEmptyBasketIfPointerIsOutside()
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -421,10 +434,18 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     private func deleteEmptyBasketIfPointerIsOutside() {
+        guard !isUndoAvailable else { return }
         guard dismissWhenPointerLeaves, basket.items.isEmpty else { return }
         guard !panel.isVisible || !panel.frame.contains(NSEvent.mouseLocation) else { return }
         dismissWhenPointerLeaves = false
         requestDelete()
+    }
+
+    private func setUndoAvailable(_ available: Bool) {
+        isUndoAvailable = available
+        guard !available, basket.items.isEmpty else { return }
+        dismissWhenPointerLeaves = true
+        deleteEmptyBasketIfPointerIsOutside()
     }
 
     private func animateAppearance(_ style: ShelfWindowAppearance) {

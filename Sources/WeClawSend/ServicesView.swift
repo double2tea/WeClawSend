@@ -2,23 +2,55 @@ import AppKit
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
+private enum ServicesPage: String, CaseIterable, Identifiable {
+    case general
+    case baskets
+    case integrations
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: "常用"
+        case .baskets: "文件篮"
+        case .integrations: "集成"
+        }
+    }
+}
+
 struct ServicesView: View {
     @ObservedObject var model: AppModel
     @Environment(\.openURL) private var openURL
     @State private var showsDefaultDelayPicker = false
+    @State private var page: ServicesPage = .general
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider().opacity(0.4)
-            ScrollView(.vertical, showsIndicators: false) {
+            Picker("设置分类", selection: $page) {
+                ForEach(ServicesPage.allCases) { page in
+                    Text(page.title).tag(page)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 8) {
-                    weChatSection
-                    settingsSection
-                    shelfSettingsSection
-                    localAPISection
-                    updatesAndIntegrationsSection
-                    feedbackSection
+                    switch page {
+                    case .general:
+                        weChatSection
+                        settingsSection
+                    case .baskets:
+                        shelfSettingsSection
+                    case .integrations:
+                        localAPISection
+                        updatesAndIntegrationsSection
+                        feedbackSection
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -596,8 +628,8 @@ struct ServicesView: View {
 
                     settingRow(
                         icon: "tray",
-                        title: "关闭时保留非空篮",
-                        subtitle: "空篮关闭即删除；开启后非空篮仅隐藏",
+                        title: "关闭窗口后保留",
+                        subtitle: "仅在本次运行中隐藏保留；空篮关闭即删除",
                         isOn: Binding(
                             get: { model.shelfKeepItemsOnClose },
                             set: { model.setShelfKeepItemsOnClose($0) }
@@ -608,8 +640,8 @@ struct ServicesView: View {
 
                     settingRow(
                         icon: "arrow.clockwise",
-                        title: "启动后恢复",
-                        subtitle: "恢复全部文件篮、位置与窗口状态",
+                        title: "退出后保存",
+                        subtitle: "下次启动恢复文件篮、位置与窗口状态",
                         isOn: Binding(
                             get: { model.shelfRestoreOnLaunch },
                             set: { model.setShelfRestoreOnLaunch($0) }
@@ -724,7 +756,9 @@ struct ServicesView: View {
     private var footer: some View {
         HStack {
             HStack(spacing: 6) {
-                Text(model.weChatCredentialSource == .openClaw ? "与 OpenClaw 共用微信登录" : "独立应用 · 无需其它后台")
+                if model.weChatCredentialSource == .openClaw {
+                    Text("共用 OpenClaw 微信登录")
+                }
                 Text("v\(model.appVersion)")
                     .onTapGesture(count: 2) {
                         guard NSEvent.modifierFlags.contains(.option) else { return }

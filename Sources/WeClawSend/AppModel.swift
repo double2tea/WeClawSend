@@ -76,6 +76,7 @@ private final class AppRuntime: Sendable {
 @MainActor
 final class AppModel: ObservableObject {
     static let maxRecentTransfers = 20
+    static let maxFailedTransfers = 20
 
     private static var bundledUpdateChannel: AppUpdateChannel {
         guard
@@ -1038,7 +1039,7 @@ final class AppModel: ObservableObject {
 
         if !weChatStatus.isOnline {
             showsServices = true
-            presentedError = "请先登录微信后再发送文件"
+            showTransientNotice("请先登录微信后再发送文件")
             return false
         }
         enqueue(requests)
@@ -1067,11 +1068,9 @@ final class AppModel: ObservableObject {
             idempotencyKey: idempotencyKey
         )
         upsertScheduledSend(creation.plan)
-        showTransientNotice(
-            creation.created
-                ? "已加入待发送：\(scheduledSendTimeText(creation.plan.scheduledAt))"
-                : "该发送计划已存在"
-        )
+        showTransientNotice(creation.created
+            ? scheduledSendCreationNotice(for: creation.plan)
+            : "该发送计划已存在")
         return creation.plan
     }
 
@@ -1376,7 +1375,7 @@ final class AppModel: ObservableObject {
         guard transfer.status == .failed else { return }
         guard weChatStatus.isOnline else {
             showsServices = true
-            presentedError = "请先登录微信后再重新发送"
+            showTransientNotice("请先登录微信后再重新发送")
             return
         }
         guard retriedTransferIDs.insert(transfer.id).inserted else { return }
@@ -1388,12 +1387,13 @@ final class AppModel: ObservableObject {
         retriedTransferIDs.contains(transfer.id)
     }
 
-    func clearFinishedTransfers() {
-        recentTransfers.filter(\.isTerminal).forEach { record in
+    func clearTransfers(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        recentTransfers.filter { ids.contains($0.id) && $0.isTerminal }.forEach { record in
             FileBasketArchiver.cleanup(record.fileURL)
         }
-        recentTransfers.removeAll(where: \.isTerminal)
-        retriedTransferIDs.removeAll()
+        recentTransfers.removeAll { ids.contains($0.id) && $0.isTerminal }
+        retriedTransferIDs.subtract(ids)
         pruneQueueSelection()
         persistTransfers()
     }
@@ -1511,11 +1511,21 @@ final class AppModel: ObservableObject {
     private func insertTransfer(_ record: TransferRecord) {
         recentTransfers.removeAll { $0.id == record.id }
         recentTransfers.insert(record, at: 0)
-        var terminalCount = 0
+        var successfulCount = 0
+        var failedCount = 0
         recentTransfers.removeAll { transfer in
-            guard transfer.isTerminal else { return false }
-            terminalCount += 1
-            guard terminalCount > Self.maxRecentTransfers else { return false }
+            let exceedsLimit: Bool
+            switch transfer.status {
+            case .sent:
+                successfulCount += 1
+                exceedsLimit = successfulCount > Self.maxRecentTransfers
+            case .failed:
+                failedCount += 1
+                exceedsLimit = failedCount > Self.maxFailedTransfers
+            case .queued, .sending:
+                exceedsLimit = false
+            }
+            guard exceedsLimit else { return false }
             FileBasketArchiver.cleanup(transfer.fileURL)
             return true
         }
@@ -1543,6 +1553,15 @@ final class AppModel: ObservableObject {
             transientNotice = nil
             transientNoticeTask = nil
         }
+    }
+
+    private func scheduledSendCreationNotice(for plan: ScheduledSendPlan) -> String {
+        let base = "已加入待发送：\(scheduledSendTimeText(plan.scheduledAt)) · 需保持 App 运行"
+        guard !launchAtLoginEnabled,
+              !UserDefaults.standard.bool(forKey: AppSettings.scheduledSendLaunchHintShownKey)
+        else { return base }
+        UserDefaults.standard.set(true, forKey: AppSettings.scheduledSendLaunchHintShownKey)
+        return base + "；建议开启登录时自动启动"
     }
 
     private func noteSendResultForNotification(success: Bool, record: TransferRecord) {
@@ -1629,7 +1648,15 @@ final class AppModel: ObservableObject {
     }
 
     private func persistTransfers() {
-        let finished = Array(recentTransfers.filter(\.isTerminal).prefix(Self.maxRecentTransfers))
+        let failed = Array(
+            recentTransfers.filter { $0.status == .failed }
+                .prefix(Self.maxFailedTransfers)
+        )
+        let sent = Array(
+            recentTransfers.filter { $0.status == .sent }
+                .prefix(Self.maxRecentTransfers)
+        )
+        let finished = failed + sent
         guard let data = try? JSONEncoder().encode(finished) else { return }
         UserDefaults.standard.set(data, forKey: recentTransfersKey)
         UserDefaults.standard.removeObject(forKey: legacyRecentTransferKey)

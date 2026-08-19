@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FileBasketCommands {
     let create: () -> Void
+    let toggleRecent: () -> Void
     let show: (UUID) -> Void
     let showAll: () -> Void
     let closeAll: () -> Void
@@ -12,6 +13,22 @@ struct FileBasketCommands {
 private enum FileBasketDeletionRequest: Equatable {
     case basket(UUID)
     case all
+}
+
+private enum TransferHistoryFilter: String, CaseIterable, Identifiable {
+    case active
+    case failed
+    case all
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .active: "进行中"
+        case .failed: "失败"
+        case .all: "全部"
+        }
+    }
 }
 
 struct ContentView: View {
@@ -25,6 +42,7 @@ struct ContentView: View {
     @State private var hoveredTransferID: UUID?
     @State private var isDataSafetyHovered = false
     @State private var pendingBasketDeletion: FileBasketDeletionRequest?
+    @State private var transferFilter: TransferHistoryFilter = .all
 
     init(
         model: AppModel,
@@ -182,22 +200,14 @@ struct ContentView: View {
                 .fill(headerStatusColor)
                 .frame(width: 6, height: 6)
             if model.shelfEnabled {
-                Button(action: fileBasketCommands.create) {
-                    Image(systemName: "rectangle.stack.badge.plus")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Brand.accent)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("新建文件篮")
-                .accessibilityLabel("新建文件篮")
-
                 Menu {
-                    if fileBaskets.baskets.isEmpty {
-                        Button("暂无文件篮") {}
-                            .disabled(true)
-                    } else {
+                    Button {
+                        fileBasketCommands.create()
+                    } label: {
+                        Label("新建文件篮", systemImage: "plus")
+                    }
+                    if !fileBaskets.baskets.isEmpty {
+                        Divider()
                         ForEach(fileBaskets.baskets, id: \.id) { basket in
                             Button {
                                 fileBasketCommands.show(basket.id)
@@ -221,9 +231,9 @@ struct ContentView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: fileBaskets.baskets.isEmpty ? "rectangle.stack" : "rectangle.stack.fill")
+                    Image(systemName: fileBaskets.baskets.isEmpty ? "rectangle.stack.badge.plus" : "rectangle.stack.fill")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(fileBaskets.baskets.isEmpty ? Color.secondary : Brand.accent)
+                        .foregroundStyle(Brand.accent)
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                         .overlay(alignment: .topTrailing) {
@@ -237,12 +247,14 @@ struct ContentView: View {
                                     .offset(x: 3, y: -2)
                             }
                         }
+                } primaryAction: {
+                    fileBasketCommands.toggleRecent()
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("管理文件篮（⌥⌘S 显示最近使用）")
-                .accessibilityLabel("管理文件篮，当前有 \(fileBaskets.baskets.count) 个")
+                .help(fileBaskets.baskets.isEmpty ? "新建文件篮" : "显示或隐藏最近文件篮；菜单可管理全部")
+                .accessibilityLabel("文件篮，当前有 \(fileBaskets.baskets.count) 个")
             }
             Button {
                 model.showsServices = true
@@ -400,6 +412,7 @@ struct ContentView: View {
     }
 
     private var dropZoneTitle: String {
+        if model.isDropTargeted { return "松开后立即发送" }
         if model.sendingTransferCount > 0, model.queuedTransferCount > 0 {
             return "\(model.sendingTransferCount) 个处理中，\(model.queuedTransferCount) 个排队"
         }
@@ -413,6 +426,7 @@ struct ContentView: View {
     }
 
     private var dropZoneSubtitle: String {
+        if model.isDropTargeted { return "拖入不会使用默认延时" }
         if model.hasActiveTransfers { return "可继续添加文件" }
         if case .checking = model.weChatStatus { return "请稍候" }
         switch model.sendDefaultBehavior {
@@ -449,6 +463,16 @@ struct ContentView: View {
                 .tracking(0.6)
 
             Spacer()
+            Picker("发送历史筛选", selection: $transferFilter) {
+                ForEach(TransferHistoryFilter.allCases) { filter in
+                    Text(filter.title).tag(filter)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .controlSize(.mini)
+            .frame(width: 132)
+
             Button(action: chooseFilesForTiming) {
                 Image(systemName: "clock")
                     .font(.system(size: 11, weight: .medium))
@@ -460,9 +484,9 @@ struct ContentView: View {
             .help("选择文件并设置发送时间")
             .accessibilityLabel("选择文件并设置发送时间")
 
-            if model.recentTransfers.contains(where: \.isTerminal) {
+            if filteredTransfers.contains(where: \.isTerminal) {
                 Button("清空") {
-                    model.clearFinishedTransfers()
+                    model.clearTransfers(ids: Set(filteredTransfers.filter(\.isTerminal).map(\.id)))
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 11, weight: .medium))
@@ -475,20 +499,20 @@ struct ContentView: View {
 
     @ViewBuilder
     private var transferList: some View {
-        if model.displayedScheduledSends.isEmpty, model.recentTransfers.isEmpty {
+        if filteredScheduledSends.isEmpty, filteredTransfers.isEmpty {
             VStack(spacing: 6) {
-                Text("暂无记录")
+                Text(transferEmptyTitle)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
-                Text(model.isReady ? "选择文件后可立即发送或设置延时" : "延时计划可先创建，发送时需登录")
+                Text(transferEmptySubtitle)
                     .font(.system(size: 11.5))
                     .foregroundStyle(.tertiary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.bottom, 12)
         } else {
-            let transfers = model.displayedTransfers
-            let plans = model.displayedScheduledSends
+            let transfers = filteredTransfers
+            let plans = filteredScheduledSends
             ScrollView {
                 LazyVStack(spacing: 0) {
                     if !plans.isEmpty {
@@ -534,6 +558,45 @@ struct ContentView: View {
                 .padding(.horizontal, 18)
                 .padding(.bottom, 8)
             }
+        }
+    }
+
+    private var filteredTransfers: [TransferRecord] {
+        model.displayedTransfers.filter { transfer in
+            switch transferFilter {
+            case .active:
+                transfer.status == .queued || transfer.status == .sending
+            case .failed:
+                transfer.status == .failed && !isCancelledTransfer(transfer)
+            case .all:
+                true
+            }
+        }
+    }
+
+    private var filteredScheduledSends: [ScheduledSendPlan] {
+        switch transferFilter {
+        case .failed:
+            []
+        case .active, .all:
+            model.displayedScheduledSends
+        }
+    }
+
+    private var transferEmptyTitle: String {
+        switch transferFilter {
+        case .active: "没有进行中的任务"
+        case .failed: "没有失败记录"
+        case .all: "暂无记录"
+        }
+    }
+
+    private var transferEmptySubtitle: String {
+        switch transferFilter {
+        case .active: "新任务会显示在这里"
+        case .failed: "发送失败后可在这里重新发送"
+        case .all:
+            model.isReady ? "选择文件后可立即发送或设置延时" : "延时计划可先创建，发送时需登录"
         }
     }
 

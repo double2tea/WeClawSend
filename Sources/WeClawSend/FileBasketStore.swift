@@ -12,6 +12,8 @@ private struct FileBasketSnapshot: Codable {
     let title: String
     let items: [ShelfItem]
     let windowState: FileBasketWindowState
+    let color: FileBasketColor?
+    let backgroundOpacity: Double?
 }
 
 private struct FileBasketArchive: Codable {
@@ -143,7 +145,13 @@ final class FileBasketStore: ObservableObject {
 
     private func restore(_ archive: FileBasketArchive) {
         for snapshot in archive.baskets {
-            let basket = ShelfModel(id: snapshot.id, title: snapshot.title, items: snapshot.items)
+            let basket = ShelfModel(
+                id: snapshot.id,
+                title: snapshot.title,
+                items: snapshot.items,
+                color: snapshot.color ?? .graphite,
+                backgroundOpacity: snapshot.backgroundOpacity ?? 0.9
+            )
             baskets.append(basket)
             windowStates[basket.id] = snapshot.windowState
             attach(basket)
@@ -209,7 +217,9 @@ final class FileBasketStore: ObservableObject {
                 id: basket.id,
                 title: basket.title,
                 items: basket.items,
-                windowState: windowState(for: basket.id)
+                windowState: windowState(for: basket.id),
+                color: basket.color,
+                backgroundOpacity: basket.backgroundOpacity
             )
         }
         let archive = FileBasketArchive(baskets: snapshots, recentBasketID: recentBasketID)
