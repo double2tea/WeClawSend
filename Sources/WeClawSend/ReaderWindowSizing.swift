@@ -5,6 +5,7 @@ enum ShelfWindowSizingMode: Equatable, Sendable {
     case collection
     case collapsed
     case reader
+    case audio
     case reminder
 }
 
@@ -16,6 +17,9 @@ enum ReaderWindowSizing {
     static let collapsedSize = CGSize(width: 248, height: 52)
     static let readerPreferredSize = CGSize(width: 640, height: 720)
     static let readerMinimumSize = CGSize(width: 480, height: 420)
+    static let audioPreferredSize = CGSize(width: 520, height: 228)
+    static let audioMinimumSize = CGSize(width: 400, height: 196)
+    static let audioMaximumSize = CGSize(width: 720, height: 320)
     static let reminderPreferredSize = CGSize(width: 440, height: 240)
     static let reminderMinimumSize = CGSize(width: 320, height: 140)
     static let reminderMaximumSize = CGSize(width: 760, height: 500)
@@ -29,6 +33,8 @@ enum ReaderWindowSizing {
             collapsedSize
         case .reader:
             readerPreferredSize
+        case .audio:
+            audioPreferredSize
         case .reminder:
             reminderPreferredSize
         }
@@ -53,6 +59,8 @@ enum ReaderWindowSizing {
             collapsedSize
         case .reader:
             readerMinimumSize
+        case .audio:
+            audioMinimumSize
         case .reminder:
             reminderMinimumSize
         }
@@ -66,6 +74,8 @@ enum ReaderWindowSizing {
             collapsedSize
         case .reader:
             nil
+        case .audio:
+            audioMaximumSize
         case .reminder:
             reminderMaximumSize
         }

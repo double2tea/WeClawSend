@@ -1,5 +1,14 @@
+import AppKit
 import Foundation
 import SwiftUI
+
+enum ShelfKeyModifiers {
+    static let ignored: NSEvent.ModifierFlags = [.capsLock, .numericPad, .help, .function]
+
+    static func significant(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+        flags.intersection(.deviceIndependentFlagsMask).subtracting(ignored)
+    }
+}
 
 enum FileBasketCloseAction: Equatable {
     case hide
@@ -45,6 +54,7 @@ final class ShelfSessionState: ObservableObject {
     private var statusClearTask: Task<Void, Never>?
     private var selectionAnchorID: UUID?
     private var collectionSelectionSnapshot: Set<UUID> = []
+    private var pendingRemovedURLs: [URL] = []
 
     init(
         isCollapsed: Bool = false,
@@ -263,6 +273,21 @@ final class ShelfSessionState: ObservableObject {
             return false
         }
         return true
+    }
+
+    func markPendingRemoval(urls: [URL]) {
+        pendingRemovedURLs = urls
+    }
+
+    func clearPendingRemoval() {
+        pendingRemovedURLs = []
+    }
+
+    @discardableResult
+    func consumePendingRemovalURLs() -> [URL] {
+        let urls = pendingRemovedURLs
+        pendingRemovedURLs = []
+        return urls
     }
 
     func dragItems(startingAt id: UUID, in items: [ShelfItem]) -> [ShelfItem] {

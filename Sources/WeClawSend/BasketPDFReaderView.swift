@@ -47,6 +47,11 @@ struct BasketPDFReaderView: View {
         .task(id: url) {
             await loadPDF()
         }
+        .onExitCommand {
+            if isSearchFocused {
+                isSearchFocused = false
+            }
+        }
         .onDisappear {
             // Releasing the document here matters for large PDFs.  The
             // representable also clears its PDFView in dismantleNSView.

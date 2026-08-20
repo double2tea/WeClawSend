@@ -46,7 +46,7 @@
             <li><span>2</span>在隐私与安全性中允许首次打开</li>
             <li><span>3</span>完成连接后，拖入文件</li>
           </ol>
-          <a class="button button-primary" href="/dl/dmg">下载 2.2 正式版</a>
+          <a class="button button-primary" href="/dl/dmg">下载最新版</a>
         </div>
       </section>
 
@@ -152,12 +152,12 @@
           <section id="baskets">
             <span class="chapter">04</span>
             <h2>文件篮</h2>
-            <p>文件篮是独立悬浮的文件中转窗，可以同时创建多个。它只保存路径引用，不复制、不移动磁盘上的原内容。</p>
+            <p>文件篮是独立悬浮的内容中转窗，可以同时创建多个。外部文件只保存路径引用；粘贴的文本便笺和图片由应用托管。</p>
             <div class="method-grid basket-methods">
               <article>
                 <span>＋</span>
                 <h3>新建</h3>
-                <p>在主面板点“＋ 文件篮”；或拖着文件左右摇晃，在指针旁直接新建。</p>
+                <p>主面板点文件篮按钮显示最近使用的篮；菜单可新建。也可拖着文件左右摇晃，在指针旁直接展开。</p>
               </article>
               <article>
                 <span>⌥</span>
@@ -165,14 +165,14 @@
                 <p>按 <code>⌥⌘S</code> 显示或隐藏最近使用的文件篮。</p>
               </article>
               <article>
-                <span>↗</span>
-                <h3>拖出与复制</h3>
-                <p>拖到 Finder、微信或其他 App；也可按 <code>⌘C</code> 复制真实项目。</p>
+                <span>⌘</span>
+                <h3>展开阅读</h3>
+                <p>单选后点顶部按钮或按 <code>⌘Return</code>。文本可搜索编辑，PDF 可滚动缩放，图片可按像素显示。</p>
               </article>
               <article>
-                <span>␣</span>
-                <h3>预览与定位</h3>
-                <p>选中后按空格快速预览，或从右键菜单在 Finder 中显示。</p>
+                <span>✓</span>
+                <h3>提醒栏</h3>
+                <p>文本可钉成置顶提醒，勾选 <code>- [ ]</code> 待办；<code>Esc</code> 收回文件篮。</p>
               </article>
             </div>
             <h3>发送规则</h3>
@@ -183,8 +183,8 @@
               <li>包含文件夹或 macOS 包的延时计划会先生成命名 ZIP，再把 ZIP 作为计划项保存。</li>
               <li>“压缩为 ZIP 并发送”可随时主动使用，发送不会改变篮内内容。</li>
               <li>每个文件篮独立保存内容、位置、折叠与置顶状态，并可跨 App 启动恢复。</li>
-              <li>关闭空文件篮会自动删除；移除项目、清空或删除文件篮都不会删除原内容。</li>
-              <li>暂不支持符号链接、文本片段和剪贴板图片等非文件系统项目。</li>
+              <li>关闭空文件篮会自动删除。外部文件只移除引用；文本便笺和图片便笺在没有其它引用时会从本机删除。</li>
+              <li>窗口获得焦点后可按 <code>⌘V</code> 粘贴文件、图片或纯文本。暂不支持符号链接或后台剪贴板历史。</li>
             </ul>
             <div class="callout callout-blue">
               <b>文件篮与菜单栏拖入互不影响</b>
@@ -320,6 +320,10 @@
               <summary>文件篮中的文件夹为什么不能立即发送</summary>
               <p>微信附件按文件发送。当前文件篮含文件夹或 macOS 包时，需要先输入名称，应用会将全部项目压缩为一个 ZIP 后发送。</p>
             </details>
+            <details>
+              <summary>删除文件篮会不会删掉电脑上的文件</summary>
+              <p>Finder 里的原文件不会删除。粘贴生成的文本便笺和图片便笺由应用托管，删除篮或移除项目且没有其它引用时，会从本机删除这些便笺。</p>
+            </details>
           </section>
 
           <section id="privacy">
@@ -363,7 +367,7 @@
           <p>下载 WeClaw Send，发出第一个文件。更新日志与反馈见飞书文档。</p>
         </div>
         <div class="guide-ending-actions">
-          <a class="button button-primary" href="/dl/dmg">下载 2.2 正式版</a>
+          <a class="button button-primary" href="/dl/dmg">下载最新版</a>
           <a class="button button-quiet" href="https://my.feishu.cn/docx/ZBq3dUnj1o55Q3xfJrpc9hfRnlh" target="_blank" rel="noopener noreferrer">更新与反馈</a>
         </div>
       </section>

@@ -6,6 +6,7 @@ enum BasketReaderKind: String, Codable, Equatable, Sendable {
     case externalText
     case pdf
     case image
+    case media
     case quickLook
     case fileInfo
 }
@@ -74,6 +75,11 @@ struct BasketReaderRouter: Sendable {
         if type?.conforms(to: .image) == true {
             return .reader(.image)
         }
+        if type?.conforms(to: .audiovisualContent) == true
+            || ["mp4", "m4v", "mov", "m4a", "mp3", "wav", "aac", "aiff", "caf"].contains(fileExtension)
+        {
+            return .reader(.media)
+        }
 
         // Quick Look is the intentionally conservative fallback for regular
         // files. Its own provider decides whether a preview is available;
@@ -99,5 +105,23 @@ struct BasketReaderRouter: Sendable {
         let fileExtension = url.pathExtension
         guard !fileExtension.isEmpty else { return nil }
         return UTType(filenameExtension: fileExtension)
+    }
+
+    static func isMediaFile(_ url: URL) -> Bool {
+        route(for: url).kind == .media
+    }
+
+    static func isAudioFile(_ url: URL) -> Bool {
+        let lexicalURL = url.standardizedFileURL
+        let type = contentType(for: lexicalURL)
+        if type?.conforms(to: .audio) == true {
+            return true
+        }
+        if type?.conforms(to: .movie) == true || type?.conforms(to: .video) == true {
+            return false
+        }
+        return ["mp3", "m4a", "wav", "aac", "aiff", "caf"].contains(
+            lexicalURL.pathExtension.lowercased()
+        )
     }
 }

@@ -87,6 +87,10 @@ struct BasketTextReaderView: View {
         }
         .onChange(of: url) { _, _ in
             isEditing = false
+            text = ""
+            draftText = ""
+            hasLoaded = false
+            errorMessage = nil
             searchQuery = ""
             searchMatchCount = 0
             searchMatchIndex = 0
@@ -465,6 +469,8 @@ struct BasketTextReaderView: View {
             errorMessage = nil
         case let .failure(loadError):
             let message = loadError.localizedDescription
+            text = ""
+            draftText = ""
             hasLoaded = true
             errorMessage = message
             onError(message)

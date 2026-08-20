@@ -40,8 +40,8 @@ struct BasketImageReaderView: View {
         ZStack(alignment: .bottom) {
             readerContent
 
-            if case let .ready(_, nativeSize) = state {
-                scaleControls(nativeSize: nativeSize)
+            if case let .ready(image, nativeSize) = state {
+                scaleControls(image: image, nativeSize: nativeSize)
             }
         }
         .background(Color(nsColor: .textBackgroundColor))
@@ -123,10 +123,10 @@ struct BasketImageReaderView: View {
         }
     }
 
-    private func scaleControls(nativeSize: CGSize) -> some View {
+    private func scaleControls(image: NSImage, nativeSize: CGSize) -> some View {
         HStack(spacing: 8) {
             BasketReaderInfoBadge(
-                title: "\(Int(nativeSize.width.rounded())) × \(Int(nativeSize.height.rounded()))",
+                title: imageSizeLabel(image: image, nativeSize: nativeSize),
                 systemImage: "ruler"
             )
 
@@ -140,7 +140,7 @@ struct BasketImageReaderView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 112)
-            .help("在适应窗口和原始尺寸之间切换")
+            .help("适应窗口，或按解码后的像素尺寸显示")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -150,6 +150,17 @@ struct BasketImageReaderView: View {
                 .stroke(Color.primary.opacity(0.12), lineWidth: 1)
         }
         .padding(12)
+    }
+
+    private func imageSizeLabel(image: NSImage, nativeSize: CGSize) -> String {
+        let nativeWidth = Int(nativeSize.width.rounded())
+        let nativeHeight = Int(nativeSize.height.rounded())
+        let decodedWidth = Int(image.size.width.rounded())
+        let decodedHeight = Int(image.size.height.rounded())
+        if decodedWidth == nativeWidth, decodedHeight == nativeHeight {
+            return "\(nativeWidth) × \(nativeHeight)"
+        }
+        return "\(decodedWidth) × \(decodedHeight)（原图 \(nativeWidth)×\(nativeHeight)）"
     }
 
     private func loadImage() async {

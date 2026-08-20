@@ -59,6 +59,11 @@ struct BasketReminderView: View {
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .overlay {
+                WindowDragHandle()
+                    .accessibilityHidden(true)
+            }
 
             Spacer(minLength: 6)
 
@@ -159,13 +164,14 @@ struct BasketReminderView: View {
     private func loadText() async {
         isLoading = true
         loadError = nil
+        let maximumExternalTextBytes = 2 * 1024 * 1024
         let result = await Task.detached(priority: .userInitiated) { [url, isEditable] in
             do {
                 if isEditable {
                     return Result<String, Error>.success(try BasketTextClipStore.readText(at: url))
                 }
                 let data = try Data(contentsOf: url, options: [.mappedIfSafe])
-                guard data.count <= BasketTextClipStore.maximumTextBytes else {
+                guard data.count <= maximumExternalTextBytes else {
                     throw ReminderLoadError.tooLarge
                 }
                 guard let value = String(data: data, encoding: .utf8) else {
@@ -280,7 +286,7 @@ struct BasketReminderView: View {
 
         var errorDescription: String? {
             switch self {
-            case .tooLarge: "提醒文本不能超过 256 KiB。"
+            case .tooLarge: "外部提醒文本不能超过 2 MiB。"
             case .invalidEncoding: "提醒仅支持 UTF-8 文本。"
             }
         }

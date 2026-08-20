@@ -42,11 +42,6 @@ struct BasketQuickLookReaderView: View {
         .task(id: url) {
             await validatePreviewItem()
         }
-        .onDisappear {
-            // The representable's dismantleNSView clears previewItem.  Reset
-            // the state as well so a later item never reuses stale UI.
-            state = .idle
-        }
         .transaction { transaction in
             if reduceMotion {
                 transaction.animation = nil
@@ -117,7 +112,7 @@ private struct BasketEmbeddedQuickLookView: NSViewRepresentable {
         }
         previewView.translatesAutoresizingMaskIntoConstraints = false
         previewView.autostarts = true
-        previewView.shouldCloseWithWindow = false
+        previewView.shouldCloseWithWindow = true
         previewView.previewItem = url as NSURL
         container.addSubview(previewView)
         NSLayoutConstraint.activate([
@@ -142,8 +137,11 @@ private struct BasketEmbeddedQuickLookView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ container: NSView, coordinator: Coordinator) {
-        coordinator.previewView?.previewItem = nil
-        coordinator.previewView?.removeFromSuperview()
+        if let previewView = coordinator.previewView {
+            previewView.autostarts = false
+            previewView.previewItem = nil
+            previewView.removeFromSuperview()
+        }
         coordinator.previewView = nil
         container.subviews.forEach { $0.removeFromSuperview() }
         coordinator.currentURL = nil

@@ -80,6 +80,9 @@ struct ShelfView: View {
     @State private var zipName = ""
     @State private var hoveredChromeButton: String?
     @State private var isTitleHovered = false
+    @State private var isEditingTitle = false
+    @State private var titleDraft = ""
+    @FocusState private var isTitleFieldFocused: Bool
     @State private var isActionsMenuHovered = false
     @State private var itemFrames: [UUID: CGRect] = [:]
     @State private var marqueeRect: CGRect?
@@ -110,6 +113,11 @@ struct ShelfView: View {
                 reduceMotion ? nil : .smooth(duration: 0.2, extraBounce: 0),
                 value: session.statusMessage
             )
+            .onDisappear {
+                finalizePendingUndo()
+                pendingUndo = nil
+                undoAvailabilityChanged(false)
+            }
             .task(id: pendingUndo?.id) {
                 guard pendingUndo != nil else { return }
                 do {
@@ -123,12 +131,12 @@ struct ShelfView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(shelf.title)
-            .help("拖入文件或文件夹，或按 ⌘V 粘贴文件与文本；空白处拖框或按 ⌘A 多选")
+            .help("拖入或按 ⌘V 粘贴；空篮单击空白处添加文件，有项目时双击空白处添加；空白处拖框或按 ⌘A 多选")
             .alert("删除\(shelf.title)？", isPresented: $showsDeleteConfirmation) {
                 Button("删除", role: .destructive, action: deleteBasket)
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("将移除篮内 \(shelf.items.count) 个项目引用，不会删除原内容。")
+                Text("将移除篮内 \(shelf.items.count) 个项目引用。Finder 中的原文件不会删除；文本便笺和图片便笺会从本机删除。")
             }
             .alert(zipAlertTitle, isPresented: $showsZIPNaming) {
                 TextField("压缩包名称", text: $zipName)
@@ -247,10 +255,12 @@ struct ShelfView: View {
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
             }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: toggleCollapsed)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay {
+                WindowDragHandle()
+                    .accessibilityHidden(true)
+            }
 
             Spacer(minLength: 2)
 
@@ -269,8 +279,8 @@ struct ShelfView: View {
 
     private var collapsedSubtitle: String {
         if isDropTargeted { return "松开以加入" }
-        guard let firstName = shelf.items.first?.fileName else { return "拖入或点击展开" }
-        return "\(shelf.items.count) 个项目 · \(firstName)"
+        guard !shelf.items.isEmpty else { return "拖入或点击展开" }
+        return "\(shelf.items.count) 个项目"
     }
 
     private var stackGlyph: some View {
@@ -340,7 +350,9 @@ struct ShelfView: View {
 
     @ViewBuilder
     private var reminderChrome: some View {
-        if let item = session.focusedItem(in: shelf.items), item.isTextDocument {
+        if !session.isPresentationReady {
+            BasketReaderLoadingView(title: "正在打开提醒…", systemImage: "checklist")
+        } else if let item = session.focusedItem(in: shelf.items), item.isTextDocument {
             BasketReminderView(
                 title: item.fileName,
                 url: item.url,
@@ -377,10 +389,10 @@ struct ShelfView: View {
                 action: returnToCollection
             )
             readerHeaderButton("上一个", systemImage: "chevron.up") {
-                _ = session.moveFocus(by: -1, in: shelf.items)
+                _ = session.moveFocus(by: -1, in: readerFocusItems)
             }
             readerHeaderButton("下一个", systemImage: "chevron.down") {
-                _ = session.moveFocus(by: 1, in: shelf.items)
+                _ = session.moveFocus(by: 1, in: readerFocusItems)
             }
 
             VStack(alignment: .leading, spacing: 1) {
@@ -391,6 +403,11 @@ struct ShelfView: View {
                 Text(shelf.title)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .overlay {
+                WindowDragHandle()
+                    .accessibilityHidden(true)
             }
 
             Spacer(minLength: 8)
@@ -469,6 +486,7 @@ struct ShelfView: View {
         ) {
         case let .reader(kind):
             readerView(kind: kind, item: item)
+                .id(item.id)
         case let .failure(error):
             BasketReaderErrorView(
                 title: "无法展开阅读",
@@ -476,6 +494,7 @@ struct ShelfView: View {
                 actionTitle: "返回文件篮",
                 action: returnToCollection
             )
+            .id(item.id)
         }
     }
 
@@ -500,6 +519,8 @@ struct ShelfView: View {
             BasketPDFReaderView(url: item.url)
         case .image:
             BasketImageReaderView(url: item.url)
+        case .media:
+            BasketMediaReaderView(url: item.url)
         case .quickLook:
             BasketQuickLookReaderView(url: item.url)
         case .fileInfo:
@@ -524,6 +545,7 @@ struct ShelfView: View {
                 chromeButton(
                     "展开阅读",
                     systemImage: "book.closed",
+                    enabled: session.selectedItem(in: shelf.items) != nil,
                     action: openSelectedItemInReader
                 )
                 chromeButton(
@@ -545,34 +567,85 @@ struct ShelfView: View {
     }
 
     private var titleControl: some View {
-        Button(action: toggleCollapsed) {
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 4) {
+                if isEditingTitle {
+                    TextField("文件篮名称", text: $titleDraft)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13, weight: .semibold))
+                        .focused($isTitleFieldFocused)
+                        .onSubmit(commitTitleEditing)
+                        .onExitCommand(perform: cancelTitleEditing)
+                        .onChange(of: isTitleFieldFocused) { _, focused in
+                            if !focused {
+                                commitTitleEditing()
+                            }
+                        }
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            Color.primary.opacity(0.06),
+                            in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        )
+                        .accessibilityLabel("文件篮名称")
+                } else {
                     Text(shelf.title)
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 7.5, weight: .bold))
-                        .foregroundStyle(.tertiary)
+                        .truncationMode(.tail)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2, perform: beginTitleEditing)
+                        .help("双击更改名称")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("双击更改名称")
+                    Button(action: toggleCollapsed) {
+                        Image(systemName: "chevron.up")
+                            .font(.system(size: 7.5, weight: .bold))
+                            .foregroundStyle(isTitleHovered ? Color.secondary : Color.secondary.opacity(0.55))
+                            .frame(width: 16, height: 16)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(ShelfPressButtonStyle())
+                    .help("折叠文件篮")
+                    .accessibilityLabel("折叠\(shelf.title)")
+                    .onHover { hovering in
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+                            isTitleHovered = hovering
+                        }
+                    }
                 }
-                Text(basketSummary)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
-            .padding(.horizontal, 4)
-            .frame(height: 34)
-            .contentShape(Rectangle())
-            .opacity(isTitleHovered ? 0.72 : 1)
+            Text(basketSummary)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .overlay {
+                    WindowDragHandle()
+                        .accessibilityHidden(true)
+                }
         }
-        .buttonStyle(ShelfPressButtonStyle(scale: 0.985))
-        .onHover { hovering in
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
-                isTitleHovered = hovering
-            }
+        .padding(.horizontal, 4)
+        .frame(height: 34, alignment: .leading)
+        .onChange(of: isEditingTitle) { _, editing in
+            isTitleFieldFocused = editing
         }
-        .help("折叠文件篮")
-        .accessibilityLabel("折叠\(shelf.title)")
+    }
+
+    private func beginTitleEditing() {
+        titleDraft = shelf.title
+        isEditingTitle = true
+    }
+
+    private func commitTitleEditing() {
+        guard isEditingTitle else { return }
+        isEditingTitle = false
+        isTitleFieldFocused = false
+        _ = shelf.rename(to: titleDraft)
+    }
+
+    private func cancelTitleEditing() {
+        isEditingTitle = false
+        isTitleFieldFocused = false
     }
 
     private var displayModeControl: some View {
@@ -613,7 +686,7 @@ struct ShelfView: View {
     }
 
     private var basketSummary: String {
-        guard !shelf.items.isEmpty else { return "拖入文件或按 ⌘V 粘贴" }
+        guard !shelf.items.isEmpty else { return isDropTargeted ? "松开以加入" : "0 个项目" }
         let fileBytes = shelf.items.reduce(Int64.zero) { total, item in
             guard item.kind == .file else { return total }
             return total + ShelfItemPresentationCache.fileSize(for: item.url)
@@ -634,7 +707,7 @@ struct ShelfView: View {
                 Label("添加文件或文件夹…", systemImage: "plus")
             }
             Button("展开所选项目", action: openSelectedItemInReader)
-                .disabled(session.selectedItemIDs.count != 1)
+                .disabled(session.selectedItem(in: shelf.items) == nil)
             Button {
                 newTextClipDraft = NewTextClipDraft(text: "")
             } label: {
@@ -704,7 +777,6 @@ struct ShelfView: View {
         if shelf.items.isEmpty {
             emptyState
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(12)
         } else {
             itemList
         }
@@ -756,6 +828,7 @@ struct ShelfView: View {
             }
             .clipped()
             .simultaneousGesture(marqueeSelectionGesture)
+            .simultaneousGesture(addFilesFromEmptySpaceGesture)
             .onChange(of: session.selectedItemID) { _, newID in
                 guard marqueeRect == nil, let newID else { return }
                 withAnimation(reduceMotion ? nil : .smooth(duration: 0.2, extraBounce: 0)) {
@@ -901,6 +974,16 @@ struct ShelfView: View {
             }
     }
 
+    private var addFilesFromEmptySpaceGesture: some Gesture {
+        SpatialTapGesture(count: 2, coordinateSpace: .named(itemListCoordinateSpace))
+            .onEnded { value in
+                guard !itemFrames.values.contains(where: { $0.contains(value.location) }) else {
+                    return
+                }
+                chooseFiles()
+            }
+    }
+
     private func updateMarqueeSelection(_ value: DragGesture.Value) {
         if marqueeRect == nil {
             guard !itemFrames.isEmpty else {
@@ -941,7 +1024,7 @@ struct ShelfView: View {
                     .symbolEffect(.pulse, isActive: isDropTargeted && !reduceMotion)
 
                 VStack(spacing: 3) {
-                    Text(isDropTargeted ? "松开以加入" : "拖入文件，或按 ⌘V 粘贴")
+                    Text(isDropTargeted ? "松开以加入" : "单击或拖入文件，或按 ⌘V 粘贴")
                         .font(.system(size: 12.5, weight: .semibold))
                     Text("支持文件与纯文本 · 空格预览")
                         .font(.system(size: 10.5))
@@ -960,8 +1043,11 @@ struct ShelfView: View {
                         style: StrokeStyle(lineWidth: 1, dash: isDropTargeted ? [] : [3.5, 2.5])
                     )
             }
+            .padding(12)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .accessibilityLabel("选择、拖入或粘贴文件与文本加入\(shelf.title)")
     }
 
@@ -990,6 +1076,10 @@ struct ShelfView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 42)
+        .background {
+            WindowDragHandle()
+                .accessibilityHidden(true)
+        }
     }
 
     private var standardFooter: some View {
@@ -998,6 +1088,10 @@ struct ShelfView: View {
                 Text(pendingUndo.message)
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .overlay {
+                        WindowDragHandle()
+                            .accessibilityHidden(true)
+                    }
                 Button("撤销", action: undoLastRemoval)
                     .buttonStyle(.plain)
                     .font(.system(size: 10.5, weight: .semibold))
@@ -1007,6 +1101,10 @@ struct ShelfView: View {
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
                     .transition(.opacity)
+                    .overlay {
+                        WindowDragHandle()
+                            .accessibilityHidden(true)
+                    }
             } else {
                 Button("清空") {
                     clearBasket()
@@ -1015,9 +1113,14 @@ struct ShelfView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(shelf.items.isEmpty ? Color.secondary.opacity(0.4) : Brand.danger.opacity(0.88))
                 .disabled(shelf.items.isEmpty)
+                .allowsHitTesting(!shelf.items.isEmpty)
             }
 
             Spacer(minLength: 4)
+                .overlay {
+                    WindowDragHandle()
+                        .accessibilityHidden(true)
+                }
 
             Button(action: sendCurrentItems) {
                 HStack(spacing: 4) {
@@ -1076,16 +1179,34 @@ struct ShelfView: View {
             Text("已选 \(session.selectedItemIDs.count) 项")
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(.secondary)
+                .overlay {
+                    WindowDragHandle()
+                        .accessibilityHidden(true)
+                }
 
             Spacer(minLength: 2)
+                .overlay {
+                    WindowDragHandle()
+                        .accessibilityHidden(true)
+                }
 
-            Menu("分享") {
+            Menu {
                 selectionShareButton(.airDrop)
                 selectionShareButton(.mail)
                 selectionShareButton(.messages)
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.secondary)
+                    .frame(width: 28, height: 28)
+                    .background(Color.primary.opacity(0.05), in: Circle())
+                    .contentShape(Circle())
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
+            .help("分享所选项目")
+            .accessibilityLabel("分享所选项目")
 
             Button("复制") {
                 copyFiles(session.selectedItems(in: shelf.items))
@@ -1112,8 +1233,10 @@ struct ShelfView: View {
     }
 
     private func selectionShareButton(_ destination: ShelfShareDestination) -> some View {
-        Button(destination.title) {
+        Button {
             shareFiles(session.selectedItems(in: shelf.items), destination)
+        } label: {
+            Label(destination.title, systemImage: destination.systemImage)
         }
     }
 
@@ -1147,8 +1270,7 @@ struct ShelfView: View {
     // MARK: - Controls
 
     private func openSelectedItemInReader() {
-        guard session.selectedItemIDs.count == 1,
-              let item = session.selectedItem(in: shelf.items) else {
+        guard let item = session.selectedItem(in: shelf.items) else {
             session.flash("请选择一个项目")
             return
         }
@@ -1174,6 +1296,14 @@ struct ShelfView: View {
         case let .failure(error):
             session.flash(readerErrorMessage(error), duration: 2.4)
         }
+    }
+
+    private var readerFocusItems: [ShelfItem] {
+        if let item = session.focusedItem(in: shelf.items),
+           BasketReaderRouter.isMediaFile(item.url) {
+            return shelf.items.filter { BasketReaderRouter.isMediaFile($0.url) }
+        }
+        return shelf.items
     }
 
     private func returnToCollection() {
@@ -1336,6 +1466,7 @@ struct ShelfView: View {
         _ title: String,
         systemImage: String,
         emphasized: Bool = false,
+        enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -1347,22 +1478,10 @@ struct ShelfView: View {
                     Circle()
                         .fill(chromeButtonBackground(title, emphasized: emphasized))
                 )
-                .overlay(alignment: .top) {
-                    if hoveredChromeButton == title {
-                        Text(title)
-                            .font(.system(size: 9.5, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .fixedSize()
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(.regularMaterial, in: Capsule())
-                            .offset(y: 31)
-                            .allowsHitTesting(false)
-                    }
-                }
                 .contentShape(Circle())
         }
         .buttonStyle(ShelfPressButtonStyle())
+        .disabled(!enabled)
         .onHover { hovering in
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
                 hoveredChromeButton = hovering ? title : (hoveredChromeButton == title ? nil : hoveredChromeButton)
@@ -1415,6 +1534,7 @@ struct ShelfView: View {
 
     private func undoLastRemoval() {
         guard let pendingUndo else { return }
+        session.clearPendingRemoval()
         shelf.restore(items: pendingUndo.items, at: pendingUndo.originalIndexes)
         session.ensureSelection(in: shelf.items)
         self.pendingUndo = nil
@@ -1426,6 +1546,7 @@ struct ShelfView: View {
         guard !items.isEmpty, items.count == originalIndexes.count else { return }
         finalizePendingUndo()
         undoAvailabilityChanged(true)
+        session.markPendingRemoval(urls: items.map(\.url))
         pendingUndo = ShelfUndoAction(
             items: items,
             originalIndexes: originalIndexes,
@@ -1434,10 +1555,11 @@ struct ShelfView: View {
     }
 
     private func finalizePendingUndo() {
-        guard let pendingUndo else { return }
+        let urls = session.consumePendingRemovalURLs()
+        guard !urls.isEmpty else { return }
         let retainedPaths = Set(shelf.items.map(\.path))
-        for item in pendingUndo.items where !retainedPaths.contains(item.path) {
-            model.cleanupManagedBasketArtifactIfUnreferenced(item.url)
+        for url in urls where !retainedPaths.contains(url.standardizedFileURL.path) {
+            model.cleanupManagedBasketArtifactIfUnreferenced(url)
         }
     }
 
@@ -2073,7 +2195,7 @@ private final class ShelfItemDragSource: NSObject, ObservableObject, NSDraggingS
     }
 }
 
-private struct WindowDragHandle: NSViewRepresentable {
+struct WindowDragHandle: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         WindowDragView()
     }

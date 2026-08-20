@@ -133,11 +133,16 @@ struct BasketTextClipStore {
 
     func isManaged(_ url: URL) -> Bool {
         guard url.isFileURL else { return false }
+        let fileURL = normalized(url)
+        guard fileURL.pathExtension.lowercased() == "txt" else { return false }
         let directoryPath = normalized(storageDirectory).path
-        let filePath = normalized(url).path
+        let filePath = fileURL.path
         guard filePath != directoryPath else { return false }
         let directoryPrefix = directoryPath.hasSuffix("/") ? directoryPath : directoryPath + "/"
-        return filePath.hasPrefix(directoryPrefix)
+        guard filePath.hasPrefix(directoryPrefix) else { return false }
+        let relative = String(filePath.dropFirst(directoryPrefix.count))
+        // Image clips live in a subdirectory of the default text directory.
+        return !relative.isEmpty && !relative.contains("/")
     }
 
     @discardableResult

@@ -516,6 +516,16 @@ MainActor.assumeIsolated {
     precondition(session.presentationMode == .collection)
     precondition(session.focusedItemID == nil)
     precondition(session.selectedItemIDs == [first.id, third.id])
+    session.markPendingRemoval(urls: [first.url, third.url])
+    precondition(session.consumePendingRemovalURLs() == [first.url, third.url])
+    precondition(session.consumePendingRemovalURLs().isEmpty)
+
+    precondition(ShelfKeyModifiers.significant(.capsLock).isEmpty)
+    precondition(ShelfKeyModifiers.significant(.function).isEmpty)
+    precondition(ShelfKeyModifiers.significant([.capsLock, .numericPad, .help, .function]).isEmpty)
+    precondition(ShelfKeyModifiers.significant([.command, .capsLock]) == .command)
+    precondition(ShelfKeyModifiers.significant([.shift, .function]) == .shift)
+    precondition(!ShelfKeyModifiers.significant(.option).isEmpty)
 }
 
 let shelfFile = FileManager.default.temporaryDirectory
@@ -745,6 +755,20 @@ do {
 precondition(BasketReaderRouter.route(for: textClipURL, isManagedText: true) == .reader(.managedText))
 precondition(BasketReaderRouter.route(for: outsideTextClipURL) == .reader(.externalText))
 precondition(BasketReaderRouter.route(for: shelfDirectory) == .reader(.fileInfo))
+let mediaReaderURL = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-media-reader-\(UUID()).mp4")
+try Data([0]).write(to: mediaReaderURL)
+defer { try? FileManager.default.removeItem(at: mediaReaderURL) }
+precondition(BasketReaderRouter.route(for: mediaReaderURL) == .reader(.media))
+let audioReaderURL = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-audio-reader-\(UUID()).mp3")
+try Data([0]).write(to: audioReaderURL)
+defer { try? FileManager.default.removeItem(at: audioReaderURL) }
+precondition(BasketReaderRouter.route(for: audioReaderURL) == .reader(.media))
+precondition(BasketReaderRouter.isMediaFile(mediaReaderURL))
+precondition(BasketReaderRouter.isMediaFile(audioReaderURL))
+precondition(BasketReaderRouter.isAudioFile(audioReaderURL))
+precondition(!BasketReaderRouter.isAudioFile(mediaReaderURL))
 let missingReaderURL = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-missing-reader-\(UUID()).txt")
 precondition(BasketReaderRouter.route(for: missingReaderURL) == .failure(.missingPath))
@@ -768,6 +792,12 @@ precondition(
         storedSize: CGSize(width: 1_000, height: 900),
         visibleFrame: CGRect(x: 0, y: 0, width: 900, height: 700)
     ) == CGSize(width: 760, height: 500)
+)
+precondition(
+    ReaderWindowSizing.resolvedSize(
+        for: ShelfWindowSizingMode.audio,
+        visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+    ) == ReaderWindowSizing.audioPreferredSize
 )
 let deletedTextClip = try textClipStore.deleteIfManaged(textClipURL)
 precondition(deletedTextClip)
@@ -831,6 +861,26 @@ precondition(imageClipURL.pathExtension == "png")
 precondition(FileManager.default.fileExists(atPath: imageClipURL.path))
 let deletedImageClip = try imageClipStore.deleteIfManaged(imageClipURL)
 precondition(deletedImageClip)
+
+let sharedClipRoot = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-send-shared-clips-\(UUID())", directoryHint: .isDirectory)
+let nestedTextStore = BasketTextClipStore(directory: sharedClipRoot)
+let nestedImageStore = BasketImageClipStore(
+    directory: sharedClipRoot.appending(path: "Images", directoryHint: .isDirectory)
+)
+defer { try? FileManager.default.removeItem(at: sharedClipRoot) }
+let nestedTextURL = try nestedTextStore.create(text: "共享目录便笺")
+let nestedImageURL = try nestedImageStore.create(image: basketImage, preferredTitle: "截图")
+precondition(nestedTextStore.isManaged(nestedTextURL))
+precondition(!nestedTextStore.isManaged(nestedImageURL))
+precondition(nestedImageStore.isManaged(nestedImageURL))
+precondition(!nestedImageStore.isManaged(nestedTextURL))
+precondition(
+    BasketReaderRouter.route(
+        for: nestedImageURL,
+        isManagedText: nestedTextStore.isManaged(nestedImageURL)
+    ) == .reader(.image)
+)
 
 let archiveInputDirectory = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-archive-input-\(UUID())", directoryHint: .isDirectory)

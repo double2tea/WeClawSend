@@ -1686,8 +1686,13 @@ final class AppModel: ObservableObject {
         let isInBasket = fileBaskets.baskets.contains { basket in
             basket.items.contains { $0.path == path }
         }
-        let isScheduled = displayedScheduledSends.contains { plan in
-            plan.items.contains { $0.filePath == path }
+        let isScheduled = scheduledSends.contains { plan in
+            switch plan.status {
+            case .scheduled, .sending, .needsAttention:
+                plan.items.contains { $0.filePath == path }
+            case .sent, .cancelled, .failed:
+                false
+            }
         }
         let isInTransferHistory = recentTransfers.contains { $0.path == path }
         guard !isInBasket, !isScheduled, !isInTransferHistory else { return }

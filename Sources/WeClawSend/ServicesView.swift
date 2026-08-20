@@ -711,7 +711,7 @@ struct ServicesView: View {
                     settingRow(
                         icon: "tray",
                         title: "关闭窗口后保留",
-                        subtitle: "仅在本次运行中隐藏保留；空篮关闭即删除",
+                        subtitle: "关闭后隐藏非空篮；空篮仍会删除",
                         isOn: Binding(
                             get: { model.shelfKeepItemsOnClose },
                             set: { model.setShelfKeepItemsOnClose($0) }
