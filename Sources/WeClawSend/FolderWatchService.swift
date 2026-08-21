@@ -31,12 +31,24 @@ final class FolderWatchService: @unchecked Sendable {
     private struct FileSignature: Equatable {
         let size: Int64
         let modifiedAt: Date
+        let resourceIdentifier: String
+    }
+
+    private struct HandledFileKey: Hashable {
+        let ruleID: UUID
+        let resourceIdentifier: String
     }
 
     private struct PendingCandidate {
         let url: URL
         let token: UUID
         let workItem: DispatchWorkItem
+    }
+
+    private struct BurstWindow {
+        var startedAt: Date
+        var count: Int
+        var hasReportedLimit: Bool
     }
 
     private let fileReady: FileReadyHandler
@@ -47,8 +59,10 @@ final class FolderWatchService: @unchecked Sendable {
     private var rulesByID: [UUID: FolderWatchRule] = [:]
     private var rootsByRuleID: [UUID: URL] = [:]
     private var pending: [CandidateKey: PendingCandidate] = [:]
-    private var handled: Set<CandidateKey> = []
+    private var handledFiles: Set<HandledFileKey> = []
+    private var handledFileOrder: [HandledFileKey] = []
     private var unavailableRuleIDs: Set<UUID> = []
+    private var burstWindows: [UUID: BurstWindow] = [:]
     private var isRunning = false
 
     init(
@@ -102,8 +116,10 @@ final class FolderWatchService: @unchecked Sendable {
         rootsByRuleID = Dictionary(uniqueKeysWithValues: rules.map {
             ($0.id, URL(fileURLWithPath: $0.folderPath).standardizedFileURL)
         })
-        handled.removeAll(keepingCapacity: true)
+        handledFiles.removeAll(keepingCapacity: true)
+        handledFileOrder.removeAll(keepingCapacity: true)
         unavailableRuleIDs.removeAll(keepingCapacity: true)
+        burstWindows.removeAll(keepingCapacity: true)
         reportRootAvailabilityOnQueue()
 
         let enabledRules = rules.filter(\.enabled)
@@ -171,8 +187,10 @@ final class FolderWatchService: @unchecked Sendable {
         }
         rulesByID.removeAll(keepingCapacity: true)
         rootsByRuleID.removeAll(keepingCapacity: true)
-        handled.removeAll(keepingCapacity: true)
+        handledFiles.removeAll(keepingCapacity: true)
+        handledFileOrder.removeAll(keepingCapacity: true)
         unavailableRuleIDs.removeAll(keepingCapacity: true)
+        burstWindows.removeAll(keepingCapacity: true)
         isRunning = false
         if emitStatus { status(.stopped) }
     }
@@ -197,8 +215,6 @@ final class FolderWatchService: @unchecked Sendable {
     ) {
         guard isRunning, numberOfEvents > 0, let eventPaths else { return }
         let paths = eventPaths.assumingMemoryBound(to: UnsafePointer<CChar>.self)
-        var batchCounts: [UUID: Int] = [:]
-        var reportedBatchLimit = Set<UUID>()
         var batchKeys = Set<CandidateKey>()
 
         for index in 0..<numberOfEvents {
@@ -212,7 +228,8 @@ final class FolderWatchService: @unchecked Sendable {
                 FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated)
                     | FSEventStreamEventFlags(kFSEventStreamEventFlagItemRenamed)
             ) != 0
-            guard isCreatedOrRenamed else { continue }
+            let isModified = flags & FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified) != 0
+            guard isCreatedOrRenamed || isModified else { continue }
             let path = String(cString: paths[index])
             let url = URL(fileURLWithPath: path).standardizedFileURL
 
@@ -221,19 +238,38 @@ final class FolderWatchService: @unchecked Sendable {
                     continue
                 }
                 let key = CandidateKey(ruleID: rule.id, path: url.path)
-                guard !handled.contains(key), batchKeys.insert(key).inserted else { continue }
 
-                let count = (batchCounts[rule.id] ?? 0) + 1
-                batchCounts[rule.id] = count
-                guard count <= 20 else {
-                    if reportedBatchLimit.insert(rule.id).inserted {
-                        status(.batchLimitExceeded(ruleID: rule.id, count: count))
+                if !isCreatedOrRenamed {
+                    if pending[key] != nil {
+                        scheduleCandidate(key: key, url: url)
                     }
                     continue
                 }
+
+                guard batchKeys.insert(key).inserted else { continue }
+                guard registerBurstCandidate(ruleID: rule.id) else { continue }
                 scheduleCandidate(key: key, url: url)
             }
         }
+    }
+
+    private func registerBurstCandidate(ruleID: UUID, now: Date = .now) -> Bool {
+        var window = burstWindows[ruleID] ?? BurstWindow(
+            startedAt: now,
+            count: 0,
+            hasReportedLimit: false
+        )
+        if now.timeIntervalSince(window.startedAt) > 2 {
+            window = BurstWindow(startedAt: now, count: 0, hasReportedLimit: false)
+        }
+        window.count += 1
+        let acceptsCandidate = window.count <= 20
+        if !acceptsCandidate, !window.hasReportedLimit {
+            window.hasReportedLimit = true
+            status(.batchLimitExceeded(ruleID: ruleID, count: window.count))
+        }
+        burstWindows[ruleID] = window
+        return acceptsCandidate
     }
 
     private func reportEventLossIfNeeded(_ flags: FSEventStreamEventFlags) {
@@ -255,12 +291,30 @@ final class FolderWatchService: @unchecked Sendable {
         let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         guard candidatePath.hasPrefix(rootPrefix) else { return false }
 
+        let relativePath = String(candidatePath.dropFirst(rootPrefix.count))
+        let relativeComponents = relativePath.split(separator: "/")
+        guard !relativeComponents.contains(where: { $0.hasPrefix(".") }) else { return false }
+
         if !rule.includesSubfolders {
             guard url.deletingLastPathComponent().standardizedFileURL.path == rootPath else {
                 return false
             }
+        } else if isInsidePackage(url, below: root) {
+            return false
         }
         return rule.allowsFile(at: url)
+    }
+
+    private func isInsidePackage(_ url: URL, below root: URL) -> Bool {
+        var ancestor = url.deletingLastPathComponent().standardizedFileURL
+        let rootPath = root.standardizedFileURL.path
+        while ancestor.path != rootPath, ancestor.path.hasPrefix(rootPath + "/") {
+            if (try? ancestor.resourceValues(forKeys: [.isPackageKey]).isPackage) == true {
+                return true
+            }
+            ancestor.deleteLastPathComponent()
+        }
+        return false
     }
 
     private func scheduleCandidate(key: CandidateKey, url: URL) {
@@ -312,8 +366,23 @@ final class FolderWatchService: @unchecked Sendable {
         }
 
         pending.removeValue(forKey: key)
-        guard handled.insert(key).inserted else { return }
+        let handledKey = HandledFileKey(
+            ruleID: key.ruleID,
+            resourceIdentifier: latest.resourceIdentifier
+        )
+        guard rememberHandledFile(handledKey) else { return }
         fileReady(rule.id, pendingCandidate.url)
+    }
+
+    private func rememberHandledFile(_ key: HandledFileKey) -> Bool {
+        guard handledFiles.insert(key).inserted else { return false }
+        handledFileOrder.append(key)
+        if handledFileOrder.count > 10_000 {
+            let expired = handledFileOrder.prefix(1_000)
+            handledFiles.subtract(expired)
+            handledFileOrder.removeFirst(1_000)
+        }
+        return true
     }
 
     private func fileSignature(for url: URL) -> FileSignature? {
@@ -321,15 +390,23 @@ final class FolderWatchService: @unchecked Sendable {
             .isRegularFileKey,
             .isSymbolicLinkKey,
             .fileSizeKey,
-            .contentModificationDateKey
+            .contentModificationDateKey,
+            .fileResourceIdentifierKey,
+            .volumeIdentifierKey,
         ]),
               values.isRegularFile == true,
               values.isSymbolicLink != true,
               let size = values.fileSize,
-              let modifiedAt = values.contentModificationDate else {
+              let modifiedAt = values.contentModificationDate,
+              let fileIdentifier = values.fileResourceIdentifier else {
             return nil
         }
-        return FileSignature(size: Int64(size), modifiedAt: modifiedAt)
+        let volumeIdentifier = values.volumeIdentifier.map(String.init(describing:)) ?? "volume"
+        return FileSignature(
+            size: Int64(size),
+            modifiedAt: modifiedAt,
+            resourceIdentifier: "\(volumeIdentifier):\(String(describing: fileIdentifier))"
+        )
     }
 
     private func reportRootAvailabilityOnQueue() {

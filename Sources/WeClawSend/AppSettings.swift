@@ -152,6 +152,7 @@ enum AppSettings {
     static let shelfStoredItemsKey = "ShelfStoredItems"
     static let shelfWindowOriginKey = "ShelfWindowOrigin"
     static let fileBasketArchiveKey = "FileBasketArchive"
+    static let folderWatchEnabledKey = "FolderWatchEnabled"
 
     private static func bool(forKey key: String, default defaultValue: Bool) -> Bool {
         guard UserDefaults.standard.object(forKey: key) != nil else { return defaultValue }
@@ -168,6 +169,10 @@ enum AppSettings {
             return .direct
         }
         return LocalAPISendBehavior(rawValue: stored) ?? .direct
+    }
+
+    static var folderWatchEnabled: Bool {
+        bool(forKey: folderWatchEnabledKey, default: false)
     }
 
     /// Default on: users can turn off system banners for send results.

@@ -34,6 +34,15 @@ struct ServicesView: View {
     @State private var page: ServicesPage = .general
     @State private var hoveredPage: ServicesPage?
 
+    init(model: AppModel) {
+        self.model = model
+#if DEBUG
+        let initialPage = ProcessInfo.processInfo.environment["WECLAW_SETTINGS_QA_PAGE"]
+            .flatMap(ServicesPage.init(rawValue:)) ?? .general
+        _page = State(initialValue: initialPage)
+#endif
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -141,6 +150,7 @@ struct ServicesView: View {
                 case .baskets:
                     shelfSettingsSection
                 case .integrations:
+                    folderWatchSettingsSection
                     localAPISection
                     updatesAndIntegrationsSection
                     feedbackSection
@@ -635,6 +645,34 @@ struct ServicesView: View {
                     .padding(.top, 6)
             }
         }
+    }
+
+    private var folderWatchSettingsSection: some View {
+        FolderWatchSettingsView(
+            store: model.folderWatchStore,
+            baskets: model.fileBaskets.baskets,
+            monitoringEnabled: Binding(
+                get: { model.folderWatchEnabled },
+                set: { model.setFolderWatchEnabled($0) }
+            ),
+            statusText: model.folderWatchStatusText,
+            addFolders: chooseFolderWatchFolders,
+            update: model.updateFolderWatchRule,
+            remove: model.removeFolderWatchRule
+        )
+    }
+
+    private func chooseFolderWatchFolders() {
+        let panel = NSOpenPanel()
+        panel.title = "选择监控文件夹"
+        panel.prompt = "添加监控"
+        panel.message = "只会处理添加规则之后新出现的文件。"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.resolvesAliases = false
+        guard panel.runModal() == .OK else { return }
+        model.addFolderWatchFolders(panel.urls)
     }
 
     private var localAPISendBehaviorSubtitle: String {

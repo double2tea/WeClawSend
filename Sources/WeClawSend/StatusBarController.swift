@@ -136,11 +136,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
             popover.close()
             fileBasketCoordinator.showIncomingAPIItem(in: basketID)
         }
+        model.onFolderWatchFileAddedToBasket = { [weak self] basketID in
+            guard let self else { return }
+            popover.close()
+            fileBasketCoordinator.showIncomingAPIItem(in: basketID)
+        }
         model.onQuickLookRequested = { [weak self] in
             self?.openQueueQuickLook()
         }
 
 #if DEBUG
+        if ProcessInfo.processInfo.environment["WECLAW_SETTINGS_QA"] == "1" {
+            model.showsServices = true
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(250))
+                self?.showPopover()
+            }
+        }
         if let path = ProcessInfo.processInfo.environment["WECLAW_READER_QA_FILE"] {
             let url = URL(fileURLWithPath: path)
             let mode = ProcessInfo.processInfo.environment["WECLAW_READER_QA_MODE"] ?? "reader"
@@ -161,6 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        model.stopFolderWatching()
         model.fileBaskets.flushPendingPersistence()
     }
 

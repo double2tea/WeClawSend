@@ -89,6 +89,7 @@ final class AppModel: ObservableObject {
     }
 
     let fileBaskets = FileBasketStore()
+    let folderWatchStore = FolderWatchStore()
 
     @Published var bridgeStatus: ServiceStatus = .checking
     @Published var weChatStatus: ServiceStatus = .checking
@@ -117,6 +118,8 @@ final class AppModel: ObservableObject {
     @Published var sendDefaultDelaySeconds = AppSettings.sendDefaultDelaySeconds
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
     @Published var localAPISendBehavior = AppSettings.localAPISendBehavior
+    @Published var folderWatchEnabled = AppSettings.folderWatchEnabled
+    @Published private(set) var folderWatchStatusText = "已停用"
     @Published var sendResultNotificationsEnabled = AppSettings.sendResultNotificationsEnabled
     @Published var shelfEnabled = AppSettings.shelfEnabled
     @Published var shelfShakeToOpenEnabled = AppSettings.shelfShakeToOpenEnabled
@@ -153,6 +156,7 @@ final class AppModel: ObservableObject {
     var onShelfPreferencesChanged: (() -> Void)?
     var onQuickLookRequested: (() -> Void)?
     var onLocalAPIFileAddedToBasket: ((UUID) -> Void)?
+    var onFolderWatchFileAddedToBasket: ((UUID) -> Void)?
 
     private let runtime: AppRuntime
     private var startupTask: Task<Void, Never>?
@@ -173,6 +177,18 @@ final class AppModel: ObservableObject {
     private let sendResultNotificationIdentifier = "weclaw-send-result"
     private var contextRefreshTransfers: Set<UUID> = []
     private var retriedTransferIDs: Set<UUID> = []
+    private lazy var folderWatchService = FolderWatchService(
+        onFileReady: { [weak self] ruleID, url in
+            Task { @MainActor [weak self] in
+                self?.handleWatchedFile(ruleID: ruleID, url: url)
+            }
+        },
+        onStatus: { [weak self] status in
+            Task { @MainActor [weak self] in
+                self?.handleFolderWatchStatus(status)
+            }
+        }
+    )
 
     init() {
         var shouldPersistLegacyTransfers = false
@@ -204,6 +220,7 @@ final class AppModel: ObservableObject {
         } else {
             bridgeStatus = .offline
         }
+        refreshFolderWatchService()
         startupTask = Task { [weak self, runtime] in
             await runtime.weChat.bootstrapCredentials()
             guard let self else { return }
@@ -546,6 +563,75 @@ final class AppModel: ObservableObject {
         guard behavior != localAPISendBehavior else { return }
         localAPISendBehavior = behavior
         UserDefaults.standard.set(behavior.rawValue, forKey: AppSettings.localAPISendBehaviorKey)
+    }
+
+    func setFolderWatchEnabled(_ enabled: Bool) {
+        guard folderWatchEnabled != enabled else { return }
+        folderWatchEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.folderWatchEnabledKey)
+        refreshFolderWatchService()
+        if enabled {
+            retryWaitingWatchedFilesIfPossible()
+        }
+    }
+
+    func addFolderWatchFolders(_ urls: [URL]) {
+        var addedCount = 0
+        for url in urls.map(\.standardizedFileURL) {
+            guard let values = try? url.resourceValues(forKeys: [
+                .isDirectoryKey,
+                .isSymbolicLinkKey,
+            ]), values.isDirectory == true, values.isSymbolicLink != true else {
+                presentedError = "无法监控该路径：\(url.path)"
+                continue
+            }
+            let rule = FolderWatchRule(
+                folderPath: url.path,
+                action: shelfEnabled ? .basket : .direct,
+                basketID: shelfEnabled ? fileBaskets.recentBasketID : nil
+            )
+            do {
+                try folderWatchStore.addRule(rule)
+                addedCount += 1
+            } catch {
+                presentedError = error.localizedDescription
+            }
+        }
+        guard addedCount > 0 else { return }
+        refreshFolderWatchService()
+        showTransientNotice("已添加 \(addedCount) 个监控文件夹")
+    }
+
+    func updateFolderWatchRule(_ rule: FolderWatchRule) {
+        do {
+            try folderWatchStore.updateRule(rule)
+            refreshFolderWatchService()
+            if rule.enabled, rule.action == .basket {
+                for record in folderWatchStore.records
+                    where record.ruleID == rule.id && record.status == .waiting {
+                    if FileManager.default.fileExists(atPath: record.filePath) {
+                        addWatchedFileToBasket(record: record, rule: rule)
+                    } else {
+                        folderWatchStore.updateRecord(
+                            id: record.id,
+                            status: .failed,
+                            message: "等待期间文件已被移除"
+                        )
+                    }
+                }
+            }
+        } catch {
+            presentedError = error.localizedDescription
+        }
+    }
+
+    func removeFolderWatchRule(id: UUID) {
+        folderWatchStore.removeRule(id: id)
+        refreshFolderWatchService()
+    }
+
+    func stopFolderWatching() {
+        folderWatchService.stop()
     }
 
     func setSendResultNotificationsEnabled(_ enabled: Bool) {
@@ -964,6 +1050,7 @@ final class AppModel: ObservableObject {
         } catch {
             weChatStatus = .offline
         }
+        retryWaitingWatchedFilesIfPossible()
     }
 
     func setWeChatCredentialSource(_ source: WeChatCredentialSource) {
@@ -1431,7 +1518,197 @@ final class AppModel: ObservableObject {
         guard let basket = fileBaskets.basket(id: id) else { return }
         let items = basket.items
         fileBaskets.removeBasket(id: id)
+        for var rule in folderWatchStore.rules where rule.basketID == id {
+            rule.basketID = nil
+            _ = try? folderWatchStore.updateRule(rule)
+        }
+        refreshFolderWatchService()
         items.forEach { cleanupManagedBasketArtifactIfUnreferenced($0.url) }
+    }
+
+    private func refreshFolderWatchService() {
+        guard folderWatchEnabled else {
+            folderWatchStatusText = "已停用"
+            folderWatchService.stop()
+            return
+        }
+        let enabledCount = folderWatchStore.rules.filter(\.enabled).count
+        folderWatchStatusText = enabledCount == 0 ? "尚无启用规则" : "正在启动…"
+        folderWatchService.update(rules: folderWatchStore.rules)
+    }
+
+    private func handleWatchedFile(ruleID: UUID, url: URL) {
+        guard folderWatchEnabled,
+              let rule = folderWatchStore.rule(id: ruleID),
+              rule.enabled else { return }
+        let record = FolderWatchRecord(
+            filePath: url.path,
+            ruleID: ruleID,
+            status: .processing,
+            message: "文件写入已完成"
+        )
+        folderWatchStore.appendRecord(record)
+
+        switch rule.action {
+        case .direct:
+            guard weChatStatus.isOnline else {
+                let waitingCount = folderWatchStore.records.count {
+                    $0.ruleID == ruleID && $0.status == .waiting
+                }
+                guard waitingCount < 20 else {
+                    folderWatchStore.updateRecord(
+                        id: record.id,
+                        status: .failed,
+                        message: "等待发送已达 20 个，请连接微信后再添加文件"
+                    )
+                    return
+                }
+                folderWatchStore.updateRecord(
+                    id: record.id,
+                    status: .waiting,
+                    message: "等待微信连接"
+                )
+                return
+            }
+            deliverWatchedFile(record: record, rule: rule)
+        case .basket:
+            addWatchedFileToBasket(record: record, rule: rule)
+        }
+    }
+
+    private func deliverWatchedFile(record: FolderWatchRecord, rule: FolderWatchRule) {
+        guard rule.action == .direct else { return }
+        folderWatchStore.updateRecord(id: record.id, status: .processing, message: "已加入发送队列")
+        let request = SendRequest(
+            filePath: record.filePath,
+            fileName: AppSettings.outgoingFileName(record.fileName)
+        )
+        Task { [weak self, runtime] in
+            guard let self else { return }
+            do {
+                _ = try await runtime.coordinator.send(request)
+                folderWatchStore.updateRecord(id: record.id, status: .sent, message: "发送完成")
+            } catch {
+                folderWatchStore.updateRecord(
+                    id: record.id,
+                    status: .failed,
+                    message: sendFailureMessage(error)
+                )
+            }
+            await refreshServices()
+        }
+    }
+
+    private func retryWaitingWatchedFilesIfPossible() {
+        guard folderWatchEnabled, weChatStatus.isOnline else { return }
+        let waiting = folderWatchStore.records.filter { $0.status == .waiting }
+        for record in waiting {
+            guard let rule = folderWatchStore.rule(id: record.ruleID),
+                  rule.enabled,
+                  rule.action == .direct else {
+                continue
+            }
+            guard FileManager.default.fileExists(atPath: record.filePath) else {
+                folderWatchStore.updateRecord(
+                    id: record.id,
+                    status: .failed,
+                    message: "等待期间文件已被移除"
+                )
+                continue
+            }
+            deliverWatchedFile(record: record, rule: rule)
+        }
+    }
+
+    private func addWatchedFileToBasket(record: FolderWatchRecord, rule: FolderWatchRule) {
+        guard shelfEnabled else {
+            folderWatchStore.updateRecord(
+                id: record.id,
+                status: .failed,
+                message: "文件篮功能未启用"
+            )
+            return
+        }
+
+        let basket: ShelfModel
+        if let basketID = rule.basketID {
+            guard let selectedBasket = fileBaskets.basket(id: basketID) else {
+                folderWatchStore.updateRecord(
+                    id: record.id,
+                    status: .failed,
+                    message: "目标文件篮已不存在"
+                )
+                return
+            }
+            basket = selectedBasket
+        } else if let recentID = fileBaskets.recentBasketID,
+                  let recentBasket = fileBaskets.basket(id: recentID) {
+            basket = recentBasket
+        } else {
+            basket = fileBaskets.createBasket()
+            _ = basket.rename(to: "\(rule.folderURL.lastPathComponent)监控")
+        }
+
+        if basket.items.contains(where: { $0.path == record.filePath }) {
+            folderWatchStore.updateRecord(
+                id: record.id,
+                status: .ignored,
+                message: "文件已在\(basket.title)中"
+            )
+            return
+        }
+        guard basket.add(urls: [record.fileURL]) == 1 else {
+            folderWatchStore.updateRecord(
+                id: record.id,
+                status: .failed,
+                message: "无法加入\(basket.title)"
+            )
+            return
+        }
+        fileBaskets.markRecent(id: basket.id)
+        folderWatchStore.updateRecord(
+            id: record.id,
+            status: .addedToBasket,
+            message: "已加入\(basket.title)"
+        )
+        onFolderWatchFileAddedToBasket?(basket.id)
+    }
+
+    private func handleFolderWatchStatus(_ status: FolderWatchServiceStatus) {
+        switch status {
+        case .monitoring:
+            let count = folderWatchStore.rules.filter(\.enabled).count
+            folderWatchStatusText = count == 0 ? "尚无启用规则" : "正在监控 \(count) 个文件夹"
+        case .stopped:
+            folderWatchStatusText = "已停用"
+        case let .rootUnavailable(ruleID, path):
+            folderWatchStatusText = "部分路径不可用"
+            folderWatchStore.appendRecord(FolderWatchRecord(
+                filePath: path,
+                ruleID: ruleID,
+                status: .failed,
+                message: "监控文件夹不可用"
+            ))
+        case let .rootAvailable(_, path):
+            folderWatchStatusText = "监控已恢复：\(URL(fileURLWithPath: path).lastPathComponent)"
+        case .eventsLost:
+            folderWatchStatusText = "文件事件过多，请检查监控结果"
+            showTransientNotice(folderWatchStatusText)
+        case let .batchLimitExceeded(ruleID, count):
+            folderWatchStatusText = "单批文件过多"
+            if let rule = folderWatchStore.rule(id: ruleID) {
+                folderWatchStore.appendRecord(FolderWatchRecord(
+                    filePath: rule.folderPath,
+                    ruleID: ruleID,
+                    status: .failed,
+                    message: "单批超过 20 个文件（至少 \(count) 个），超出部分未自动处理"
+                ))
+            }
+            showTransientNotice("监控文件单批超过 20 个，已停止处理超出部分")
+        case .streamCreationFailed:
+            folderWatchStatusText = "监控启动失败"
+            presentedError = "无法启动文件夹监控"
+        }
     }
 
     private func addLocalAPIFileToBasket(_ request: SendRequest) throws -> LocalAPISendOutcome {

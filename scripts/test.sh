@@ -23,6 +23,7 @@ node --test \
 swiftc \
     -framework AppKit \
     -framework Carbon \
+    -framework CoreServices \
     -framework Network \
     -framework Security \
     -framework ServiceManagement \
@@ -33,6 +34,9 @@ swiftc \
     "$ROOT/Sources/WeClawSend/PasteboardURLs.swift" \
     "$ROOT/Sources/WeClawSend/ShelfGlobalShortcut.swift" \
     "$ROOT/Sources/WeClawSend/AppSettings.swift" \
+    "$ROOT/Sources/WeClawSend/FolderWatchModels.swift" \
+    "$ROOT/Sources/WeClawSend/FolderWatchStore.swift" \
+    "$ROOT/Sources/WeClawSend/FolderWatchService.swift" \
     "$ROOT/Sources/WeClawSend/ShelfActivationController.swift" \
     "$ROOT/Sources/WeClawSend/ShelfModel.swift" \
     "$ROOT/Sources/WeClawSend/BasketTextClipStore.swift" \

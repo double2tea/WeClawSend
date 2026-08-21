@@ -8,13 +8,13 @@ struct FolderWatchSettingsView: View {
     @ObservedObject var store: FolderWatchStore
 
     let baskets: [ShelfModel]
+    @Binding var monitoringEnabled: Bool
+    let statusText: String
     let addFolders: () -> Void
     let update: (FolderWatchRule) -> Void
     let remove: (UUID) -> Void
 
     @State private var expandedRules: Set<UUID> = []
-    @AppStorage(AppSettings.folderWatchEnabledKey) private var monitoringEnabled = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             overviewCard
@@ -38,7 +38,7 @@ struct FolderWatchSettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("文件夹监控")
                             .font(.system(size: 12, weight: .semibold))
-                        Text(monitoringEnabled ? "新文件完成后自动处理" : "已暂停所有监控规则")
+                        Text(monitoringEnabled ? statusText : "已暂停所有监控规则")
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                     }
@@ -66,6 +66,10 @@ struct FolderWatchSettingsView: View {
                 }
                 .font(.system(size: 9.5, weight: .medium))
                 .foregroundStyle(.tertiary)
+
+                Text("需保持 WeClaw Send 运行；建议开启登录时自动启动。")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.tertiary)
 
                 HStack(spacing: 8) {
                     Button(action: addFolders) {

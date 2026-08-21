@@ -16,10 +16,15 @@ final class FolderWatchStore: ObservableObject {
         self.defaults = defaults
         self.rules = Self.decode([FolderWatchRule].self, from: defaults.data(forKey: Self.rulesDefaultsKey))
             .map { $0.normalized() }
-        self.records = Array(
+        self.records = Self.trimmedRecords(
             Self.decode([FolderWatchRecord].self, from: defaults.data(forKey: Self.recordsDefaultsKey))
-                .sorted { $0.discoveredAt > $1.discoveredAt }
-                .prefix(Self.maximumRecentRecords)
+                .map { record in
+                    guard record.status == .processing else { return record }
+                    var recovered = record
+                    recovered.status = .failed
+                    recovered.message = "应用上次退出时未确认处理完成"
+                    return recovered
+                }
         )
     }
 
@@ -128,9 +133,7 @@ final class FolderWatchStore: ObservableObject {
     }
 
     private func trimRecords() {
-        if records.count > Self.maximumRecentRecords {
-            records = Array(records.prefix(Self.maximumRecentRecords))
-        }
+        records = Self.trimmedRecords(records)
     }
 
     private func persist() {
@@ -153,6 +156,18 @@ final class FolderWatchStore: ObservableObject {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? decoder.decode(type, from: data)) ?? []
+    }
+
+    private static func trimmedRecords(_ records: [FolderWatchRecord]) -> [FolderWatchRecord] {
+        let sorted = records.sorted { $0.discoveredAt > $1.discoveredAt }
+        let active = sorted.filter { record in
+            record.status == .waiting || record.status == .processing || record.status == .discovered
+        }
+        let terminal = sorted.filter { record in
+            record.status != .waiting && record.status != .processing && record.status != .discovered
+        }
+        return (active + terminal.prefix(maximumRecentRecords))
+            .sorted { $0.discoveredAt > $1.discoveredAt }
     }
 
     private static func rulesOverlap(
