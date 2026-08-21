@@ -39,11 +39,6 @@ private struct ShelfUndoAction: Identifiable {
     let message: String
 }
 
-private struct NewTextClipDraft: Identifiable {
-    let id = UUID()
-    let text: String
-}
-
 struct ShelfView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var model: AppModel
@@ -89,7 +84,7 @@ struct ShelfView: View {
     @State private var marqueeBaseSelection: Set<UUID> = []
     @State private var ignoresMarqueeDrag = false
     @State private var pendingUndo: ShelfUndoAction?
-    @State private var newTextClipDraft: NewTextClipDraft?
+    @State private var pendingNewTextClipItemID: UUID?
     @State private var hoveredReaderAction: String?
 
     private let cornerRadius: CGFloat = 14
@@ -117,6 +112,9 @@ struct ShelfView: View {
                 removeSelectedItems()
             }
             .onDisappear {
+                if discardPendingNewTextClip() {
+                    session.returnToCollection(in: shelf.items)
+                }
                 finalizePendingUndo()
                 pendingUndo = nil
                 undoAvailabilityChanged(false)
@@ -178,13 +176,6 @@ struct ShelfView: View {
             }
             .sheet(isPresented: $showsAppearanceEditor) {
                 FileBasketAppearanceEditor(shelf: shelf)
-            }
-            .sheet(item: $newTextClipDraft) { draft in
-                FileBasketTextEditor(
-                    title: "新建文本便笺",
-                    initialText: draft.text,
-                    save: createTextClip
-                )
             }
     }
 
@@ -384,22 +375,25 @@ struct ShelfView: View {
     }
 
     private func readerNavigationHeader(item: ShelfItem) -> some View {
-        HStack(spacing: 8) {
+        let isNewTextDraft = pendingNewTextClipItemID == item.id
+        return HStack(spacing: 8) {
             readerHeaderButton(
                 "返回文件篮",
                 systemImage: "chevron.left",
                 showsLabel: true,
                 action: returnToCollection
             )
-            readerHeaderButton("上一个", systemImage: "chevron.up") {
-                _ = session.moveFocus(by: -1, in: readerFocusItems)
-            }
-            readerHeaderButton("下一个", systemImage: "chevron.down") {
-                _ = session.moveFocus(by: 1, in: readerFocusItems)
+            if !isNewTextDraft {
+                readerHeaderButton("上一个", systemImage: "chevron.up") {
+                    _ = session.moveFocus(by: -1, in: readerFocusItems)
+                }
+                readerHeaderButton("下一个", systemImage: "chevron.down") {
+                    _ = session.moveFocus(by: 1, in: readerFocusItems)
+                }
             }
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(item.fileName)
+                Text(isNewTextDraft ? "新建文本便笺" : item.fileName)
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -415,18 +409,20 @@ struct ShelfView: View {
 
             Spacer(minLength: 8)
 
-            if item.isTextDocument {
+            if item.isTextDocument, !isNewTextDraft {
                 readerHeaderButton("提醒栏", systemImage: "pin.square") {
                     _ = session.enterReminder(itemID: item.id, in: shelf.items)
                 }
             }
-            readerHeaderButton("在 Finder 中显示", systemImage: "folder") {
-                revealInFinder(item)
+            if !isNewTextDraft {
+                readerHeaderButton("在 Finder 中显示", systemImage: "folder") {
+                    revealInFinder(item)
+                }
             }
             readerHeaderButton("恢复默认大小", systemImage: "arrow.down.right.and.arrow.up.left") {
                 resetPresentationSize()
             }
-            readerHeaderButton("关闭文件篮", systemImage: "xmark", action: close)
+            readerHeaderButton("关闭文件篮", systemImage: "xmark", action: closeReader)
         }
         .padding(.horizontal, 12)
         .frame(height: 50)
@@ -512,6 +508,7 @@ struct ShelfView: View {
                 showsTitle: false,
                 startsEditing: session.requestedTextEditorItemID == item.id,
                 onSave: { saveReaderText($0, item: item) },
+                onCancelEditing: { cancelNewTextClip(item) },
                 onCreateEditableCopy: { createEditableTextCopy($0) },
                 onEditingStarted: {
                     session.consumeTextEditingRequest(for: item.id)
@@ -711,9 +708,7 @@ struct ShelfView: View {
             }
             Button("展开所选项目", action: openSelectedItemInReader)
                 .disabled(session.selectedItem(in: shelf.items) == nil)
-            Button {
-                newTextClipDraft = NewTextClipDraft(text: "")
-            } label: {
+            Button(action: beginCreatingTextClip) {
                 Label("新建文本便笺…", systemImage: "note.text.badge.plus")
             }
             Divider()
@@ -925,20 +920,23 @@ struct ShelfView: View {
         _ = session.requestTextEditing(itemID: item.id, in: shelf.items)
     }
 
-    private func createTextClip(_ text: String) -> Bool {
+    private func beginCreatingTextClip() {
         do {
-            let url = try BasketTextClipStore.create(text: text)
+            let url = try BasketTextClipStore.createDraft()
             guard shelf.add(urls: [url]) == 1, let item = shelf.items.last else {
                 _ = BasketTextClipStore.deleteIfManaged(url)
                 session.flash("无法加入文本便笺")
-                return false
+                return
             }
+            pendingNewTextClipItemID = item.id
             session.select(item.id)
-            session.flash("已加入文本便笺")
-            return true
+            guard session.requestTextEditing(itemID: item.id, in: shelf.items) else {
+                discardPendingNewTextClip()
+                session.flash("无法打开文本编辑器")
+                return
+            }
         } catch {
             session.flash(error.localizedDescription, duration: 3)
-            return false
         }
     }
 
@@ -1321,7 +1319,15 @@ struct ShelfView: View {
     }
 
     private func returnToCollection() {
+        discardPendingNewTextClip()
         session.returnToCollection(in: shelf.items)
+    }
+
+    private func closeReader() {
+        if discardPendingNewTextClip() {
+            session.returnToCollection(in: shelf.items)
+        }
+        close()
     }
 
     private func saveReaderText(_ text: String, item: ShelfItem) -> Bool {
@@ -1330,12 +1336,31 @@ struct ShelfView: View {
             try BasketTextClipStore.update(text: text, at: item.url)
             ShelfItemPresentationCache.invalidateText(for: item.url)
             shelf.itemContentDidChange()
+            if pendingNewTextClipItemID == item.id {
+                pendingNewTextClipItemID = nil
+            }
             session.flash("文本已保存")
             return true
         } catch {
             session.flash(error.localizedDescription, duration: 3)
             return false
         }
+    }
+
+    private func cancelNewTextClip(_ item: ShelfItem) {
+        guard pendingNewTextClipItemID == item.id else { return }
+        discardPendingNewTextClip()
+        session.returnToCollection(in: shelf.items)
+    }
+
+    @discardableResult
+    private func discardPendingNewTextClip() -> Bool {
+        guard let itemID = pendingNewTextClipItemID else { return false }
+        pendingNewTextClipItemID = nil
+        guard let item = shelf.items.first(where: { $0.id == itemID }) else { return true }
+        shelf.remove(id: itemID)
+        _ = BasketTextClipStore.deleteIfManaged(item.url)
+        return true
     }
 
     private func createEditableTextCopy(_ text: String) {
@@ -1613,83 +1638,6 @@ struct ShelfView: View {
             session.flash("不支持此项目或符号链接")
         }
         return false
-    }
-}
-
-private struct FileBasketTextEditor: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let title: String
-    let save: (String) -> Bool
-    @State private var text: String
-
-    init(title: String, initialText: String, save: @escaping (String) -> Bool) {
-        self.title = title
-        self.save = save
-        _text = State(initialValue: initialText)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-
-            HStack(spacing: 6) {
-                Text("快速格式")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                Button("待办") {
-                    text = BasketTextFormatting.makeChecklist(text)
-                }
-                Button("编号") {
-                    text = BasketTextFormatting.makeNumbered(text)
-                }
-                Button("整理") {
-                    text = BasketTextFormatting.sortChecklist(text)
-                }
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.mini)
-            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            TextEditor(text: $text)
-                .font(.system(size: 12.5))
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .frame(width: 360, height: 230)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.primary.opacity(0.035))
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Brand.hairline, lineWidth: 1)
-                }
-
-            HStack {
-                Text("\(text.utf8.count) / \(BasketTextClipStore.maximumTextBytes) bytes")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(isValid ? Color.secondary : Brand.danger)
-                Spacer()
-                Button("取消", role: .cancel) {
-                    dismiss()
-                }
-                Button("保存") {
-                    if save(text) {
-                        dismiss()
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!isValid)
-            }
-        }
-        .padding(20)
-    }
-
-    private var isValid: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && text.utf8.count <= BasketTextClipStore.maximumTextBytes
     }
 }
 

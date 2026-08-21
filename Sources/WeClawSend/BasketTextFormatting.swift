@@ -6,6 +6,7 @@ public enum BasketTextLineKind: Equatable, Sendable {
     case unchecked
     case checked
     case numbered
+    case bulleted
 }
 
 /// One visual line, using the same splitter as `toggleTodo` so reminder
@@ -20,7 +21,7 @@ public struct BasketTextParsedLine: Equatable, Sendable {
         switch kind {
         case .unchecked: false
         case .checked: true
-        case .plain, .numbered: nil
+        case .plain, .numbered, .bulleted: nil
         }
     }
 }
@@ -31,6 +32,17 @@ public struct BasketTextParsedLine: Equatable, Sendable {
 /// the pasteboard, touch the file system, or apply regular expressions.
 public enum BasketTextFormatting {
     public typealias LineKind = BasketTextLineKind
+
+    public enum Action: Equatable, Sendable {
+        case checklist
+        case numbered
+        case sortChecklist
+    }
+
+    public struct SelectionResult: Equatable, Sendable {
+        public let text: String
+        public let selection: NSRange
+    }
 
     /// Returns the format of one line, without its line-ending character.
     public static func parseLine(_ line: String) -> BasketTextLineKind {
@@ -127,6 +139,40 @@ public enum BasketTextFormatting {
         sortChecklist(text)
     }
 
+    /// Applies an action only to complete lines intersecting the selection.
+    /// An insertion point limits the action to its current line.
+    public static func apply(
+        _ action: Action,
+        to text: String,
+        selection: NSRange
+    ) -> SelectionResult {
+        let source = text as NSString
+        let safeSelection = clamped(selection, toLength: source.length)
+        let lineRange = selectedLineRange(in: source, selection: safeSelection)
+        let original = source.substring(with: lineRange)
+        let replacement = switch action {
+        case .checklist: makeChecklist(original)
+        case .numbered: makeNumbered(original)
+        case .sortChecklist: sortChecklist(original)
+        }
+
+        let updated = source.mutableCopy() as! NSMutableString
+        updated.replaceCharacters(in: lineRange, with: replacement)
+        let replacementLength = (replacement as NSString).length
+        let updatedSelection: NSRange
+        if safeSelection.length > 0 {
+            updatedSelection = NSRange(location: lineRange.location, length: replacementLength)
+        } else {
+            let delta = replacementLength - lineRange.length
+            let location = min(
+                max(safeSelection.location + delta, lineRange.location),
+                lineRange.location + replacementLength
+            )
+            updatedSelection = NSRange(location: location, length: 0)
+        }
+        return SelectionResult(text: updated as String, selection: updatedSelection)
+    }
+
     /// Toggles one zero-based line in a checklist. When requested, only the
     /// contiguous checklist block containing that line is stably sorted after
     /// the toggle; surrounding paragraphs and blocks remain in place.
@@ -205,6 +251,9 @@ public enum BasketTextFormatting {
         if let body = numberedBody(in: remainder) {
             return Parts(kind: .numbered, indentation: indentation, body: body)
         }
+        if let body = bulletBody(in: remainder) {
+            return Parts(kind: .bulleted, indentation: indentation, body: body)
+        }
         return Parts(kind: .plain, indentation: indentation, body: remainder)
     }
 
@@ -221,7 +270,6 @@ public enum BasketTextFormatting {
         }
 
         let suffix = remainder.dropFirst(matchedMarker.count)
-        guard suffix.isEmpty || suffix.first?.isWhitespace == true else { return nil }
         return stripMarkerWhitespace(from: String(suffix))
     }
 
@@ -239,6 +287,33 @@ public enum BasketTextFormatting {
             index += 1
         }
         return String(characters[index...])
+    }
+
+    private static func bulletBody(in remainder: String) -> String? {
+        guard let marker = remainder.first, ["•", "-", "*", "+"].contains(marker) else {
+            return nil
+        }
+        let suffix = remainder.dropFirst()
+        guard suffix.first?.isWhitespace == true else { return nil }
+        return stripMarkerWhitespace(from: String(suffix))
+    }
+
+    private static func clamped(_ range: NSRange, toLength length: Int) -> NSRange {
+        guard range.location != NSNotFound else {
+            return NSRange(location: 0, length: 0)
+        }
+        let location = min(max(range.location, 0), length)
+        let availableLength = length - location
+        return NSRange(location: location, length: min(max(range.length, 0), availableLength))
+    }
+
+    private static func selectedLineRange(in source: NSString, selection: NSRange) -> NSRange {
+        guard selection.length > 0 else {
+            return source.lineRange(for: selection)
+        }
+        return source.lineRange(
+            for: NSRange(location: selection.location, length: max(selection.length - 1, 0))
+        )
     }
 
     private static func stripMarkerWhitespace(from suffix: String) -> String {

@@ -776,6 +776,12 @@ let textClipDirectory = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-text-clips-\(UUID())", directoryHint: .isDirectory)
 let textClipStore = BasketTextClipStore(directory: textClipDirectory)
 defer { try? FileManager.default.removeItem(at: textClipDirectory) }
+let textClipDraftURL = try textClipStore.createDraft(now: Date(timeIntervalSince1970: 0))
+precondition(textClipStore.isManaged(textClipDraftURL))
+let textClipDraft = try textClipStore.readText(at: textClipDraftURL)
+precondition(textClipDraft.isEmpty)
+let deletedTextClipDraft = try textClipStore.deleteIfManaged(textClipDraftURL)
+precondition(deletedTextClipDraft)
 let textClipURL = try textClipStore.create(
     text: "第一行提醒\n第二行内容",
     preferredTitle: "提醒/客户:反馈",
@@ -871,6 +877,20 @@ let completedChecklist = BasketTextFormatting.toggleTodo(
 )
 precondition(completedChecklist == "- [ ] 联络客户\n- [x] 准备素材\n说明\n- [ ] 单独项目")
 precondition(BasketTextFormatting.makeNumbered("甲\n\n乙") == "1. 甲\n\n2. 乙")
+precondition(BasketTextFormatting.makeChecklist("• 甲\n- 乙\n* 丙") == "- [ ] 甲\n- [ ] 乙\n- [ ] 丙")
+precondition(BasketTextFormatting.makeNumbered("• 甲\n- [ ] 乙") == "1. 甲\n2. 乙")
+let selectedChecklist = BasketTextFormatting.apply(
+    .checklist,
+    to: "说明\n• 第一项\n• 第二项\n结尾",
+    selection: NSRange(location: 3, length: 11)
+)
+precondition(selectedChecklist.text == "说明\n- [ ] 第一项\n- [ ] 第二项\n结尾")
+let currentLineNumbering = BasketTextFormatting.apply(
+    .numbered,
+    to: "标题\n项目\n结尾",
+    selection: NSRange(location: 4, length: 0)
+)
+precondition(currentLineNumbering.text == "标题\n1. 项目\n结尾")
 
 let trailingNewlineLines = BasketTextFormatting.parsedLines("- [ ] 准备素材\n- [ ] 联络客户\n")
 precondition(trailingNewlineLines.count == 2)
@@ -878,7 +898,8 @@ precondition(trailingNewlineLines[0].isChecked == false)
 precondition(trailingNewlineLines[1].body == "联络客户")
 precondition(BasketTextFormatting.parsedLines("\n").count == 1)
 precondition(BasketTextFormatting.parseLine("  - [ ] 缩进") == .unchecked)
-precondition(BasketTextFormatting.parseLine("- [ ]无空格") == .plain)
+precondition(BasketTextFormatting.parseLine("- [ ]无空格") == .unchecked)
+precondition(BasketTextFormatting.makeChecklist("- [ ]无空格") == "- [ ] 无空格")
 precondition(BasketTextFormatting.parsedLines("  - [x] 完成")[0].isChecked == true)
 precondition(BasketTextFormatting.parsedLines("- [ ] 甲\r\n- [ ] 乙").count == 2)
 precondition(

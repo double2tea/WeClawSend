@@ -88,32 +88,25 @@ struct BasketSearchableTextView: NSViewRepresentable {
                 )
                 matchRanges = Self.matchRanges(in: text, query: query)
                 for range in matchRanges {
-                    attributed.addAttribute(
-                        .backgroundColor,
-                        value: NSColor.systemYellow.withAlphaComponent(0.24),
-                        range: range
-                    )
+                    attributed.addAttributes(Self.matchAttributes, range: range)
                 }
                 if matchRanges.indices.contains(currentMatchIndex) {
-                    attributed.addAttribute(
-                        .backgroundColor,
-                        value: NSColor.systemOrange.withAlphaComponent(0.5),
+                    attributed.addAttributes(
+                        Self.currentMatchAttributes,
                         range: matchRanges[currentMatchIndex]
                     )
                 }
                 textView.textStorage?.setAttributedString(attributed)
             } else if previousMatchIndex != currentMatchIndex {
                 if matchRanges.indices.contains(previousMatchIndex) {
-                    textView.textStorage?.addAttribute(
-                        .backgroundColor,
-                        value: NSColor.systemYellow.withAlphaComponent(0.24),
+                    textView.textStorage?.addAttributes(
+                        Self.matchAttributes,
                         range: matchRanges[previousMatchIndex]
                     )
                 }
                 if matchRanges.indices.contains(currentMatchIndex) {
-                    textView.textStorage?.addAttribute(
-                        .backgroundColor,
-                        value: NSColor.systemOrange.withAlphaComponent(0.5),
+                    textView.textStorage?.addAttributes(
+                        Self.currentMatchAttributes,
                         range: matchRanges[currentMatchIndex]
                     )
                 }
@@ -121,7 +114,6 @@ struct BasketSearchableTextView: NSViewRepresentable {
 
             if matchRanges.indices.contains(currentMatchIndex) {
                 let range = matchRanges[currentMatchIndex]
-                textView.setSelectedRange(range)
                 textView.scrollRangeToVisible(range)
             } else if textChanged {
                 textView.setSelectedRange(NSRange(location: 0, length: 0))
@@ -136,6 +128,16 @@ struct BasketSearchableTextView: NSViewRepresentable {
                 }
             }
         }
+
+        private static let matchAttributes: [NSAttributedString.Key: Any] = [
+            .backgroundColor: NSColor.systemYellow.withAlphaComponent(0.48),
+            .foregroundColor: NSColor.labelColor,
+        ]
+
+        private static let currentMatchAttributes: [NSAttributedString.Key: Any] = [
+            .backgroundColor: NSColor.systemOrange.withAlphaComponent(0.9),
+            .foregroundColor: NSColor.black,
+        ]
 
         private static func matchRanges(in text: String, query: String) -> [NSRange] {
             let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -83,6 +83,10 @@ struct BasketTextClipStore {
         try defaultStore.create(text: text, preferredTitle: preferredTitle, now: now)
     }
 
+    static func createDraft(now: Date = Date()) throws -> URL {
+        try defaultStore.createDraft(now: now)
+    }
+
     static func isManaged(_ url: URL) -> Bool {
         defaultStore.isManaged(url)
     }
@@ -106,7 +110,6 @@ struct BasketTextClipStore {
 
     func create(text: String, preferredTitle: String? = nil, now: Date = Date()) throws -> URL {
         let data = try validatedData(for: text)
-        try ensureStorageDirectory()
 
         let titleSource: String
         if let preferredTitle = preferredTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !preferredTitle.isEmpty {
@@ -116,6 +119,15 @@ struct BasketTextClipStore {
         } else {
             titleSource = fallbackTitle(for: now)
         }
+        return try createFile(data: data, titleSource: titleSource)
+    }
+
+    func createDraft(now: Date = Date()) throws -> URL {
+        try createFile(data: Data(), titleSource: fallbackTitle(for: now))
+    }
+
+    private func createFile(data: Data, titleSource: String) throws -> URL {
+        try ensureStorageDirectory()
         let title = sanitizedTitle(titleSource)
         let resolvedTitle = title.isEmpty ? Self.fallbackTitle : title
         let shortID = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased()

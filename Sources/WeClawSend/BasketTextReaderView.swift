@@ -16,6 +16,7 @@ struct BasketTextReaderView: View {
     let showsTitle: Bool
     let startsEditing: Bool
     let onSave: (String) -> Bool
+    let onCancelEditing: () -> Void
     let onCreateEditableCopy: (String) -> Void
     let onEditingStarted: () -> Void
     let onError: (String) -> Void
@@ -24,6 +25,7 @@ struct BasketTextReaderView: View {
     @FocusState private var isSearchFocused: Bool
     @State private var text = ""
     @State private var draftText = ""
+    @State private var editorSelection = NSRange(location: 0, length: 0)
     @State private var searchQuery = ""
     @State private var searchMatchCount = 0
     @State private var searchMatchIndex = 0
@@ -42,6 +44,7 @@ struct BasketTextReaderView: View {
         showsTitle: Bool = true,
         startsEditing: Bool = false,
         onSave: @escaping (String) -> Bool,
+        onCancelEditing: @escaping () -> Void = {},
         onCreateEditableCopy: @escaping (String) -> Void,
         onEditingStarted: @escaping () -> Void = {},
         onError: @escaping (String) -> Void = { _ in }
@@ -52,6 +55,7 @@ struct BasketTextReaderView: View {
         self.showsTitle = showsTitle
         self.startsEditing = startsEditing
         self.onSave = onSave
+        self.onCancelEditing = onCancelEditing
         self.onCreateEditableCopy = onCreateEditableCopy
         self.onEditingStarted = onEditingStarted
         self.onError = onError
@@ -148,6 +152,10 @@ struct BasketTextReaderView: View {
                             cancelEditing()
                         } else {
                             draftText = text
+                            editorSelection = NSRange(
+                                location: (text as NSString).length,
+                                length: 0
+                            )
                             isEditing = true
                         }
                     } label: {
@@ -220,18 +228,18 @@ struct BasketTextReaderView: View {
 
     private var editorFormattingBar: some View {
         HStack(spacing: 6) {
-            Text("快速格式")
+            Text(editorSelection.length > 0 ? "快速格式 · 所选行" : "快速格式 · 当前行")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 8)
             formattingButton("待办", systemImage: "checklist") {
-                draftText = BasketTextFormatting.makeChecklist(draftText)
+                applyFormatting(.checklist)
             }
             formattingButton("编号", systemImage: "list.number") {
-                draftText = BasketTextFormatting.makeNumbered(draftText)
+                applyFormatting(.numbered)
             }
             formattingButton("整理", systemImage: "arrow.up.arrow.down") {
-                draftText = BasketTextFormatting.sortChecklist(draftText)
+                applyFormatting(.sortChecklist)
             }
         }
         .padding(.horizontal, 14)
@@ -248,7 +256,7 @@ struct BasketTextReaderView: View {
             Label(label, systemImage: systemImage)
         }
         .buttonStyle(BasketTextReaderToolbarButtonStyle())
-        .help(label)
+        .help("\(label)：有选区时处理所选行，无选区时只处理光标所在行")
     }
 
     @ViewBuilder
@@ -265,12 +273,11 @@ struct BasketTextReaderView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else if isEditing {
-            TextEditor(text: $draftText)
-                .font(.system(size: 14, weight: .regular, design: .monospaced))
-                .lineSpacing(3)
-                .scrollContentBackground(.hidden)
-                .padding(16)
-                .background(Color.primary.opacity(0.018))
+            BasketPlainTextEditorView(
+                text: $draftText,
+                selection: $editorSelection
+            )
+            .background(Color.primary.opacity(0.018))
         } else if hasLoaded {
             BasketSearchableTextView(
                 text: text,
@@ -424,11 +431,23 @@ struct BasketTextReaderView: View {
         withReaderAnimation {
             isEditing = false
         }
+        onCancelEditing()
+    }
+
+    private func applyFormatting(_ action: BasketTextFormatting.Action) {
+        let result = BasketTextFormatting.apply(
+            action,
+            to: draftText,
+            selection: editorSelection
+        )
+        draftText = result.text
+        editorSelection = result.selection
     }
 
     private func beginEditingIfRequested() {
         guard startsEditing, isManaged, hasLoaded, !isLoading else { return }
         draftText = text
+        editorSelection = NSRange(location: (text as NSString).length, length: 0)
         isEditing = true
         onEditingStarted()
     }
