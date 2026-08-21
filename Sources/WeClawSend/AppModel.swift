@@ -616,16 +616,28 @@ final class AppModel: ObservableObject {
             if rule.enabled {
                 for record in folderWatchStore.records
                     where record.ruleID == rule.id && record.status == .waiting {
-                    if FileManager.default.fileExists(atPath: record.filePath),
-                       let route = rule.matchingRoute(for: record.fileURL),
-                       route.action == .basket {
-                        addWatchedFileToBasket(record: record, rule: rule, route: route)
-                    } else {
+                    guard FileManager.default.fileExists(atPath: record.filePath) else {
                         folderWatchStore.updateRecord(
                             id: record.id,
                             status: .failed,
                             message: "等待期间文件已被移除"
                         )
+                        continue
+                    }
+                    guard let route = rule.matchingRoute(for: record.fileURL) else {
+                        folderWatchStore.updateRecord(
+                            id: record.id,
+                            status: .failed,
+                            message: "文件不再匹配当前类型分流"
+                        )
+                        continue
+                    }
+                    if route.action == .basket {
+                        addWatchedFileToBasket(record: record, rule: rule, route: route)
+                    } else if weChatStatus.isOnline {
+                        deliverWatchedFile(record: record, route: route)
+                    } else {
+                        startFolderWatchConnectionRetryIfNeeded()
                     }
                 }
             }

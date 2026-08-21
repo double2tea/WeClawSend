@@ -587,6 +587,7 @@ private struct FolderWatchRuleRow: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Brand.controlAccent)
                 .disabled(nextAvailableType == nil)
+                .help(addRouteHelp)
             }
 
             VStack(spacing: 0) {
@@ -634,6 +635,9 @@ private struct FolderWatchRuleRow: View {
     }
 
     private var nextAvailableType: FolderWatchFileType? {
+        if rule.routes.count == 1, rule.routes[0].fileTypeAllowlist.contains(.all) {
+            return .image
+        }
         guard !rule.routes.contains(where: { $0.fileTypeAllowlist.contains(.all) }) else { return nil }
         return FolderWatchFileType.allCases
             .filter { $0 != .all }
@@ -651,11 +655,22 @@ private struct FolderWatchRuleRow: View {
     private func addRoute() {
         guard let type = nextAvailableType else { return }
         mutate { updated in
+            if updated.routes.count == 1,
+               updated.routes[0].fileTypeAllowlist.contains(.all) {
+                updated.routes[0].fileTypeAllowlist = [.video]
+            }
             updated.routes.append(FolderWatchRoute(
                 action: shelfEnabled ? .basket : .direct,
                 fileTypeAllowlist: [type]
             ))
         }
+    }
+
+    private var addRouteHelp: String {
+        if rule.routes.count == 1, rule.routes[0].fileTypeAllowlist.contains(.all) {
+            return "自动拆分为视频和图片两条分流"
+        }
+        return nextAvailableType == nil ? "所有内置类型已配置" : "添加尚未使用的文件类型"
     }
 
     private func updateRoute(_ route: FolderWatchRoute) {
