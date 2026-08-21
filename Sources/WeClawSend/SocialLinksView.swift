@@ -15,7 +15,10 @@ struct DataSafetyHint: View {
                 .font(.system(size: 10, weight: .medium))
             Text("数据安全")
                 .font(.system(size: 11))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
+        .layoutPriority(1)
         .foregroundStyle(isHovered ? Color.secondary : Color.primary.opacity(0.38))
         .padding(.horizontal, 6)
         .padding(.vertical, 4)

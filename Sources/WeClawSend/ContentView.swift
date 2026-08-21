@@ -324,18 +324,11 @@ struct ContentView: View {
     }
 
     private var headerStatusText: String {
-        if model.sendingTransferCount > 0, model.queuedTransferCount > 0 {
-            return "发送 \(model.sendingTransferCount) · 排队 \(model.queuedTransferCount)"
-        }
-        if model.sendingTransferCount > 0 { return "发送中 \(model.sendingTransferCount)" }
-        if model.queuedTransferCount > 0 { return "排队 \(model.queuedTransferCount)" }
         if case .checking = model.weChatStatus { return "连接中" }
         return model.isReady ? "已连接" : "未登录"
     }
 
     private var headerStatusColor: Color {
-        if model.sendingTransferCount > 0 { return Brand.accent }
-        if model.queuedTransferCount > 0 { return Brand.warning }
         if case .checking = model.weChatStatus { return .secondary }
         return model.isReady ? Brand.success : Brand.danger
     }
@@ -387,7 +380,7 @@ struct ContentView: View {
     }
 
     private var dropZoneSymbol: String {
-        if model.hasActiveTransfers { return "arrow.up.circle" }
+        if model.hasActiveTransfers { return "plus.circle" }
         if !model.isReady { return "person.crop.circle" }
         return "square.and.arrow.up"
     }
@@ -414,11 +407,7 @@ struct ContentView: View {
 
     private var dropZoneTitle: String {
         if model.isDropTargeted { return "松开后立即发送" }
-        if model.sendingTransferCount > 0, model.queuedTransferCount > 0 {
-            return "\(model.sendingTransferCount) 个处理中，\(model.queuedTransferCount) 个排队"
-        }
-        if model.sendingTransferCount > 0 { return "正在处理 \(model.sendingTransferCount) 个文件" }
-        if model.queuedTransferCount > 0 { return "\(model.queuedTransferCount) 个文件排队中" }
+        if model.hasActiveTransfers { return "继续添加文件" }
         if case .checking = model.weChatStatus { return "正在连接微信" }
         if !model.isReady, model.sendDefaultBehavior == .immediate {
             return "请先登录微信"
@@ -428,7 +417,7 @@ struct ContentView: View {
 
     private var dropZoneSubtitle: String {
         if model.isDropTargeted { return "拖入不会使用默认延时" }
-        if model.hasActiveTransfers { return "可继续添加文件" }
+        if model.hasActiveTransfers { return "发送进度在下方查看" }
         if case .checking = model.weChatStatus { return "请稍候" }
         switch model.sendDefaultBehavior {
         case .immediate:
@@ -900,27 +889,20 @@ struct ContentView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
             } else {
-                Text(activitySummary)
+                Text("就绪")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: true, vertical: false)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 12)
             HStack(spacing: 6) {
                 DataSafetyHint(isHovered: $isDataSafetyHovered)
                 SocialLinksView(appVersion: model.appVersion)
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 20)
         .frame(height: 36)
-    }
-
-    private var activitySummary: String {
-        if model.sendingTransferCount > 0, model.queuedTransferCount > 0 {
-            return "\(model.sendingTransferCount) 处理中 · \(model.queuedTransferCount) 排队"
-        }
-        if model.sendingTransferCount > 0 { return "\(model.sendingTransferCount) 个处理中" }
-        if model.queuedTransferCount > 0 { return "\(model.queuedTransferCount) 个排队中" }
-        return "就绪"
     }
 }
 

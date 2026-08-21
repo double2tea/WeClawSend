@@ -333,6 +333,9 @@ let shelfSettingKeys: [String] = [
     AppSettings.shelfShakeToOpenEnabledKey,
     AppSettings.shelfShakeSensitivityKey,
     AppSettings.shelfGlobalShortcutEnabledKey,
+    AppSettings.shelfGlobalShortcutKeyCodeKey,
+    AppSettings.shelfGlobalShortcutModifiersKey,
+    AppSettings.shelfGlobalShortcutLabelKey,
     AppSettings.shelfAlwaysOnTopKey,
     AppSettings.shelfKeepItemsOnCloseKey,
     AppSettings.shelfRestoreOnLaunchKey,
@@ -361,6 +364,45 @@ precondition(AppSettings.shelfShakeToOpenEnabled)
 precondition(AppSettings.shelfShakeSensitivity == .medium)
 precondition(AppSettings.shelfShakeSensitivity.title == "中")
 precondition(AppSettings.shelfGlobalShortcutEnabled)
+precondition(AppSettings.shelfGlobalShortcut == .default)
+precondition(ShelfGlobalShortcut.default.displayText == "⌥⌘S")
+precondition(ShelfGlobalShortcut(keyCode: 1, modifiers: 0, keyLabel: "S") == nil)
+let customShelfShortcut = ShelfGlobalShortcut(
+    keyCode: 40,
+    modifiers: ShelfGlobalShortcut.default.modifiers,
+    keyLabel: "K"
+)!
+UserDefaults.standard.set(Int(customShelfShortcut.keyCode), forKey: AppSettings.shelfGlobalShortcutKeyCodeKey)
+UserDefaults.standard.set(Int(customShelfShortcut.modifiers), forKey: AppSettings.shelfGlobalShortcutModifiersKey)
+UserDefaults.standard.set(customShelfShortcut.keyLabel, forKey: AppSettings.shelfGlobalShortcutLabelKey)
+precondition(AppSettings.shelfGlobalShortcut == customShelfShortcut)
+precondition(AppSettings.shelfGlobalShortcut.displayText == "⌥⌘K")
+let customShortcutEvent = NSEvent.keyEvent(
+    with: .keyDown,
+    location: .zero,
+    modifierFlags: [.command, .option],
+    timestamp: 0,
+    windowNumber: 0,
+    context: nil,
+    characters: "k",
+    charactersIgnoringModifiers: "k",
+    isARepeat: false,
+    keyCode: 40
+)!
+precondition(ShelfGlobalShortcut(event: customShortcutEvent) == customShelfShortcut)
+let invalidShortcutEvent = NSEvent.keyEvent(
+    with: .keyDown,
+    location: .zero,
+    modifierFlags: [.shift],
+    timestamp: 0,
+    windowNumber: 0,
+    context: nil,
+    characters: "k",
+    charactersIgnoringModifiers: "k",
+    isARepeat: false,
+    keyCode: 40
+)!
+precondition(ShelfGlobalShortcut(event: invalidShortcutEvent) == nil)
 precondition(AppSettings.shelfAlwaysOnTop)
 precondition(AppSettings.shelfKeepItemsOnClose)
 precondition(!AppSettings.shelfRestoreOnLaunch)

@@ -134,6 +134,9 @@ enum AppSettings {
     static let shelfShakeToOpenEnabledKey = "ShelfShakeToOpenEnabled"
     static let shelfShakeSensitivityKey = "ShelfShakeSensitivity"
     static let shelfGlobalShortcutEnabledKey = "ShelfGlobalShortcutEnabled"
+    static let shelfGlobalShortcutKeyCodeKey = "ShelfGlobalShortcutKeyCode"
+    static let shelfGlobalShortcutModifiersKey = "ShelfGlobalShortcutModifiers"
+    static let shelfGlobalShortcutLabelKey = "ShelfGlobalShortcutLabel"
     static let shelfAlwaysOnTopKey = "ShelfAlwaysOnTop"
     static let shelfKeepItemsOnCloseKey = "ShelfKeepItemsOnClose"
     static let shelfRestoreOnLaunchKey = "ShelfRestoreOnLaunch"
@@ -207,6 +210,21 @@ enum AppSettings {
 
     static var shelfGlobalShortcutEnabled: Bool {
         bool(forKey: shelfGlobalShortcutEnabledKey, default: true)
+    }
+
+    static var shelfGlobalShortcut: ShelfGlobalShortcut {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: shelfGlobalShortcutKeyCodeKey) != nil,
+              defaults.object(forKey: shelfGlobalShortcutModifiersKey) != nil,
+              let shortcut = ShelfGlobalShortcut(
+                  keyCode: UInt32(defaults.integer(forKey: shelfGlobalShortcutKeyCodeKey)),
+                  modifiers: UInt32(defaults.integer(forKey: shelfGlobalShortcutModifiersKey)),
+                  keyLabel: defaults.string(forKey: shelfGlobalShortcutLabelKey)
+              )
+        else {
+            return .default
+        }
+        return shortcut
     }
 
     static var shelfAlwaysOnTop: Bool {

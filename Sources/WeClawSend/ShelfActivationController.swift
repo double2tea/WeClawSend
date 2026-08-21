@@ -5,12 +5,14 @@ import Foundation
 struct ShelfActivationOptions: Equatable, Sendable {
     var isEnabled: Bool
     var shortcutEnabled: Bool
+    var shortcut: ShelfGlobalShortcut
     var shakeEnabled: Bool
     var shakeSensitivity: ShelfShakeSensitivity
 
     static let enabled = ShelfActivationOptions(
         isEnabled: true,
         shortcutEnabled: true,
+        shortcut: .default,
         shakeEnabled: true,
         shakeSensitivity: .medium
     )
@@ -228,9 +230,13 @@ final class ShelfActivationController {
     }
 
     func update(options: ShelfActivationOptions) {
+        let shortcutChanged = options.shortcut != self.options.shortcut
         self.options = options
         shakeSession.sensitivity = options.shakeSensitivity
         guard isRunning else { return }
+        if shortcutChanged {
+            unregisterHotKey()
+        }
         applyOptions()
     }
 
@@ -263,8 +269,8 @@ final class ShelfActivationController {
         let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: 1)
         var registeredHotKey: EventHotKeyRef?
         let status = RegisterEventHotKey(
-            UInt32(kVK_ANSI_S),
-            UInt32(cmdKey | optionKey),
+            options.shortcut.keyCode,
+            options.shortcut.modifiers,
             hotKeyID,
             GetApplicationEventTarget(),
             0,
@@ -275,7 +281,7 @@ final class ShelfActivationController {
                 RemoveEventHandler(hotKeyHandlerRef)
                 self.hotKeyHandlerRef = nil
             }
-            onError?("无法注册全局快捷键 ⌥⌘S（错误 \(status)），可能已被其他 App 占用")
+            onError?("无法注册全局快捷键 \(options.shortcut.displayText)（错误 \(status)），可能已被其他 App 占用")
             return
         }
         hotKeyRef = registeredHotKey

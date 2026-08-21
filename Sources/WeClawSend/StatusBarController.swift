@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         guard let button = statusItem.button else { return }
         button.image = Brand.menuBarImage
-        button.toolTip = "\(Brand.name) · 拖入立即发送 · ⌥⌘S 显示最近文件篮"
+        button.toolTip = "\(Brand.name) · 拖入立即发送 · \(model.shelfGlobalShortcut.displayText) 显示最近文件篮"
 
         let dropView = StatusItemDropView(frame: .zero)
         dropView.translatesAutoresizingMaskIntoConstraints = false
@@ -220,6 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         ShelfActivationOptions(
             isEnabled: model.shelfEnabled,
             shortcutEnabled: model.shelfGlobalShortcutEnabled,
+            shortcut: model.shelfGlobalShortcut,
             shakeEnabled: model.shelfShakeToOpenEnabled,
             shakeSensitivity: model.shelfShakeSensitivity
         )
@@ -248,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     }
 
     private func menuBarTooltip(_ activity: MenuBarActivity) -> String {
-        let base = "\(Brand.name) · 拖入立即发送 · ⌥⌘S 显示最近文件篮"
+        let base = "\(Brand.name) · 拖入立即发送 · \(model.shelfGlobalShortcut.displayText) 显示最近文件篮"
         if activity.isSending, activity.badgeCount > 0 {
             return "发送中 · 队列 \(activity.badgeCount) · \(base)"
         }

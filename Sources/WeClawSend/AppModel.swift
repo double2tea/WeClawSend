@@ -121,6 +121,7 @@ final class AppModel: ObservableObject {
     @Published var shelfShakeToOpenEnabled = AppSettings.shelfShakeToOpenEnabled
     @Published var shelfShakeSensitivity = AppSettings.shelfShakeSensitivity
     @Published var shelfGlobalShortcutEnabled = AppSettings.shelfGlobalShortcutEnabled
+    @Published var shelfGlobalShortcut = AppSettings.shelfGlobalShortcut
     @Published var shelfAlwaysOnTop = AppSettings.shelfAlwaysOnTop
     @Published var shelfKeepItemsOnClose = AppSettings.shelfKeepItemsOnClose
     @Published var shelfRestoreOnLaunch = AppSettings.shelfRestoreOnLaunch
@@ -572,6 +573,16 @@ final class AppModel: ObservableObject {
     func setShelfGlobalShortcutEnabled(_ enabled: Bool) {
         shelfGlobalShortcutEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: AppSettings.shelfGlobalShortcutEnabledKey)
+        onShelfPreferencesChanged?()
+    }
+
+    func setShelfGlobalShortcut(_ shortcut: ShelfGlobalShortcut) {
+        guard shortcut != shelfGlobalShortcut else { return }
+        shelfGlobalShortcut = shortcut
+        let defaults = UserDefaults.standard
+        defaults.set(Int(shortcut.keyCode), forKey: AppSettings.shelfGlobalShortcutKeyCodeKey)
+        defaults.set(Int(shortcut.modifiers), forKey: AppSettings.shelfGlobalShortcutModifiersKey)
+        defaults.set(shortcut.keyLabel, forKey: AppSettings.shelfGlobalShortcutLabelKey)
         onShelfPreferencesChanged?()
     }
 
@@ -1738,7 +1749,7 @@ final class AppModel: ObservableObject {
                     needsVerificationCode = false
                     try await runtime.weChat.waitForLoginBinding(credentials: credentials)
                     loginStep = .connected
-                    loginMessage = "③ 已连接，可以发送文件"
+                    loginMessage = "③ 会话绑定完成"
                     isLoggingIn = false
                     loginTask = nil
                     await refreshServices()

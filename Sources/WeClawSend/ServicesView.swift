@@ -321,7 +321,7 @@ struct ServicesView: View {
                         )
                         loginStepRow(
                             number: 3,
-                            title: "已连接，可以发送文件",
+                            title: "会话绑定完成",
                             step: .connected,
                             current: loginStep
                         )
@@ -642,15 +642,7 @@ struct ServicesView: View {
                 if model.shelfEnabled {
                     shelfSettingsGroupLabel("唤出方式")
 
-                    settingRow(
-                        icon: "command",
-                        title: "全局快捷键",
-                        subtitle: "⌥⌘S 显示或隐藏最近使用的文件篮",
-                        isOn: Binding(
-                            get: { model.shelfGlobalShortcutEnabled },
-                            set: { model.setShelfGlobalShortcutEnabled($0) }
-                        )
-                    )
+                    shelfShortcutSettingRow
 
                     Divider().opacity(0.35).padding(.vertical, 6)
 
@@ -750,6 +742,42 @@ struct ServicesView: View {
                 }
             }
         }
+    }
+
+    private var shelfShortcutSettingRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "command")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.primary.opacity(0.05)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("全局快捷键")
+                    .font(.system(size: 11.5, weight: .medium))
+                Text("显示或隐藏最近使用的文件篮")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 6)
+            ShelfShortcutRecorder(
+                shortcut: model.shelfGlobalShortcut,
+                onChange: model.setShelfGlobalShortcut
+            )
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { model.shelfGlobalShortcutEnabled },
+                    set: { model.setShelfGlobalShortcutEnabled($0) }
+                )
+            )
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .tint(Brand.controlAccent)
+            .accessibilityLabel("启用全局快捷键")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 2)
     }
 
     private func shelfSettingsGroupLabel(_ title: String) -> some View {
@@ -1079,9 +1107,9 @@ struct ServicesView: View {
         if case let .online(account) = model.weChatStatus {
             if let account, !account.isEmpty {
                 let source = model.weChatCredentialSource == .openClaw ? "OpenClaw" : "独立登录"
-                return "\(source) · 已连接，可以发送文件 · \(account)"
+                return "\(source) · 已连接 · \(account)"
             }
-            return "已连接，可以发送文件"
+            return "已连接"
         }
         return "未登录"
     }
