@@ -329,10 +329,17 @@ local function run()
             return
         end
 
-        post_to_weclaw_send(file_path, send_name)
+        local response = post_to_weclaw_send(file_path, send_name)
         complete_claim(lock_path, sent_path)
-        log("WeClaw Send 发送完成")
-        notify("DaVinci 自动发送完成", send_name)
+        local added_to_basket = response:find('"status"%s*:%s*"added_to_basket"')
+            or response:find('"status"%s*:%s*"already_in_basket"')
+        if added_to_basket then
+            log("WeClaw Send 已加入文件篮")
+            notify("DaVinci 已加入文件篮", send_name)
+        else
+            log("WeClaw Send 发送完成")
+            notify("DaVinci 自动发送完成", send_name)
+        end
     end)
 
     if not ok then

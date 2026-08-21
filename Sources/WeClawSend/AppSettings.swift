@@ -57,6 +57,13 @@ enum SendDefaultBehavior: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum LocalAPISendBehavior: String, CaseIterable, Identifiable, Sendable {
+    case direct
+    case fileBasket = "file_basket"
+
+    var id: String { rawValue }
+}
+
 enum ScheduledSendPreset: Int, CaseIterable, Identifiable, Sendable {
     case tenSeconds = 10
     case fifteenSeconds = 15
@@ -117,6 +124,7 @@ enum ScheduledSendDelay {
 enum AppSettings {
     static let autoRenameMP4Key = "AutoRenameMP4ToM4V"
     static let localAPIEnabledKey = "LocalAPIEnabled"
+    static let localAPISendBehaviorKey = "LocalAPISendBehavior"
     static let sendResultNotificationsEnabledKey = "SendResultNotificationsEnabled"
     static let sendSizeLimitMegabytesKey = "SendSizeLimitMegabytes"
     static let sendDefaultBehaviorKey = "SendDefaultBehavior"
@@ -153,6 +161,13 @@ enum AppSettings {
     static var localAPIEnabled: Bool {
         guard UserDefaults.standard.object(forKey: localAPIEnabledKey) != nil else { return false }
         return UserDefaults.standard.bool(forKey: localAPIEnabledKey)
+    }
+
+    static var localAPISendBehavior: LocalAPISendBehavior {
+        guard let stored = UserDefaults.standard.string(forKey: localAPISendBehaviorKey) else {
+            return .direct
+        }
+        return LocalAPISendBehavior(rawValue: stored) ?? .direct
     }
 
     /// Default on: users can turn off system banners for send results.

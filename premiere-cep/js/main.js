@@ -282,14 +282,18 @@
     updateOutputActions();
     renderSendStatus("", operationRevision);
 
-    bridgeClient.sendFile(window.cep_node, filePath).then(function () {
+    bridgeClient.sendFile(window.cep_node, filePath).then(function (result) {
       activeSendCount -= 1;
       removeFailedSend(filePath);
       if (isRetry) {
         retryingSendPath = "";
       }
       updateOutputActions();
-      renderSendStatus(isRetry ? "重新发送完成" : "后台发送完成", operationRevision);
+      var addedToBasket = result && (result.status === "added_to_basket" || result.status === "already_in_basket");
+      renderSendStatus(
+        addedToBasket ? "已加入文件篮" : (isRetry ? "重新发送完成" : "后台发送完成"),
+        operationRevision
+      );
     }).catch(function (error) {
       activeSendCount -= 1;
       if (isRetry) { retryingSendPath = ""; }

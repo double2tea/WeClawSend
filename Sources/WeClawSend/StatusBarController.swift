@@ -131,6 +131,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         model.onShelfPreferencesChanged = { [weak self] in
             self?.applyShelfPreferences()
         }
+        model.onLocalAPIFileAddedToBasket = { [weak self] basketID in
+            guard let self else { return }
+            popover.close()
+            fileBasketCoordinator.showIncomingAPIItem(in: basketID)
+        }
         model.onQuickLookRequested = { [weak self] in
             self?.openQueueQuickLook()
         }

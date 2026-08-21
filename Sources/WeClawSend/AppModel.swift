@@ -116,6 +116,7 @@ final class AppModel: ObservableObject {
     @Published var sendDefaultBehavior = AppSettings.sendDefaultBehavior
     @Published var sendDefaultDelaySeconds = AppSettings.sendDefaultDelaySeconds
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
+    @Published var localAPISendBehavior = AppSettings.localAPISendBehavior
     @Published var sendResultNotificationsEnabled = AppSettings.sendResultNotificationsEnabled
     @Published var shelfEnabled = AppSettings.shelfEnabled
     @Published var shelfShakeToOpenEnabled = AppSettings.shelfShakeToOpenEnabled
@@ -151,6 +152,7 @@ final class AppModel: ObservableObject {
     var onContextRefreshResolved: (() -> Void)?
     var onShelfPreferencesChanged: (() -> Void)?
     var onQuickLookRequested: (() -> Void)?
+    var onLocalAPIFileAddedToBasket: ((UUID) -> Void)?
 
     private let runtime: AppRuntime
     private var startupTask: Task<Void, Never>?
@@ -185,6 +187,13 @@ final class AppModel: ObservableObject {
         }
         let runtime = AppRuntime()
         self.runtime = runtime
+        runtime.server.setSendHandler { [weak self, coordinator = runtime.coordinator] request in
+            if AppSettings.localAPISendBehavior == .direct {
+                return .sent(try await coordinator.send(request))
+            }
+            guard let self else { throw CancellationError() }
+            return try await self.addLocalAPIFileToBasket(request)
+        }
         if shouldPersistLegacyTransfers {
             persistTransfers()
         }
@@ -531,6 +540,12 @@ final class AppModel: ObservableObject {
             bridgeStatus = .offline
             runtime.server.stop()
         }
+    }
+
+    func setLocalAPISendBehavior(_ behavior: LocalAPISendBehavior) {
+        guard behavior != localAPISendBehavior else { return }
+        localAPISendBehavior = behavior
+        UserDefaults.standard.set(behavior.rawValue, forKey: AppSettings.localAPISendBehaviorKey)
     }
 
     func setSendResultNotificationsEnabled(_ enabled: Bool) {
@@ -1417,6 +1432,60 @@ final class AppModel: ObservableObject {
         let items = basket.items
         fileBaskets.removeBasket(id: id)
         items.forEach { cleanupManagedBasketArtifactIfUnreferenced($0.url) }
+    }
+
+    private func addLocalAPIFileToBasket(_ request: SendRequest) throws -> LocalAPISendOutcome {
+        guard shelfEnabled else {
+            throw BackendError.rejected("文件篮功能未启用")
+        }
+        let fileURL = URL(fileURLWithPath: request.filePath).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw BackendError.rejected("文件不存在：\(fileURL.path)")
+        }
+        let values = try fileURL.resourceValues(
+            forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+        )
+        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw BackendError.rejected("不是普通文件：\(fileURL.path)")
+        }
+        let byteCount = Int64(values.fileSize ?? 0)
+        let maxSendBytes = SendCoordinator.maxSendBytes
+        guard byteCount <= maxSendBytes else {
+            throw BackendError.rejected(
+                "文件过大：\(formatBytes(byteCount)) > \(formatBytes(maxSendBytes))"
+            )
+        }
+
+        let basket = fileBaskets.recentBasketID.flatMap { fileBaskets.basket(id: $0) }
+            ?? fileBaskets.createBasket()
+        let alreadyPresent = basket.items.contains { $0.path == fileURL.path }
+        if !alreadyPresent, basket.add(urls: [fileURL]) != 1 {
+            throw BackendError.rejected("无法加入文件篮：\(fileURL.lastPathComponent)")
+        }
+        fileBaskets.markRecent(id: basket.id)
+        onLocalAPIFileAddedToBasket?(basket.id)
+        showTransientNotice(
+            alreadyPresent
+                ? "文件已在\(basket.title)中"
+                : "已通过本地接口加入\(basket.title)"
+        )
+
+        let requestedName: String
+        if let fileName = request.fileName, !fileName.isEmpty {
+            requestedName = fileName
+        } else {
+            requestedName = fileURL.lastPathComponent
+        }
+        return .addedToBasket(
+            LocalAPIBasketResult(
+                status: alreadyPresent ? "already_in_basket" : "added_to_basket",
+                filePath: fileURL.path,
+                fileName: AppSettings.outgoingFileName(requestedName),
+                size: byteCount,
+                basketID: basket.id,
+                basketTitle: basket.title
+            )
+        )
     }
 
     func quit() {

@@ -417,8 +417,12 @@ def main():
         CURRENT_CLAIM = None
         raise
 
-    log("WeClaw Send 发送完成: {}".format(result.get("status", "sent")))
-    notify("DaVinci 自动发送完成", send_name)
+    if result.get("status") in ("added_to_basket", "already_in_basket"):
+        log("WeClaw Send 已加入文件篮")
+        notify("DaVinci 已加入文件篮", send_name)
+    else:
+        log("WeClaw Send 发送完成: {}".format(result.get("status", "sent")))
+        notify("DaVinci 自动发送完成", send_name)
 
 
 if __name__ == "__main__":

@@ -37,8 +37,9 @@ Deliver 后渲染自动发送。渲染结束后通过 WeClaw Send 本地接口�
 安装后：
 
 1. WeClaw Send 开启「本地接口」
-2. **完全退出并重启** DaVinci Resolve
-3. Deliver → 高级设置 → 渲染作业结束时触发脚本 → 优先选 `WeClawSend_Lua`
+2. 可选开启「API 文件先进入文件篮」；开启后渲染结果先进入最近文件篮，由用户确认发送
+3. **完全退出并重启** DaVinci Resolve
+4. Deliver → 高级设置 → 渲染作业结束时触发脚本 → 优先选 `WeClawSend_Lua`
 
 ## 行为
 

@@ -20,6 +20,7 @@ struct HealthResponse: Encodable {
     let lastSendAt: String?
     let scheduledSendCount: Int
     let nextScheduledAt: String?
+    let sendDestination: String
 
     enum CodingKeys: String, CodingKey {
         case ok
@@ -33,6 +34,7 @@ struct HealthResponse: Encodable {
         case lastSendAt = "last_send_at"
         case scheduledSendCount = "scheduled_send_count"
         case nextScheduledAt = "next_scheduled_at"
+        case sendDestination = "send_destination"
     }
 
     init(
@@ -41,7 +43,8 @@ struct HealthResponse: Encodable {
         maxSendBytes: Int64,
         lastSendAt: String?,
         scheduledSendCount: Int = 0,
-        nextScheduledAt: String? = nil
+        nextScheduledAt: String? = nil,
+        sendDestination: String = AppSettings.localAPISendBehavior.rawValue
     ) {
         self.queueDepth = queueDepth
         self.weChatConnected = weChatConnected
@@ -49,6 +52,7 @@ struct HealthResponse: Encodable {
         self.lastSendAt = lastSendAt
         self.scheduledSendCount = scheduledSendCount
         self.nextScheduledAt = nextScheduledAt
+        self.sendDestination = sendDestination
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -72,8 +76,36 @@ struct HealthResponse: Encodable {
         } else {
             try container.encodeNil(forKey: .nextScheduledAt)
         }
+        try container.encode(sendDestination, forKey: .sendDestination)
     }
 }
+
+struct LocalAPIBasketResult: Encodable, Sendable {
+    let ok = true
+    let status: String
+    let filePath: String
+    let fileName: String
+    let size: Int64
+    let basketID: UUID
+    let basketTitle: String
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case status
+        case filePath = "file_path"
+        case fileName = "file_name"
+        case size
+        case basketID = "basket_id"
+        case basketTitle = "basket_title"
+    }
+}
+
+enum LocalAPISendOutcome: Sendable {
+    case sent(SendResult)
+    case addedToBasket(LocalAPIBasketResult)
+}
+
+typealias LocalAPISendHandler = @Sendable (SendRequest) async throws -> LocalAPISendOutcome
 
 final class EmbeddedBridgeServer: @unchecked Sendable {
     nonisolated let states: AsyncStream<EmbeddedServerState>
@@ -82,6 +114,8 @@ final class EmbeddedBridgeServer: @unchecked Sendable {
     private let configuredPort: UInt16
     private let queue = DispatchQueue(label: "com.chacha.WeClawSend.bridge")
     private let stateContinuation: AsyncStream<EmbeddedServerState>.Continuation
+    private let sendHandlerLock = NSLock()
+    private var sendHandler: LocalAPISendHandler?
     private var listener: NWListener?
 
     init(coordinator: SendCoordinator, port: UInt16 = EmbeddedBridgeServer.port) {
@@ -131,7 +165,11 @@ final class EmbeddedBridgeServer: @unchecked Sendable {
                         connection.cancel()
                         return
                     }
-                    HTTPConnectionHandler(connection: connection, coordinator: self.coordinator).start(on: self.queue)
+                    HTTPConnectionHandler(
+                        connection: connection,
+                        coordinator: self.coordinator,
+                        sendHandler: self.currentSendHandler()
+                    ).start(on: self.queue)
                 }
                 listener.start(queue: self.queue)
             } catch {
@@ -148,6 +186,16 @@ final class EmbeddedBridgeServer: @unchecked Sendable {
             listener?.cancel()
             self.stateContinuation.yield(.stopped)
         }
+    }
+
+    func setSendHandler(_ handler: LocalAPISendHandler?) {
+        sendHandlerLock.withLock {
+            sendHandler = handler
+        }
+    }
+
+    private func currentSendHandler() -> LocalAPISendHandler? {
+        sendHandlerLock.withLock { sendHandler }
     }
 
     private static func isLoopback(_ endpoint: NWEndpoint) -> Bool {
@@ -202,12 +250,18 @@ private final class HTTPConnectionHandler: @unchecked Sendable {
 
     private let connection: NWConnection
     private let coordinator: SendCoordinator
+    private let sendHandler: LocalAPISendHandler?
     private var buffer = Data()
     private var requestTask: Task<Void, Never>?
 
-    init(connection: NWConnection, coordinator: SendCoordinator) {
+    init(
+        connection: NWConnection,
+        coordinator: SendCoordinator,
+        sendHandler: LocalAPISendHandler?
+    ) {
         self.connection = connection
         self.coordinator = coordinator
+        self.sendHandler = sendHandler
     }
 
     func start(on queue: DispatchQueue) {
@@ -412,8 +466,18 @@ private final class HTTPConnectionHandler: @unchecked Sendable {
             requestTask = Task { [self] in
                 do {
                     let payload = try JSONDecoder().decode(SendRequest.self, from: request.body)
-                    let result = try await coordinator.send(payload)
-                    sendJSON(status: 200, value: result)
+                    let outcome: LocalAPISendOutcome
+                    if let sendHandler {
+                        outcome = try await sendHandler(payload)
+                    } else {
+                        outcome = .sent(try await coordinator.send(payload))
+                    }
+                    switch outcome {
+                    case let .sent(result):
+                        sendJSON(status: 200, value: result)
+                    case let .addedToBasket(result):
+                        sendJSON(status: 200, value: result)
+                    }
                 } catch {
                     let status = httpStatus(for: error)
                     sendError(status: status, message: error.localizedDescription)
@@ -517,6 +581,9 @@ private func httpStatus(for error: Error) -> Int {
         if message.hasPrefix("文件不存在") { return 404 }
         if message.hasPrefix("不是普通文件") { return 400 }
         if message.hasPrefix("文件过大") { return 413 }
+        if message.hasPrefix("文件篮功能未启用") || message.hasPrefix("无法加入文件篮") {
+            return 409
+        }
     }
     if error is WeChatError { return 503 }
     return 500

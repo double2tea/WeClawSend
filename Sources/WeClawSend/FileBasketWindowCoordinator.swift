@@ -61,6 +61,12 @@ final class FileBasketWindowCoordinator {
         )
     }
 
+    func showIncomingAPIItem(in id: UUID) {
+        guard let basket = model.fileBaskets.basket(id: id) else { return }
+        controller(for: basket).showIncomingAPIItem()
+        model.fileBaskets.markRecent(id: id)
+    }
+
     func showAll() {
         for basket in model.fileBaskets.baskets {
             controller(for: basket).show()

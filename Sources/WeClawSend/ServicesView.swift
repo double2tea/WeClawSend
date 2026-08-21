@@ -613,12 +613,35 @@ struct ServicesView: View {
                     )
                 )
 
+                Divider().opacity(0.35).padding(.vertical, 6)
+
+                settingRow(
+                    icon: "tray.and.arrow.down",
+                    title: "API 文件先进入文件篮",
+                    subtitle: localAPISendBehaviorSubtitle,
+                    isOn: Binding(
+                        get: { model.localAPISendBehavior == .fileBasket },
+                        set: { enabled in
+                            model.setLocalAPISendBehavior(enabled ? .fileBasket : .direct)
+                        }
+                    )
+                )
+                .disabled(!model.shelfEnabled)
+                .opacity(model.shelfEnabled ? 1 : 0.55)
+
                 Text("菜单栏发送不依赖此接口。")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                     .padding(.top, 6)
             }
         }
+    }
+
+    private var localAPISendBehaviorSubtitle: String {
+        guard model.shelfEnabled else { return "需先启用文件篮" }
+        return model.localAPISendBehavior == .fileBasket
+            ? "收到后加入最近文件篮，由你确认发送"
+            : "关闭时收到文件后直接发送（默认）"
     }
 
     private var shelfSettingsSection: some View {

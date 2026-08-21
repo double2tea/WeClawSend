@@ -258,7 +258,8 @@ let dynamicHealthData = try JSONEncoder().encode(
         queueDepth: 0,
         weChatConnected: true,
         maxSendBytes: SendCoordinator.maxSendBytes,
-        lastSendAt: nil
+        lastSendAt: nil,
+        sendDestination: LocalAPISendBehavior.direct.rawValue
     )
 )
 let dynamicHealth = try JSONSerialization.jsonObject(with: dynamicHealthData) as! [String: Any]
@@ -268,6 +269,7 @@ precondition(
 precondition(dynamicHealth["last_send_at"] is NSNull)
 precondition(dynamicHealth["scheduled_send_count"] as? Int == 0)
 precondition(dynamicHealth["next_scheduled_at"] is NSNull)
+precondition(dynamicHealth["send_destination"] as? String == "direct")
 UserDefaults.standard.set(999, forKey: AppSettings.sendSizeLimitMegabytesKey)
 precondition(AppSettings.sendSizeLimit == .megabytes200)
 
@@ -970,11 +972,19 @@ precondition(!FileManager.default.fileExists(atPath: archiveWorkDirectory.path))
 precondition(!FileBasketArchiver.cleanup(firstArchiveFile))
 
 let previousLocalAPISetting = UserDefaults.standard.object(forKey: AppSettings.localAPIEnabledKey)
+let previousLocalAPISendBehavior = UserDefaults.standard.object(
+    forKey: AppSettings.localAPISendBehaviorKey
+)
 defer {
     if let previousLocalAPISetting {
         UserDefaults.standard.set(previousLocalAPISetting, forKey: AppSettings.localAPIEnabledKey)
     } else {
         UserDefaults.standard.removeObject(forKey: AppSettings.localAPIEnabledKey)
+    }
+    if let previousLocalAPISendBehavior {
+        UserDefaults.standard.set(previousLocalAPISendBehavior, forKey: AppSettings.localAPISendBehaviorKey)
+    } else {
+        UserDefaults.standard.removeObject(forKey: AppSettings.localAPISendBehaviorKey)
     }
 }
 UserDefaults.standard.removeObject(forKey: AppSettings.localAPIEnabledKey)
@@ -983,6 +993,13 @@ UserDefaults.standard.set(false, forKey: AppSettings.localAPIEnabledKey)
 precondition(!AppSettings.localAPIEnabled)
 UserDefaults.standard.set(true, forKey: AppSettings.localAPIEnabledKey)
 precondition(AppSettings.localAPIEnabled)
+UserDefaults.standard.removeObject(forKey: AppSettings.localAPISendBehaviorKey)
+precondition(AppSettings.localAPISendBehavior == .direct)
+UserDefaults.standard.set(
+    LocalAPISendBehavior.fileBasket.rawValue,
+    forKey: AppSettings.localAPISendBehaviorKey
+)
+precondition(AppSettings.localAPISendBehavior == .fileBasket)
 
 precondition(LaunchAtLogin.transition(for: .notFound, enabled: true) == .register)
 precondition(LaunchAtLogin.transition(for: .notRegistered, enabled: true) == .register)
@@ -2779,6 +2796,7 @@ defer { try? FileManager.default.removeItem(at: apiDirectory) }
 let apiResult = ResultBox()
 let apiFinished = DispatchSemaphore(value: 0)
 let apiPort = UInt16(30_000 + ProcessInfo.processInfo.processIdentifier % 10_000)
+let apiBasketID = UUID()
 Task {
     let server = EmbeddedBridgeServer(
         coordinator: SendCoordinator(
@@ -2787,6 +2805,18 @@ Task {
         ),
         port: apiPort
     )
+    server.setSendHandler { request in
+        .addedToBasket(
+            LocalAPIBasketResult(
+                status: "added_to_basket",
+                filePath: request.filePath,
+                fileName: request.fileName ?? apiFile.lastPathComponent,
+                size: Int64((try? apiFile.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0),
+                basketID: apiBasketID,
+                basketTitle: "文件篮 1"
+            )
+        )
+    }
     server.start()
     defer { server.stop() }
     do {
@@ -2819,6 +2849,19 @@ Task {
         precondition((deleteResponse as? HTTPURLResponse)?.statusCode == 200)
         let deletedObject = try JSONSerialization.jsonObject(with: deleteData) as! [String: Any]
         precondition(deletedObject["status"] as? String == "cancelled")
+
+        var sendRequest = URLRequest(url: URL(string: "http://127.0.0.1:\(apiPort)/send")!)
+        sendRequest.httpMethod = "POST"
+        sendRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        sendRequest.httpBody = try JSONEncoder().encode(
+            SendRequest(filePath: apiFile.path, fileName: apiFile.lastPathComponent)
+        )
+        let (sendData, sendResponse) = try await session.data(for: sendRequest)
+        precondition((sendResponse as? HTTPURLResponse)?.statusCode == 200)
+        let sendObject = try JSONSerialization.jsonObject(with: sendData) as! [String: Any]
+        precondition(sendObject["ok"] as? Bool == true)
+        precondition(sendObject["status"] as? String == "added_to_basket")
+        precondition(sendObject["basket_id"] as? String == apiBasketID.uuidString)
     } catch {
         apiResult.error = error
     }

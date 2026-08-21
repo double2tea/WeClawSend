@@ -81,10 +81,11 @@ Base URL：`http://127.0.0.1:18790`
 | `last_send_at` | string? | 上次成功发送完成时间（ISO8601） |
 | `scheduled_send_count` | int | 当前待发送或需要注意的计划数 |
 | `next_scheduled_at` | string? | 待发送计划中最早的计划时间（ISO8601） |
+| `send_destination` | string | `/send` 当前去向：`direct` 或 `file_basket` |
 
 ### 3.2 `POST /send`
 
-把本机已有文件发送到当前登录微信账号。
+把本机已有文件交给 WeClaw Send。默认直接发送到当前登录微信账号；用户也可以在设置中开启“API 文件先进入文件篮”。
 
 **请求：**
 
@@ -120,6 +121,22 @@ Content-Type: application/json
 
 `queue_wait_ms` 仅表示请求到达后等待发送槽位的时间；不包含文件加密、CDN 上传和提交微信消息的耗时。
 
+若设置为先进入文件篮，成功仍返回 HTTP `200`，但不会上传微信：
+
+```json
+{
+  "ok": true,
+  "status": "added_to_basket",
+  "file_path": "/absolute/path/to/file.m4v",
+  "file_name": "成片 v05.m4v",
+  "size": 1048576,
+  "basket_id": "A1B2C3D4-0000-0000-0000-000000000000",
+  "basket_title": "文件篮 1"
+}
+```
+
+文件已存在于最近文件篮时，`status` 为 `already_in_basket`。文件篮模式保存真实文件路径；自定义 `file_name` 只用于本次 API 响应，之后从文件篮发送时使用文件的实际名称及 App 的 `.mp4 → .m4v` 设置。
+
 ### 微信会话限制
 
 腾讯公开实现会从 `getupdates` 的用户入站消息取得 `context_token`，并在后续 `sendmessage` 中原样回传。微信没有公开正式有效期和主动发送额度。若返回 `ret=-2`，WeClaw Send 会按需长轮询 `getupdates`，提示用户给 ClawBot 发任意消息，保存新 `context_token` 后自动重试原文件；等待 5 分钟未收到消息会失败，不会常驻消费入站消息。
@@ -136,13 +153,13 @@ Content-Type: application/json
 | 503 | 微信未登录或上游失败 |
 | 500 | 其它内部错误 |
 
-请求会**阻塞到本次发送完成**（含并发槽位排队）。大文件上传可能长达数分钟，请将客户端超时设为 **≥ 300s**。
+直接发送模式下，请求会**阻塞到本次发送完成**（含并发槽位排队），调用方超时应设为 **≥ 300s**。文件篮模式只完成本机入篮，通常会立即返回。
 
 ### 3.3 延时发送计划
 
 延时计划是独立于立即发送队列的本机持久化记录。主界面和文件篮可以创建计划；创建时不要求微信在线。计划进入时间后，应用会把文件交给现有发送队列，实际上传从此时开始。
 
-`POST /send` 始终立即发送；延时功能使用以下接口：
+`POST /send` 按设置直接发送或加入文件篮；延时功能始终使用以下独立接口：
 
 | 方法 | 路径 | 作用 |
 |---|---|---|

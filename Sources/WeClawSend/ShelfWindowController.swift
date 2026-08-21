@@ -176,6 +176,12 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    func showIncomingAPIItem() {
+        session.returnToCollection(in: basket.items)
+        session.select(basket.items.last?.id)
+        show(expanded: true, appearance: .standard)
+    }
+
     func hide() {
         isPresenting = false
         isDismissing = false
