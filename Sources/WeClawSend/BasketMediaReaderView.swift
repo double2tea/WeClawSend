@@ -19,11 +19,7 @@ struct BasketMediaReaderView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            stage
-            waveform
-            controls
-        }
+        mediaContent
         .background(Color(nsColor: .textBackgroundColor))
         .task(id: url) {
             await playback.load(url)
@@ -49,6 +45,19 @@ struct BasketMediaReaderView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("媒体阅读器：\(url.lastPathComponent)")
+    }
+
+    @ViewBuilder
+    private var mediaContent: some View {
+        if playback.isLoading || playback.errorMessage != nil {
+            stage
+        } else {
+            VStack(spacing: 0) {
+                stage
+                waveform
+                controls
+            }
+        }
     }
 
     @ViewBuilder
