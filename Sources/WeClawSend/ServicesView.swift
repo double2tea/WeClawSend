@@ -136,6 +136,7 @@ struct ServicesView: View {
             VStack(alignment: .leading, spacing: 8) {
                 switch page {
                 case .general:
+                    currentReleaseNotesCard
                     weChatSection
                     settingsSection
                 case .baskets:
@@ -853,6 +854,57 @@ struct ServicesView: View {
                 daVinciScriptsIntegrationRow
             }
         }
+    }
+
+    private var currentReleaseNotesCard: some View {
+        compactCard {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Brand.controlAccent)
+                        .frame(width: 24, height: 24)
+                        .background(Brand.controlAccent.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("本版本更新")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("v\(model.appVersion)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Button("完整记录") {
+                        openURL(Brand.githubReleasesURL)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                }
+
+                Divider().opacity(0.35)
+
+                if model.currentReleaseNotes.isEmpty {
+                    Text("本版本更新说明暂不可用，可打开完整记录查看。")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(model.currentReleaseNotes.enumerated()), id: \.offset) { _, note in
+                            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                                Circle()
+                                    .fill(Brand.controlAccent)
+                                    .frame(width: 4, height: 4)
+                                Text(note)
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("v\(model.appVersion) 本版本更新")
     }
 
     private var feedbackSection: some View {

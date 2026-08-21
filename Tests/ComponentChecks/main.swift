@@ -1,6 +1,33 @@
 import AppKit
 import Foundation
 
+let bundledNotesSample = """
+# v2.3.0
+
+- 第一项
+- 第二项
+
+# v2.2.0
+
+- 旧版本
+"""
+precondition(
+    BundledReleaseNotes.notes(in: bundledNotesSample, for: "2.3.0")
+        == ["第一项", "第二项"]
+)
+precondition(BundledReleaseNotes.notes(in: bundledNotesSample, for: "9.9.9").isEmpty)
+let repositoryRoot = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+let releaseNotesMarkdown = try String(
+    contentsOf: repositoryRoot.appendingPathComponent("RELEASE_NOTES.md"),
+    encoding: .utf8
+)
+let currentBundledNotes = BundledReleaseNotes.notes(in: releaseNotesMarkdown, for: "2.3.0")
+precondition(!currentBundledNotes.isEmpty)
+precondition(currentBundledNotes.contains { $0.contains("API 文件先进入文件篮") })
+
 var singleSuccessBatch = SendResultNotificationBatch()
 singleSuccessBatch.recordSuccess(fileName: "a.mp4")
 precondition(singleSuccessBatch.body == "发送完成：a.mp4")
