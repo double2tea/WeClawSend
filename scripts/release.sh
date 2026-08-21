@@ -17,6 +17,7 @@ PREMIERE_PACKAGE="$VERIFY/premiere"
 DAVINCI_PACKAGE="$VERIFY/davinci"
 MOUNT="$VERIFY/mount"
 MOUNTED=false
+MOUNT_DEVICE=""
 
 APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Resources/Info.plist")"
 APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$ROOT/Resources/Info.plist")"
@@ -34,10 +35,25 @@ BUILD_PATTERN='^[0-9]+$'
 [[ -f "$TUTORIAL_LINK" ]]
 grep -q 'https://weclaw-send.pages.dev/#film' "$TUTORIAL_LINK"
 
+detach_mounted_image() {
+    [[ "$MOUNTED" == true ]] || return 0
+    local target="${MOUNT_DEVICE:-$MOUNT}"
+    local attempt
+    for attempt in {1..5}; do
+        if hdiutil detach "$target" >/dev/null 2>&1; then
+            MOUNTED=false
+            MOUNT_DEVICE=""
+            return 0
+        fi
+        sleep 1
+    done
+    hdiutil detach "$target" -force >/dev/null
+    MOUNTED=false
+    MOUNT_DEVICE=""
+}
+
 cleanup() {
-    if [[ "$MOUNTED" == true ]]; then
-        hdiutil detach "$MOUNT" >/dev/null 2>&1 || true
-    fi
+    detach_mounted_image || true
     rm -rf "$VERIFY"
 }
 trap cleanup EXIT
@@ -145,8 +161,10 @@ codesign --verify --deep --strict "$EXTRACTED_APP"
 [[ "$(shasum -a 256 "$BINARY" | awk '{print $1}')" == "$(shasum -a 256 "$EXTRACTED_BINARY" | awk '{print $1}')" ]]
 
 mkdir -p "$MOUNT"
-hdiutil attach "$VERSIONED_DMG" -readonly -nobrowse -mountpoint "$MOUNT" >/dev/null
+ATTACH_OUTPUT="$(hdiutil attach "$VERSIONED_DMG" -readonly -nobrowse -mountpoint "$MOUNT")"
 MOUNTED=true
+MOUNT_DEVICE="$(print -r -- "$ATTACH_OUTPUT" | awk '$1 ~ "^/dev/" { print $1; exit }')"
+[[ "$MOUNT_DEVICE" == /dev/disk* ]]
 [[ -d "$MOUNT/WeClaw Send.app" ]]
 [[ -f "$MOUNT/使用说明.html" ]]
 [[ -f "$MOUNT/视频教程.webloc" ]]
@@ -154,8 +172,7 @@ grep -q 'https://weclaw-send.pages.dev/#film' "$MOUNT/视频教程.webloc"
 [[ "$(readlink "$MOUNT/Applications")" == "/Applications" ]]
 lipo "$MOUNT/WeClaw Send.app/Contents/MacOS/WeClawSend" -verify_arch arm64 x86_64
 codesign --verify --deep --strict "$MOUNT/WeClaw Send.app"
-hdiutil detach "$MOUNT" >/dev/null
-MOUNTED=false
+detach_mounted_image
 
 (
     cd "$DIST"

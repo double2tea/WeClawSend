@@ -50,6 +50,7 @@ final class ShelfSessionState: ObservableObject {
     @Published private(set) var focusedItemID: UUID?
     @Published private(set) var requestedTextEditorItemID: UUID?
     @Published private(set) var statusMessage: String?
+    @Published private(set) var removalRequestGeneration = 0
 
     private var statusClearTask: Task<Void, Never>?
     private var selectionAnchorID: UUID?
@@ -84,6 +85,10 @@ final class ShelfSessionState: ObservableObject {
     func clearStatus() {
         statusClearTask?.cancel()
         statusMessage = nil
+    }
+
+    func requestSelectedItemRemoval() {
+        removalRequestGeneration &+= 1
     }
 
     func select(_ id: UUID?) {

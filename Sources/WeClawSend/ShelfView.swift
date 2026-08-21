@@ -113,6 +113,9 @@ struct ShelfView: View {
                 reduceMotion ? nil : .smooth(duration: 0.2, extraBounce: 0),
                 value: session.statusMessage
             )
+            .onChange(of: session.removalRequestGeneration) { _, _ in
+                removeSelectedItems()
+            }
             .onDisappear {
                 finalizePendingUndo()
                 pendingUndo = nil

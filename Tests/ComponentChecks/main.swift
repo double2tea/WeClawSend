@@ -497,6 +497,9 @@ MainActor.assumeIsolated {
     session.moveSelection(by: 1, in: items)
     precondition(session.selectedItemIDs == [second.id])
     precondition(session.selectedItemID == second.id)
+    let removalGeneration = session.removalRequestGeneration
+    session.requestSelectedItemRemoval()
+    precondition(session.removalRequestGeneration == removalGeneration + 1)
 
     session.setSelection([first.id, third.id], in: items)
     precondition(session.enterReader(itemID: second.id, in: items))

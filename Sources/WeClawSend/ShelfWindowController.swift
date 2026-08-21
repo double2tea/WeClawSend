@@ -511,6 +511,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             presentationTransitionTask?.cancel()
             presentationTransitionTask = nil
             applyPresentationSizeLimits(for: mode, size: targetSize)
+            isResizing = false
             session.completePresentationTransition()
             publishWindowState()
         }
@@ -1092,7 +1093,11 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             handleArrowKey(.up)
             return true
         case 51, 117:
-            removeSelectedItem()
+            guard !session.selectedItemIDs.isEmpty else {
+                session.flash("请先选择一个项目")
+                return true
+            }
+            session.requestSelectedItemRemoval()
             return true
         case 53:
             if let ql = QLPreviewPanel.shared(), ql.isVisible {
@@ -1236,25 +1241,6 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     private func flushPendingManagedRemoval() {
         session.consumePendingRemovalURLs().forEach { url in
             model.cleanupManagedBasketArtifactIfUnreferenced(url)
-        }
-    }
-
-    private func removeSelectedItem() {
-        let selectedItems = session.selectedItems(in: basket.items)
-        guard !selectedItems.isEmpty else {
-            session.flash("请先选择一个项目")
-            return
-        }
-        let items = basket.items
-        let selectedIDs = Set(selectedItems.map(\.id))
-        let index = items.firstIndex(where: { selectedIDs.contains($0.id) }) ?? 0
-        basket.remove(ids: selectedIDs)
-        selectedItems.forEach { model.cleanupManagedBasketArtifactIfUnreferenced($0.url) }
-        let remaining = basket.items
-        if remaining.isEmpty {
-            session.select(nil)
-        } else {
-            session.select(remaining[min(index, remaining.count - 1)].id)
         }
     }
 

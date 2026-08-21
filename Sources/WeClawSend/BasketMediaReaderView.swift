@@ -208,8 +208,10 @@ final class BasketMediaPlayback: ObservableObject {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var rateObserver: NSKeyValueObservation?
+    private var waveformTask: Task<[Float], Never>?
     private var isScrubbing = false
     private var scrubTime: Double = 0
+    private var shouldResumeAfterScrub = false
     private var generation = 0
 
     var progress: Double {
@@ -258,20 +260,28 @@ final class BasketMediaPlayback: ObservableObject {
             return
         }
 
-        let samples = await Self.makeWaveform(url: url)
+        let task = Task.detached(priority: .utility) {
+            await Self.readWaveform(url: url, binCount: 240)
+        }
+        waveformTask = task
+        let samples = await task.value
         guard token == generation else { return }
+        waveformTask = nil
         waveform = samples
         isWaveformLoading = false
     }
 
     func shutdown() {
         generation += 1
+        waveformTask?.cancel()
+        waveformTask = nil
         removeObservers()
         player.pause()
         player.replaceCurrentItem(with: nil)
         isPlaying = false
         currentTime = 0
         isScrubbing = false
+        shouldResumeAfterScrub = false
         isLoading = false
         isWaveformLoading = false
     }
@@ -331,14 +341,18 @@ final class BasketMediaPlayback: ObservableObject {
 
     func setScrubbing(_ editing: Bool) {
         if editing {
+            shouldResumeAfterScrub = isPlaying
             isScrubbing = true
             player.pause()
         } else {
+            let shouldResume = shouldResumeAfterScrub
+            shouldResumeAfterScrub = false
             isScrubbing = false
             seek(to: scrubTime)
-            if isPlaying {
+            if shouldResume {
                 player.play()
                 player.rate = rate
+                isPlaying = true
             }
         }
     }
@@ -356,12 +370,15 @@ final class BasketMediaPlayback: ObservableObject {
     }
 
     private func shutdownPreservingRate() {
+        waveformTask?.cancel()
+        waveformTask = nil
         removeObservers()
         player.pause()
         player.replaceCurrentItem(with: nil)
         isPlaying = false
         currentTime = 0
         isScrubbing = false
+        shouldResumeAfterScrub = false
     }
 
     private func installObservers(for item: AVPlayerItem) {
@@ -389,7 +406,7 @@ final class BasketMediaPlayback: ObservableObject {
         }
         rateObserver = player.observe(\.rate, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, !self.isScrubbing else { return }
                 self.isPlaying = self.player.rate > 0
             }
         }
@@ -408,13 +425,8 @@ final class BasketMediaPlayback: ObservableObject {
         rateObserver = nil
     }
 
-    nonisolated static func makeWaveform(url: URL, binCount: Int = 240) async -> [Float] {
-        await Task.detached(priority: .utility) {
-            await Self.readWaveform(url: url, binCount: binCount)
-        }.value
-    }
-
     nonisolated private static func readWaveform(url: URL, binCount: Int) async -> [Float] {
+        guard !Task.isCancelled else { return [] }
         let asset = AVURLAsset(url: url)
         let tracks: [AVAssetTrack]
         do {
@@ -458,7 +470,9 @@ final class BasketMediaPlayback: ObservableObject {
         var bins = [Float](repeating: 0, count: binCount)
         var sampleIndex = 0
 
-        while reader.status == .reading, let buffer = output.copyNextSampleBuffer() {
+        while !Task.isCancelled,
+              reader.status == .reading,
+              let buffer = output.copyNextSampleBuffer() {
             defer { CMSampleBufferInvalidate(buffer) }
             guard let dataBuffer = CMSampleBufferGetDataBuffer(buffer) else { continue }
             var length = 0
@@ -482,6 +496,10 @@ final class BasketMediaPlayback: ObservableObject {
                     sampleIndex += 1
                 }
             }
+        }
+        if Task.isCancelled {
+            reader.cancelReading()
+            return []
         }
         return bins
     }

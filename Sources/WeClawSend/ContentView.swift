@@ -645,9 +645,11 @@ struct ContentView: View {
 
     private var filteredScheduledSends: [ScheduledSendPlan] {
         switch transferFilter {
+        case .active:
+            model.displayedScheduledSends.filter { $0.status == .scheduled }
         case .failed:
-            []
-        case .active, .all:
+            model.displayedScheduledSends.filter { $0.status == .needsAttention }
+        case .all:
             model.displayedScheduledSends
         }
     }
