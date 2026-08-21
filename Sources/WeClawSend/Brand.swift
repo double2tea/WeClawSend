@@ -8,7 +8,6 @@ enum Brand {
     static let bundleID = "com.chacha.WeClawSend"
     static let websiteURL = URL(string: "https://weclaw-send.pages.dev/")!
     static let githubURL = URL(string: "https://github.com/double2tea/WeClawSend")!
-    static let githubReleasesURL = URL(string: "https://github.com/double2tea/WeClawSend/releases")!
     static let portfolioURL = URL(string: "https://zeezhi.pages.dev/from/weclaw-app")!
     static let supportEmailURL = URL(string: "mailto:double_tea@foxmail.com")!
     static let feedbackURL = URL(string: "https://my.feishu.cn/docx/ZBq3dUnj1o55Q3xfJrpc9hfRnlh")!

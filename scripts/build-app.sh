@@ -40,7 +40,6 @@ if [[ -f "$ROOT/Resources/MenuBarIcon@2x.png" ]]; then
     cp "$ROOT/Resources/MenuBarIcon@2x.png" "$APP/Contents/Resources/MenuBarIcon@2x.png"
 fi
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
-cp "$ROOT/RELEASE_NOTES.md" "$APP/Contents/Resources/RELEASE_NOTES.md"
 if [[ -f "$ROOT/docs/使用说明.md" ]]; then
     cp "$ROOT/docs/使用说明.md" "$APP/Contents/Resources/使用说明.md"
 fi

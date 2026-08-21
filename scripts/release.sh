@@ -67,7 +67,6 @@ BINARY="$APP/Contents/MacOS/WeClawSend"
 lipo "$BINARY" -verify_arch arm64 x86_64
 codesign --verify --deep --strict "$APP"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")" == "14.0" ]]
-[[ -f "$APP/Contents/Resources/RELEASE_NOTES.md" ]]
 
 mkdir -p "$DIST"
 rm -f \
@@ -153,7 +152,6 @@ EXTRACTED_GUIDE="$VERIFY/使用说明.html"
 EXTRACTED_TUTORIAL_LINK="$VERIFY/视频教程.webloc"
 
 [[ -d "$EXTRACTED_APP" && ! -L "$EXTRACTED_APP" ]]
-[[ -f "$EXTRACTED_APP/Contents/Resources/RELEASE_NOTES.md" ]]
 [[ -f "$EXTRACTED_GUIDE" ]]
 [[ -f "$EXTRACTED_TUTORIAL_LINK" ]]
 grep -q '系统设置 → 隐私与安全性' "$EXTRACTED_GUIDE"
@@ -169,7 +167,6 @@ MOUNTED=true
 MOUNT_DEVICE="$(print -r -- "$ATTACH_OUTPUT" | awk '$1 ~ "^/dev/" { print $1; exit }')"
 [[ "$MOUNT_DEVICE" == /dev/disk* ]]
 [[ -d "$MOUNT/WeClaw Send.app" ]]
-[[ -f "$MOUNT/WeClaw Send.app/Contents/Resources/RELEASE_NOTES.md" ]]
 [[ -f "$MOUNT/使用说明.html" ]]
 [[ -f "$MOUNT/视频教程.webloc" ]]
 grep -Fq "$TUTORIAL_URL" "$MOUNT/视频教程.webloc"

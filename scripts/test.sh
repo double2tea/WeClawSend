@@ -31,7 +31,6 @@ swiftc \
     -I "$ROOT/Sources/CCommonCrypto" \
     -Xcc -fmodule-map-file="$ROOT/Sources/CCommonCrypto/module.modulemap" \
     "$ROOT/Sources/WeClawSend/PasteboardURLs.swift" \
-    "$ROOT/Sources/WeClawSend/BundledReleaseNotes.swift" \
     "$ROOT/Sources/WeClawSend/ShelfGlobalShortcut.swift" \
     "$ROOT/Sources/WeClawSend/AppSettings.swift" \
     "$ROOT/Sources/WeClawSend/ShelfActivationController.swift" \

@@ -277,11 +277,6 @@ final class AppModel: ObservableObject {
         currentAppBuildVersion?.description ?? "开发版"
     }
 
-    private(set) lazy var currentReleaseNotes: [String] = {
-        guard let version = currentAppBuildVersion?.version.description else { return [] }
-        return BundledReleaseNotes.notes(for: version)
-    }()
-
     var receivesBetaUpdates: Bool {
         appUpdateChannel == .beta
     }
