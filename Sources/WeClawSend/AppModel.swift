@@ -120,6 +120,7 @@ final class AppModel: ObservableObject {
     @Published var localAPISendBehavior = AppSettings.localAPISendBehavior
     @Published var folderWatchEnabled = AppSettings.folderWatchEnabled
     @Published private(set) var folderWatchStatusText = "已停用"
+    @Published private(set) var unavailableFolderWatchRuleIDs: Set<UUID> = []
     @Published var sendResultNotificationsEnabled = AppSettings.sendResultNotificationsEnabled
     @Published var shelfEnabled = AppSettings.shelfEnabled
     @Published var shelfShakeToOpenEnabled = AppSettings.shelfShakeToOpenEnabled
@@ -177,6 +178,7 @@ final class AppModel: ObservableObject {
     private let sendResultNotificationIdentifier = "weclaw-send-result"
     private var contextRefreshTransfers: Set<UUID> = []
     private var retriedTransferIDs: Set<UUID> = []
+    private var folderWatchConnectionRetryTask: Task<Void, Never>?
     private lazy var folderWatchService = FolderWatchService(
         onFileReady: { [weak self] ruleID, url in
             Task { @MainActor [weak self] in
@@ -221,6 +223,7 @@ final class AppModel: ObservableObject {
             bridgeStatus = .offline
         }
         refreshFolderWatchService()
+        startFolderWatchConnectionRetryIfNeeded()
         startupTask = Task { [weak self, runtime] in
             await runtime.weChat.bootstrapCredentials()
             guard let self else { return }
@@ -572,6 +575,10 @@ final class AppModel: ObservableObject {
         refreshFolderWatchService()
         if enabled {
             retryWaitingWatchedFilesIfPossible()
+            startFolderWatchConnectionRetryIfNeeded()
+        } else {
+            folderWatchConnectionRetryTask?.cancel()
+            folderWatchConnectionRetryTask = nil
         }
     }
 
@@ -606,11 +613,13 @@ final class AppModel: ObservableObject {
         do {
             try folderWatchStore.updateRule(rule)
             refreshFolderWatchService()
-            if rule.enabled, rule.action == .basket {
+            if rule.enabled {
                 for record in folderWatchStore.records
                     where record.ruleID == rule.id && record.status == .waiting {
-                    if FileManager.default.fileExists(atPath: record.filePath) {
-                        addWatchedFileToBasket(record: record, rule: rule)
+                    if FileManager.default.fileExists(atPath: record.filePath),
+                       let route = rule.matchingRoute(for: record.fileURL),
+                       route.action == .basket {
+                        addWatchedFileToBasket(record: record, rule: rule, route: route)
                     } else {
                         folderWatchStore.updateRecord(
                             id: record.id,
@@ -631,6 +640,8 @@ final class AppModel: ObservableObject {
     }
 
     func stopFolderWatching() {
+        folderWatchConnectionRetryTask?.cancel()
+        folderWatchConnectionRetryTask = nil
         folderWatchService.stop()
     }
 
@@ -656,6 +667,7 @@ final class AppModel: ObservableObject {
     func setShelfEnabled(_ enabled: Bool) {
         shelfEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: AppSettings.shelfEnabledKey)
+        refreshFolderWatchService()
         onShelfPreferencesChanged?()
     }
 
@@ -1518,8 +1530,10 @@ final class AppModel: ObservableObject {
         guard let basket = fileBaskets.basket(id: id) else { return }
         let items = basket.items
         fileBaskets.removeBasket(id: id)
-        for var rule in folderWatchStore.rules where rule.basketID == id {
-            rule.basketID = nil
+        for var rule in folderWatchStore.rules where rule.routes.contains(where: { $0.basketID == id }) {
+            for index in rule.routes.indices where rule.routes[index].basketID == id {
+                rule.routes[index].basketID = nil
+            }
             _ = try? folderWatchStore.updateRule(rule)
         }
         refreshFolderWatchService()
@@ -1532,15 +1546,45 @@ final class AppModel: ObservableObject {
             folderWatchService.stop()
             return
         }
-        let enabledCount = folderWatchStore.rules.filter(\.enabled).count
-        folderWatchStatusText = enabledCount == 0 ? "尚无启用规则" : "正在启动…"
-        folderWatchService.update(rules: folderWatchStore.rules)
+        unavailableFolderWatchRuleIDs.formIntersection(Set(folderWatchStore.rules.map(\.id)))
+        let effectiveRules = folderWatchStore.rules.map { rule -> FolderWatchRule in
+            guard !shelfEnabled else { return rule }
+            var pausedRule = rule
+            pausedRule.routes.removeAll { $0.action == .basket }
+            pausedRule.enabled = pausedRule.enabled && !pausedRule.routes.isEmpty
+            return pausedRule
+        }
+        let enabledCount = effectiveRules.filter(\.enabled).count
+        let pausedBasketCount = folderWatchStore.rules.reduce(0) { count, rule in
+            count + rule.routes.count { $0.action == .basket && rule.enabled && !shelfEnabled }
+        }
+        if pausedBasketCount > 0 {
+            folderWatchStatusText = "\(pausedBasketCount) 条文件篮规则已暂停"
+        } else {
+            folderWatchStatusText = enabledCount == 0 ? "尚无启用规则" : "正在启动…"
+        }
+        folderWatchService.update(rules: effectiveRules)
     }
 
     private func handleWatchedFile(ruleID: UUID, url: URL) {
         guard folderWatchEnabled,
               let rule = folderWatchStore.rule(id: ruleID),
-              rule.enabled else { return }
+              rule.enabled,
+              let route = rule.matchingRoute(for: url) else { return }
+        if route.action == .direct {
+            let activeCount = folderWatchStore.records.count {
+                $0.status == .waiting || $0.status == .processing || $0.status == .discovered
+            }
+            guard activeCount < FolderWatchStore.maximumActiveRecords else {
+                folderWatchStore.appendRecord(FolderWatchRecord(
+                    filePath: url.path,
+                    ruleID: ruleID,
+                    status: .failed,
+                    message: "自动发送待处理已达 20 个，请处理后再添加文件"
+                ))
+                return
+            }
+        }
         let record = FolderWatchRecord(
             filePath: url.path,
             ruleID: ruleID,
@@ -1549,7 +1593,7 @@ final class AppModel: ObservableObject {
         )
         folderWatchStore.appendRecord(record)
 
-        switch rule.action {
+        switch route.action {
         case .direct:
             guard weChatStatus.isOnline else {
                 let waitingCount = folderWatchStore.records.count {
@@ -1568,16 +1612,20 @@ final class AppModel: ObservableObject {
                     status: .waiting,
                     message: "等待微信连接"
                 )
+                startFolderWatchConnectionRetryIfNeeded()
                 return
             }
-            deliverWatchedFile(record: record, rule: rule)
+            deliverWatchedFile(record: record, route: route)
         case .basket:
-            addWatchedFileToBasket(record: record, rule: rule)
+            addWatchedFileToBasket(record: record, rule: rule, route: route)
         }
     }
 
-    private func deliverWatchedFile(record: FolderWatchRecord, rule: FolderWatchRule) {
-        guard rule.action == .direct else { return }
+    private func deliverWatchedFile(
+        record: FolderWatchRecord,
+        route: FolderWatchRoute
+    ) {
+        guard route.action == .direct else { return }
         folderWatchStore.updateRecord(id: record.id, status: .processing, message: "已加入发送队列")
         let request = SendRequest(
             filePath: record.filePath,
@@ -1605,7 +1653,8 @@ final class AppModel: ObservableObject {
         for record in waiting {
             guard let rule = folderWatchStore.rule(id: record.ruleID),
                   rule.enabled,
-                  rule.action == .direct else {
+                  let route = rule.matchingRoute(for: record.fileURL),
+                  route.action == .direct else {
                 continue
             }
             guard FileManager.default.fileExists(atPath: record.filePath) else {
@@ -1616,11 +1665,44 @@ final class AppModel: ObservableObject {
                 )
                 continue
             }
-            deliverWatchedFile(record: record, rule: rule)
+            deliverWatchedFile(record: record, route: route)
         }
     }
 
-    private func addWatchedFileToBasket(record: FolderWatchRecord, rule: FolderWatchRule) {
+    private func startFolderWatchConnectionRetryIfNeeded() {
+        guard folderWatchEnabled,
+              folderWatchConnectionRetryTask == nil,
+              folderWatchStore.records.contains(where: { $0.status == .waiting }) else {
+            return
+        }
+        folderWatchConnectionRetryTask = Task { [weak self] in
+            defer {
+                self?.folderWatchConnectionRetryTask = nil
+            }
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(15))
+                } catch {
+                    return
+                }
+                guard let self,
+                      folderWatchEnabled,
+                      folderWatchStore.records.contains(where: { $0.status == .waiting }) else {
+                    return
+                }
+                await refreshServices()
+                if weChatStatus.isOnline {
+                    return
+                }
+            }
+        }
+    }
+
+    private func addWatchedFileToBasket(
+        record: FolderWatchRecord,
+        rule: FolderWatchRule,
+        route: FolderWatchRoute
+    ) {
         guard shelfEnabled else {
             folderWatchStore.updateRecord(
                 id: record.id,
@@ -1631,7 +1713,7 @@ final class AppModel: ObservableObject {
         }
 
         let basket: ShelfModel
-        if let basketID = rule.basketID {
+        if let basketID = route.basketID {
             guard let selectedBasket = fileBaskets.basket(id: basketID) else {
                 folderWatchStore.updateRecord(
                     id: record.id,
@@ -1677,11 +1759,19 @@ final class AppModel: ObservableObject {
     private func handleFolderWatchStatus(_ status: FolderWatchServiceStatus) {
         switch status {
         case .monitoring:
-            let count = folderWatchStore.rules.filter(\.enabled).count
-            folderWatchStatusText = count == 0 ? "尚无启用规则" : "正在监控 \(count) 个文件夹"
+            let pausedBasketCount = folderWatchStore.rules.reduce(0) { count, rule in
+                count + rule.routes.count { $0.action == .basket && rule.enabled && !shelfEnabled }
+            }
+            let count = folderWatchStore.rules.count {
+                $0.enabled && ($0.routes.contains(where: { $0.action == .direct }) || shelfEnabled)
+            }
+            folderWatchStatusText = pausedBasketCount > 0
+                ? "\(pausedBasketCount) 条文件篮规则已暂停"
+                : (count == 0 ? "尚无启用规则" : "正在监控 \(count) 个文件夹")
         case .stopped:
             folderWatchStatusText = "已停用"
         case let .rootUnavailable(ruleID, path):
+            unavailableFolderWatchRuleIDs.insert(ruleID)
             folderWatchStatusText = "部分路径不可用"
             folderWatchStore.appendRecord(FolderWatchRecord(
                 filePath: path,
@@ -1689,7 +1779,8 @@ final class AppModel: ObservableObject {
                 status: .failed,
                 message: "监控文件夹不可用"
             ))
-        case let .rootAvailable(_, path):
+        case let .rootAvailable(ruleID, path):
+            unavailableFolderWatchRuleIDs.remove(ruleID)
             folderWatchStatusText = "监控已恢复：\(URL(fileURLWithPath: path).lastPathComponent)"
         case .eventsLost:
             folderWatchStatusText = "文件事件过多，请检查监控结果"

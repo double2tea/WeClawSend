@@ -10,6 +10,8 @@ struct FolderWatchSettingsView: View {
     let baskets: [ShelfModel]
     @Binding var monitoringEnabled: Bool
     let statusText: String
+    let shelfEnabled: Bool
+    let unavailableRuleIDs: Set<UUID>
     let addFolders: () -> Void
     let update: (FolderWatchRule) -> Void
     let remove: (UUID) -> Void
@@ -62,7 +64,7 @@ struct FolderWatchSettingsView: View {
                 HStack(spacing: 6) {
                     Label("事件驱动", systemImage: "bolt.fill")
                     Text("·")
-                    Text("文件稳定约 3–6 秒后处理")
+                    Text("默认静默 10 秒并检查文件占用")
                 }
                 .font(.system(size: 9.5, weight: .medium))
                 .foregroundStyle(.tertiary)
@@ -127,6 +129,8 @@ struct FolderWatchSettingsView: View {
                     FolderWatchRuleRow(
                         rule: rule,
                         baskets: baskets,
+                        shelfEnabled: shelfEnabled,
+                        isPathUnavailable: unavailableRuleIDs.contains(rule.id),
                         isExpanded: Binding(
                             get: { expandedRules.contains(rule.id) },
                             set: { expanded in
@@ -249,21 +253,234 @@ struct FolderWatchSettingsView: View {
     }
 
     private func recordDetail(_ record: FolderWatchRecord) -> String {
+        let folderName = store.rule(id: record.ruleID)?.folderURL.lastPathComponent ?? "监控目录"
         if let message = record.message, !message.isEmpty {
-            return message
+            return "\(folderName) · \(message)"
         }
-        return record.discoveredAt.formatted(date: .omitted, time: .shortened)
+        return "\(folderName) · \(record.discoveredAt.formatted(date: .omitted, time: .shortened))"
+    }
+}
+
+private struct FolderWatchRouteRow: View {
+    let index: Int
+    let route: FolderWatchRoute
+    let baskets: [ShelfModel]
+    let shelfEnabled: Bool
+    let unavailableTypes: Set<FolderWatchFileType>
+    let canRemove: Bool
+    let update: (FolderWatchRoute) -> Void
+    let remove: () -> Void
+
+    @State private var customExtensions = ""
+    @FocusState private var isCustomFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text("\(index + 1)")
+                    .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 15, height: 15)
+                    .background(Color.primary.opacity(0.05), in: Circle())
+
+                Menu {
+                    ForEach(FolderWatchFileType.allCases) { type in
+                        Button {
+                            var copy = route
+                            copy.fileTypeAllowlist = [type]
+                            if type != .custom { copy.customExtensions = [] }
+                            update(copy)
+                        } label: {
+                            if route.fileTypeAllowlist.contains(type) {
+                                Label(typeTitle(type), systemImage: "checkmark")
+                            } else {
+                                Text(typeTitle(type))
+                            }
+                        }
+                        .disabled(unavailableTypes.contains(type) || (type == .all && !unavailableTypes.isEmpty))
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: typeSystemImage)
+                        Text(typeSummary)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7, weight: .bold))
+                    }
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Brand.controlAccent)
+                    .padding(.horizontal, 6)
+                    .frame(height: 20)
+                    .background(Brand.controlAccent.opacity(0.08), in: Capsule())
+                }
+                .menuStyle(.borderlessButton)
+                .controlSize(.mini)
+                .fixedSize()
+
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.quaternary)
+
+                Menu {
+                    Button {
+                        mutate { $0.action = .direct }
+                    } label: {
+                        Label("直接发送", systemImage: route.action == .direct ? "checkmark" : "paperplane")
+                    }
+                    Divider()
+                    Menu("进入文件篮") {
+                        Button {
+                            mutate {
+                                $0.action = .basket
+                                $0.basketID = nil
+                            }
+                        } label: {
+                            if route.action == .basket, route.basketID == nil {
+                                Label("最近使用", systemImage: "checkmark")
+                            } else {
+                                Text("最近使用")
+                            }
+                        }
+                        ForEach(baskets, id: \.id) { basket in
+                            Button {
+                                mutate {
+                                    $0.action = .basket
+                                    $0.basketID = basket.id
+                                }
+                            } label: {
+                                if route.action == .basket, route.basketID == basket.id {
+                                    Label(basket.title, systemImage: "checkmark")
+                                } else {
+                                    Text(basket.title)
+                                }
+                            }
+                        }
+                    }
+                    .disabled(!shelfEnabled)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: destinationSystemImage)
+                        Text(destinationSummary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7, weight: .bold))
+                    }
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(route.action == .basket && !shelfEnabled ? Brand.warning : Color.secondary)
+                    .padding(.horizontal, 6)
+                    .frame(height: 20)
+                    .background(Color.primary.opacity(0.04), in: Capsule())
+                }
+                .menuStyle(.borderlessButton)
+                .controlSize(.mini)
+                .frame(maxWidth: 118, alignment: .leading)
+
+                Spacer(minLength: 2)
+
+                if canRemove {
+                    Button(role: .destructive, action: remove) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8.5, weight: .semibold))
+                            .frame(width: 17, height: 17)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Brand.danger)
+                    .help("移除此分流")
+                }
+            }
+
+            if route.fileTypeAllowlist.contains(.custom) {
+                TextField("扩展名，例如 psd, exr", text: $customExtensions)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 10))
+                    .focused($isCustomFieldFocused)
+                    .onSubmit(commitCustomExtensions)
+                    .onChange(of: isCustomFieldFocused) { _, focused in
+                        if !focused { commitCustomExtensions() }
+                    }
+                if route.customExtensions.isEmpty {
+                    Text("至少填写一个扩展名")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Brand.danger)
+                }
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .onAppear { customExtensions = route.customExtensions.joined(separator: ", ") }
+        .onChange(of: route.customExtensions) { _, value in
+            if !isCustomFieldFocused { customExtensions = value.joined(separator: ", ") }
+        }
+        .onDisappear(perform: commitCustomExtensions)
+    }
+
+    private var selectedType: FolderWatchFileType {
+        route.fileTypeAllowlist.first ?? .all
+    }
+
+    private var typeSummary: String { typeTitle(selectedType) }
+
+    private var destinationSummary: String {
+        guard route.action == .basket else { return "直接发送" }
+        guard shelfEnabled else { return "文件篮未启用" }
+        guard let basketID = route.basketID else { return "最近使用" }
+        return baskets.first(where: { $0.id == basketID })?.title ?? "目标已删除"
+    }
+
+    private var destinationSystemImage: String {
+        route.action == .direct ? "paperplane" : "tray"
+    }
+
+    private var typeSystemImage: String {
+        switch selectedType {
+        case .all: "doc.on.doc"
+        case .video: "film"
+        case .image: "photo"
+        case .audio: "waveform"
+        case .document: "doc.text"
+        case .archive: "archivebox"
+        case .custom: "tag"
+        }
+    }
+
+    private func typeTitle(_ type: FolderWatchFileType) -> String {
+        switch type {
+        case .all: "全部文件"
+        case .video: "视频"
+        case .image: "图片"
+        case .audio: "音频"
+        case .document: "文档"
+        case .archive: "压缩包"
+        case .custom: "自定义"
+        }
+    }
+
+    private func commitCustomExtensions() {
+        let normalized = FolderWatchRule.normalizeExtensions(
+            customExtensions.split { $0 == "," || $0 == " " || $0 == "\n" || $0 == "\t" }
+                .map(String.init)
+        )
+        guard normalized != route.customExtensions else { return }
+        mutate { $0.customExtensions = normalized }
+        customExtensions = normalized.joined(separator: ", ")
+    }
+
+    private func mutate(_ mutation: (inout FolderWatchRoute) -> Void) {
+        var copy = route
+        mutation(&copy)
+        update(copy.normalized())
     }
 }
 
 private struct FolderWatchRuleRow: View {
     let rule: FolderWatchRule
     let baskets: [ShelfModel]
+    let shelfEnabled: Bool
+    let isPathUnavailable: Bool
     @Binding var isExpanded: Bool
     let update: (FolderWatchRule) -> Void
     let remove: () -> Void
-
-    @State private var customExtensions = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -279,7 +496,7 @@ private struct FolderWatchRuleRow: View {
                         .font(.system(size: 10.5, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text(rule.enabled ? actionTitle(rule.action) : "已暂停")
+                    Text(ruleStatusSubtitle)
                         .font(.system(size: 9))
                     .foregroundStyle(rule.enabled ? .tertiary : .secondary)
                 }
@@ -320,93 +537,79 @@ private struct FolderWatchRuleRow: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .onAppear {
-            customExtensions = rule.customExtensions.joined(separator: ", ")
-        }
-        .onChange(of: rule.id) { _, _ in
-            customExtensions = rule.customExtensions.joined(separator: ", ")
-        }
     }
 
     private var ruleDetails: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("包含子文件夹")
-                    .font(.system(size: 10.5, weight: .medium))
-                Spacer(minLength: 6)
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { rule.includesSubfolders },
-                        set: { include in mutate { $0.includesSubfolders = include } }
-                    )
-                )
+            HStack(spacing: 7) {
+                Label("子文件夹", systemImage: "folder.badge.plus")
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Toggle("", isOn: Binding(
+                    get: { rule.includesSubfolders },
+                    set: { include in mutate { $0.includesSubfolders = include } }
+                ))
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .tint(Brand.controlAccent)
-            }
+                .accessibilityLabel("包含子文件夹")
+                .accessibilityValue(rule.includesSubfolders ? "开启" : "关闭")
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text("处理方式")
+                Spacer(minLength: 6)
+
+                Text("稳定")
                     .font(.system(size: 9.5, weight: .medium))
-                    .foregroundStyle(.tertiary)
-
-                Picker("处理方式", selection: Binding(
-                    get: { rule.action },
-                    set: { action in mutate { $0.action = action } }
+                    .foregroundStyle(.secondary)
+                Picker("稳定等待", selection: Binding(
+                    get: { rule.stabilityDelay },
+                    set: { delay in mutate { $0.stabilityDelay = delay } }
                 )) {
-                    ForEach(FolderWatchAction.allCases) { action in
-                        Text(actionTitle(action)).tag(action)
+                    ForEach(FolderWatchStabilityDelay.allCases) { delay in
+                        Text(delay.title).tag(delay)
                     }
                 }
-                .pickerStyle(.segmented)
                 .labelsHidden()
+                .controlSize(.mini)
+                .frame(width: 78)
+                .help("文件最后一次变化后继续等待，再确认大小与修改时间")
             }
 
-            if rule.action == .basket {
-                HStack(spacing: 8) {
-                    Text("目标文件篮")
-                        .font(.system(size: 10.5, weight: .medium))
-                    Spacer(minLength: 6)
-                    Picker("目标文件篮", selection: Binding(
-                        get: { rule.basketID },
-                        set: { basketID in mutate { $0.basketID = basketID } }
-                    )) {
-                        Text("最近使用").tag(UUID?.none)
-                        ForEach(baskets, id: \.id) { basket in
-                            Text(basket.title).tag(Optional(basket.id))
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 130)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text("仅处理这些类型")
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("文件类型分流")
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(.tertiary)
+                Spacer(minLength: 4)
+                Button(action: addRoute) {
+                    Label("添加分流", systemImage: "plus")
+                        .font(.system(size: 9.5, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Brand.controlAccent)
+                .disabled(nextAvailableType == nil)
+            }
 
-                LazyVGrid(
-                    columns: [GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5)],
-                    spacing: 5
-                ) {
-                    ForEach(FolderWatchFileType.allCases) { type in
-                        typeChip(type)
+            VStack(spacing: 0) {
+                ForEach(Array(rule.routes.enumerated()), id: \.element.id) { index, route in
+                    if index > 0 {
+                        Divider().opacity(0.28).padding(.leading, 22)
                     }
+                    FolderWatchRouteRow(
+                        index: index,
+                        route: route,
+                        baskets: baskets,
+                        shelfEnabled: shelfEnabled,
+                        unavailableTypes: usedTypes(excluding: route.id),
+                        canRemove: rule.routes.count > 1,
+                        update: { updatedRoute in updateRoute(updatedRoute) },
+                        remove: { removeRoute(route.id) }
+                    )
                 }
-
-                if rule.fileTypeAllowlist.contains(.custom) {
-                    TextField("扩展名，例如 mp4, mov, pdf", text: $customExtensions)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 10))
-                        .onSubmit(commitCustomExtensions)
-                        .onChange(of: customExtensions) { _, value in
-                            guard value.last == "," || value.last == " " else { return }
-                            commitCustomExtensions()
-                        }
-                }
+            }
+            .background(Color.primary.opacity(0.018), in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Brand.hairline, lineWidth: 0.7)
             }
 
             HStack(spacing: 8) {
@@ -430,60 +633,43 @@ private struct FolderWatchRuleRow: View {
         .padding(.top, 2)
     }
 
-    private func typeChip(_ type: FolderWatchFileType) -> some View {
-        let isSelected = rule.fileTypeAllowlist.contains(type)
-        return Button {
-            mutate { updated in
-                if type == .all {
-                    updated.fileTypeAllowlist = [.all]
-                } else {
-                    updated.fileTypeAllowlist.remove(.all)
-                    if isSelected {
-                        updated.fileTypeAllowlist.remove(type)
-                    } else {
-                        updated.fileTypeAllowlist.insert(type)
-                    }
-                    if updated.fileTypeAllowlist.isEmpty {
-                        updated.fileTypeAllowlist = [.all]
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 9, weight: .semibold))
-                Text(typeTitle(type))
-                    .font(.system(size: 9.5, weight: .medium))
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(isSelected ? Brand.accent : .secondary)
-            .padding(.horizontal, 8)
-            .frame(height: 25)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(isSelected ? Brand.controlAccent.opacity(0.13) : Color.primary.opacity(0.035))
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(isSelected ? Brand.controlAccent.opacity(0.28) : Brand.hairline, lineWidth: 0.8)
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("文件类型：\(typeTitle(type))")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    private var nextAvailableType: FolderWatchFileType? {
+        guard !rule.routes.contains(where: { $0.fileTypeAllowlist.contains(.all) }) else { return nil }
+        return FolderWatchFileType.allCases
+            .filter { $0 != .all }
+            .first { !usedTypes(excluding: nil).contains($0) }
     }
 
-    private func commitCustomExtensions() {
-        let normalized = customExtensions
-            .split { $0 == "," || $0 == " " || $0 == "\n" || $0 == "\t" }
-            .map { token in
-                let trimmed = token.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                return trimmed.lowercased()
+    private func usedTypes(excluding routeID: UUID?) -> Set<FolderWatchFileType> {
+        rule.routes
+            .filter { $0.id != routeID }
+            .reduce(into: Set<FolderWatchFileType>()) { result, route in
+                result.formUnion(route.fileTypeAllowlist)
             }
-            .filter { !$0.isEmpty }
-        guard normalized != rule.customExtensions else { return }
-        mutate { $0.customExtensions = normalized }
-        customExtensions = normalized.joined(separator: ", ")
+    }
+
+    private func addRoute() {
+        guard let type = nextAvailableType else { return }
+        mutate { updated in
+            updated.routes.append(FolderWatchRoute(
+                action: shelfEnabled ? .basket : .direct,
+                fileTypeAllowlist: [type]
+            ))
+        }
+    }
+
+    private func updateRoute(_ route: FolderWatchRoute) {
+        mutate { updated in
+            guard let index = updated.routes.firstIndex(where: { $0.id == route.id }) else { return }
+            updated.routes[index] = route
+        }
+    }
+
+    private func removeRoute(_ id: UUID) {
+        mutate { updated in
+            guard updated.routes.count > 1 else { return }
+            updated.routes.removeAll { $0.id == id }
+        }
     }
 
     private func actionTitle(_ action: FolderWatchAction) -> String {
@@ -493,16 +679,12 @@ private struct FolderWatchRuleRow: View {
         }
     }
 
-    private func typeTitle(_ type: FolderWatchFileType) -> String {
-        switch type {
-        case .all: "全部文件"
-        case .video: "视频"
-        case .image: "图片"
-        case .audio: "音频"
-        case .document: "文档"
-        case .archive: "压缩包"
-        case .custom: "自定义"
+    private var ruleStatusSubtitle: String {
+        if isPathUnavailable { return "路径不可用" }
+        if rule.enabled, rule.routes.allSatisfy({ $0.action == .basket }), !shelfEnabled {
+            return "文件篮未启用，规则已暂停"
         }
+        return rule.enabled ? "\(rule.routes.count) 条类型分流" : "已暂停"
     }
 
     private func mutate(_ body: (inout FolderWatchRule) -> Void) {

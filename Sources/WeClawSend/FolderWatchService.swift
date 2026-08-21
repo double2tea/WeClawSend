@@ -17,8 +17,8 @@ enum FolderWatchServiceStatus: Sendable, Equatable {
 ///
 /// FSEvents only tells us that a path changed. The service therefore performs a
 /// small, targeted readiness check for each candidate instead of scanning a
-/// watched directory. The first check happens three seconds after the last
-/// event for a path, followed by a one-second size/mtime comparison.
+/// watched directory. The first check uses the rule's quiet period, followed
+/// by a three-second size/mtime comparison.
 final class FolderWatchService: @unchecked Sendable {
     typealias FileReadyHandler = @Sendable (UUID, URL) -> Void
     typealias StatusHandler = @Sendable (FolderWatchServiceStatus) -> Void
@@ -53,6 +53,7 @@ final class FolderWatchService: @unchecked Sendable {
 
     private let fileReady: FileReadyHandler
     private let status: StatusHandler
+    private let stabilityDelayOverride: TimeInterval?
     private let queue = DispatchQueue(label: "com.weclawsend.folder-watch", qos: .utility)
     private let queueKey = DispatchSpecificKey<Void>()
     private var stream: FSEventStreamRef?
@@ -67,10 +68,12 @@ final class FolderWatchService: @unchecked Sendable {
 
     init(
         onFileReady: @escaping FileReadyHandler,
-        onStatus: @escaping StatusHandler = { _ in }
+        onStatus: @escaping StatusHandler = { _ in },
+        stabilityDelayOverride: TimeInterval? = nil
     ) {
         self.fileReady = onFileReady
         self.status = onStatus
+        self.stabilityDelayOverride = stabilityDelayOverride
         queue.setSpecific(key: queueKey, value: ())
     }
 
@@ -216,13 +219,17 @@ final class FolderWatchService: @unchecked Sendable {
         guard isRunning, numberOfEvents > 0, let eventPaths else { return }
         let paths = eventPaths.assumingMemoryBound(to: UnsafePointer<CChar>.self)
         var batchKeys = Set<CandidateKey>()
+        var shouldRefreshRootAvailability = false
 
         for index in 0..<numberOfEvents {
             let flags = eventFlags[index]
             reportEventLossIfNeeded(flags)
-            if flags & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0 {
-                reportRootAvailabilityOnQueue()
-            }
+            let rootStateFlags = FSEventStreamEventFlags(
+                kFSEventStreamEventFlagRootChanged
+                    | kFSEventStreamEventFlagMount
+                    | kFSEventStreamEventFlagUnmount
+            )
+            if flags & rootStateFlags != 0 { shouldRefreshRootAvailability = true }
 
             let isCreatedOrRenamed = flags & (
                 FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated)
@@ -247,9 +254,16 @@ final class FolderWatchService: @unchecked Sendable {
                 }
 
                 guard batchKeys.insert(key).inserted else { continue }
+                if pending[key] != nil {
+                    scheduleCandidate(key: key, url: url)
+                    continue
+                }
                 guard registerBurstCandidate(ruleID: rule.id) else { continue }
                 scheduleCandidate(key: key, url: url)
             }
+        }
+        if shouldRefreshRootAvailability {
+            reportRootAvailabilityOnQueue()
         }
     }
 
@@ -318,13 +332,17 @@ final class FolderWatchService: @unchecked Sendable {
     }
 
     private func scheduleCandidate(key: CandidateKey, url: URL) {
+        guard let rule = rulesByID[key.ruleID] else { return }
         pending[key]?.workItem.cancel()
         let token = UUID()
         let workItem = DispatchWorkItem { [weak self] in
             self?.firstStabilityCheck(key: key, token: token)
         }
         pending[key] = PendingCandidate(url: url, token: token, workItem: workItem)
-        queue.asyncAfter(deadline: .now() + 3.0, execute: workItem)
+        queue.asyncAfter(
+            deadline: .now() + (stabilityDelayOverride ?? TimeInterval(rule.stabilityDelay.rawValue)),
+            execute: workItem
+        )
     }
 
     private func firstStabilityCheck(key: CandidateKey, token: UUID) {
@@ -344,7 +362,7 @@ final class FolderWatchService: @unchecked Sendable {
             token: token,
             workItem: verifyWorkItem
         )
-        queue.asyncAfter(deadline: .now() + 1.0, execute: verifyWorkItem)
+        queue.asyncAfter(deadline: .now() + 3.0, execute: verifyWorkItem)
     }
 
     private func secondStabilityCheck(
@@ -361,6 +379,10 @@ final class FolderWatchService: @unchecked Sendable {
         }
 
         guard latest == initial else {
+            scheduleCandidate(key: key, url: pendingCandidate.url)
+            return
+        }
+        if Self.isOpenByAnotherProcess(pendingCandidate.url) {
             scheduleCandidate(key: key, url: pendingCandidate.url)
             return
         }
@@ -383,6 +405,32 @@ final class FolderWatchService: @unchecked Sendable {
             handledFileOrder.removeFirst(1_000)
         }
         return true
+    }
+
+    static func isOpenByAnotherProcess(_ url: URL) -> Bool {
+        let executable = URL(fileURLWithPath: "/usr/sbin/lsof")
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else { return false }
+        let output = Pipe()
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["-F", "p", "--", url.path]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            let processID = process.processIdentifier
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let openProcessIDs = String(decoding: data, as: UTF8.self)
+                .split(separator: "\n")
+                .compactMap { line -> Int32? in
+                    guard line.first == "p" else { return nil }
+                    return Int32(line.dropFirst())
+                }
+            return openProcessIDs.contains { $0 != processID }
+        } catch {
+            return false
+        }
     }
 
     private func fileSignature(for url: URL) -> FileSignature? {

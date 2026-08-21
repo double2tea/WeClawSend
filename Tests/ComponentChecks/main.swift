@@ -56,6 +56,43 @@ precondition(folderWatchRule.allowsFile(named: "海报.psd"))
 precondition(!folderWatchRule.allowsFile(named: "说明.txt"))
 precondition(!folderWatchRule.allowsFile(named: ".隐藏.mp4"))
 precondition(!folderWatchRule.allowsFile(named: "片段.mp4.crdownload"))
+let videoBasketID = UUID()
+let imageBasketID = UUID()
+let splitFolderWatchRule = FolderWatchRule(
+    folderPath: "/tmp/split-watch",
+    routes: [
+        FolderWatchRoute(
+            action: .basket,
+            basketID: videoBasketID,
+            fileTypeAllowlist: [.video]
+        ),
+        FolderWatchRoute(
+            action: .basket,
+            basketID: imageBasketID,
+            fileTypeAllowlist: [.image]
+        ),
+    ]
+)
+precondition(splitFolderWatchRule.matchingRoute(for: URL(fileURLWithPath: "/tmp/a.mp4"))?.basketID == videoBasketID)
+precondition(splitFolderWatchRule.matchingRoute(for: URL(fileURLWithPath: "/tmp/a.png"))?.basketID == imageBasketID)
+precondition(splitFolderWatchRule.matchingRoute(for: URL(fileURLWithPath: "/tmp/a.pdf")) == nil)
+let folderWatchCanonicalRoot = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-watch-canonical-\(UUID())", directoryHint: .isDirectory)
+let folderWatchCanonicalAlias = FileManager.default.temporaryDirectory
+    .appending(path: "weclaw-watch-alias-\(UUID())", directoryHint: .isDirectory)
+try FileManager.default.createDirectory(at: folderWatchCanonicalRoot, withIntermediateDirectories: true)
+try FileManager.default.createSymbolicLink(
+    at: folderWatchCanonicalAlias,
+    withDestinationURL: folderWatchCanonicalRoot
+)
+defer {
+    try? FileManager.default.removeItem(at: folderWatchCanonicalAlias)
+    try? FileManager.default.removeItem(at: folderWatchCanonicalRoot)
+}
+precondition(
+    FolderWatchRule.normalizePath(folderWatchCanonicalAlias.path)
+        == folderWatchCanonicalRoot.standardizedFileURL.path
+)
 
 try MainActor.assumeIsolated {
     let folderWatchDefaultsName = "weclaw-send-folder-watch-\(UUID())"
@@ -67,6 +104,43 @@ try MainActor.assumeIsolated {
         includesSubfolders: true,
         createdAt: Date(timeIntervalSince1970: 0)
     ))
+    do {
+        _ = try folderWatchStore.addRule(FolderWatchRule(
+            id: recursiveRule.id,
+            folderPath: "/tmp/watch-other",
+            createdAt: Date(timeIntervalSince1970: 0)
+        ))
+        preconditionFailure("duplicate folder watch IDs must fail")
+    } catch let error as FolderWatchStoreError {
+        precondition(error == .duplicateID(recursiveRule.id))
+    }
+    let duplicateRouteID = UUID()
+    do {
+        _ = try folderWatchStore.addRule(FolderWatchRule(
+            folderPath: "/tmp/watch-routes",
+            routes: [
+                FolderWatchRoute(id: duplicateRouteID, fileTypeAllowlist: [.video]),
+                FolderWatchRoute(id: duplicateRouteID, fileTypeAllowlist: [.image]),
+            ],
+            createdAt: Date(timeIntervalSince1970: 0)
+        ))
+        preconditionFailure("duplicate route IDs must fail")
+    } catch let error as FolderWatchStoreError {
+        precondition(error == .duplicateRouteID(duplicateRouteID))
+    }
+    do {
+        _ = try folderWatchStore.addRule(FolderWatchRule(
+            folderPath: "/tmp/watch-overlapping-routes",
+            routes: [
+                FolderWatchRoute(fileTypeAllowlist: [.video]),
+                FolderWatchRoute(fileTypeAllowlist: [.custom], customExtensions: ["mp4"]),
+            ],
+            createdAt: Date(timeIntervalSince1970: 0)
+        ))
+        preconditionFailure("overlapping type routes must fail")
+    } catch let error as FolderWatchStoreError {
+        precondition(error == .overlappingRoutes)
+    }
     precondition(
         folderWatchStore.pathCheck(
             folderPath: "/tmp/watch-root/subfolder",
@@ -96,6 +170,17 @@ try MainActor.assumeIsolated {
     let restoredFolderWatchStore = FolderWatchStore(defaults: folderWatchDefaults)
     precondition(restoredFolderWatchStore.rules == folderWatchStore.rules)
     precondition(restoredFolderWatchStore.records == folderWatchStore.records)
+    let interruptedRecord = FolderWatchRecord(
+        discoveredAt: Date(timeIntervalSince1970: 30),
+        filePath: "/tmp/watch-root/interrupted.mp4",
+        ruleID: watchRecordRuleID,
+        status: .processing
+    )
+    folderWatchStore.appendRecord(interruptedRecord)
+    let recoveredFolderWatchStore = FolderWatchStore(defaults: folderWatchDefaults)
+    precondition(recoveredFolderWatchStore.records.first { $0.id == interruptedRecord.id }?.status == .failed)
+    let persistedRecoveryStore = FolderWatchStore(defaults: folderWatchDefaults)
+    precondition(persistedRecoveryStore.records.first { $0.id == interruptedRecord.id }?.status == .failed)
     folderWatchDefaults.removePersistentDomain(forName: folderWatchDefaultsName)
 }
 
@@ -112,10 +197,13 @@ let folderWatchIntegrationRule = FolderWatchRule(
     includesSubfolders: false,
     fileTypeAllowlist: [.video]
 )
-let folderWatchService = FolderWatchService { _, url in
-    folderWatchCapture.append(url)
-    folderWatchReady.signal()
-}
+let folderWatchService = FolderWatchService(
+    onFileReady: { _, url in
+        folderWatchCapture.append(url)
+        folderWatchReady.signal()
+    },
+    stabilityDelayOverride: 3
+)
 folderWatchService.start(rules: [folderWatchIntegrationRule])
 let rootVideoURL = folderWatchIntegrationRoot.appending(path: "accepted.mp4")
 let childVideoURL = folderWatchIntegrationChild.appending(path: "ignored.mp4")
@@ -140,9 +228,25 @@ renameProcess.arguments = [rootVideoURL.path, renamedVideoURL.path]
 try renameProcess.run()
 renameProcess.waitUntilExit()
 precondition(renameProcess.terminationStatus == 0)
-Thread.sleep(forTimeInterval: 6)
+Thread.sleep(forTimeInterval: 9)
 folderWatchService.stop()
 precondition(folderWatchCapture.snapshot() == [rootVideoURL.standardizedFileURL.path])
+
+let openFileProbeURL = folderWatchIntegrationRoot.appending(path: "open-probe.mp4")
+let openFileWriter = Process()
+openFileWriter.executableURL = URL(fileURLWithPath: "/bin/sh")
+openFileWriter.arguments = [
+    "-c",
+    "exec 3>\"$1\"; printf a >&3; sleep 3; exec 3>&-",
+    "sh",
+    openFileProbeURL.path,
+]
+try openFileWriter.run()
+Thread.sleep(forTimeInterval: 0.5)
+precondition(FolderWatchService.isOpenByAnotherProcess(openFileProbeURL))
+openFileWriter.waitUntilExit()
+precondition(openFileWriter.terminationStatus == 0)
+precondition(!FolderWatchService.isOpenByAnotherProcess(openFileProbeURL))
 
 let folderWatchBurstRoot = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-folder-watch-burst-\(UUID())", directoryHint: .isDirectory)
@@ -156,7 +260,8 @@ let folderWatchBurstCapture = FolderWatchTestCapture()
 let folderWatchStatusCapture = FolderWatchStatusCapture()
 let folderWatchBurstService = FolderWatchService(
     onFileReady: { _, url in folderWatchBurstCapture.append(url) },
-    onStatus: { status in folderWatchStatusCapture.append(status) }
+    onStatus: { status in folderWatchStatusCapture.append(status) },
+    stabilityDelayOverride: 3
 )
 folderWatchBurstService.start(rules: [folderWatchBurstRule])
 let burstWriter = Process()
@@ -170,7 +275,7 @@ burstWriter.arguments = [
 try burstWriter.run()
 burstWriter.waitUntilExit()
 precondition(burstWriter.terminationStatus == 0)
-Thread.sleep(forTimeInterval: 6)
+Thread.sleep(forTimeInterval: 9)
 folderWatchBurstService.stop()
 precondition(folderWatchBurstCapture.snapshot().count == 20)
 precondition(folderWatchStatusCapture.containsBatchLimit(ruleID: folderWatchBurstRule.id))

@@ -6,6 +6,7 @@ final class FolderWatchStore: ObservableObject {
     static let rulesDefaultsKey = "FolderWatchRules"
     static let recordsDefaultsKey = "FolderWatchRecords"
     static let maximumRecentRecords = 20
+    static let maximumActiveRecords = 20
 
     @Published private(set) var rules: [FolderWatchRule]
     @Published private(set) var records: [FolderWatchRecord]
@@ -14,11 +15,19 @@ final class FolderWatchStore: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.rules = Self.decode([FolderWatchRule].self, from: defaults.data(forKey: Self.rulesDefaultsKey))
-            .map { $0.normalized() }
+        var seenRuleIDs = Set<UUID>()
+        let decodedRules = Self.decode(
+            [FolderWatchRule].self,
+            from: defaults.data(forKey: Self.rulesDefaultsKey)
+        ).map { $0.normalized() }
+        self.rules = decodedRules.filter { seenRuleIDs.insert($0.id).inserted }
+        let decodedRecords = Self.decode(
+            [FolderWatchRecord].self,
+            from: defaults.data(forKey: Self.recordsDefaultsKey)
+        )
+        let didRecoverProcessingRecord = decodedRecords.contains { $0.status == .processing }
         self.records = Self.trimmedRecords(
-            Self.decode([FolderWatchRecord].self, from: defaults.data(forKey: Self.recordsDefaultsKey))
-                .map { record in
+            decodedRecords.map { record in
                     guard record.status == .processing else { return record }
                     var recovered = record
                     recovered.status = .failed
@@ -26,6 +35,10 @@ final class FolderWatchStore: ObservableObject {
                     return recovered
                 }
         )
+        if rules.count != decodedRules.count || didRecoverProcessingRecord
+            || defaults.data(forKey: Self.rulesDefaultsKey) != nil {
+            persist()
+        }
     }
 
     func rule(id: UUID) -> FolderWatchRule? {
@@ -37,15 +50,16 @@ final class FolderWatchStore: ObservableObject {
         includesSubfolders: Bool,
         excluding ruleID: UUID? = nil
     ) -> FolderWatchPathCheck {
-        let normalizedPath = FolderWatchRule.normalizePath(folderPath)
+        let normalizedPath = Self.comparisonPath(FolderWatchRule.normalizePath(folderPath))
         guard !normalizedPath.isEmpty else { return .invalidPath }
 
         for existing in rules where existing.id != ruleID {
-            if existing.folderPath == normalizedPath {
+            let existingPath = Self.comparisonPath(existing.folderPath)
+            if existingPath == normalizedPath {
                 return .duplicate(existingRuleID: existing.id)
             }
             if Self.rulesOverlap(
-                existingPath: existing.folderPath,
+                existingPath: existingPath,
                 existingIncludesSubfolders: existing.includesSubfolders,
                 candidatePath: normalizedPath,
                 candidateIncludesSubfolders: includesSubfolders
@@ -59,6 +73,9 @@ final class FolderWatchStore: ObservableObject {
     @discardableResult
     func addRule(_ rule: FolderWatchRule) throws -> FolderWatchRule {
         let normalized = rule.normalized()
+        guard self.rule(id: normalized.id) == nil else {
+            throw FolderWatchStoreError.duplicateID(normalized.id)
+        }
         try validate(normalized)
         rules.append(normalized)
         persist()
@@ -116,6 +133,19 @@ final class FolderWatchStore: ObservableObject {
 
     private func validate(_ rule: FolderWatchRule) throws {
         guard !rule.folderPath.isEmpty else { throw FolderWatchStoreError.invalidPath }
+        var routeIDs = Set<UUID>()
+        for route in rule.routes {
+            guard routeIDs.insert(route.id).inserted else {
+                throw FolderWatchStoreError.duplicateRouteID(route.id)
+            }
+        }
+        for firstIndex in rule.routes.indices {
+            for secondIndex in rule.routes.indices where secondIndex > firstIndex {
+                if Self.routesOverlap(rule.routes[firstIndex], rule.routes[secondIndex]) {
+                    throw FolderWatchStoreError.overlappingRoutes
+                }
+            }
+        }
         switch pathCheck(
             folderPath: rule.folderPath,
             includesSubfolders: rule.includesSubfolders,
@@ -166,8 +196,37 @@ final class FolderWatchStore: ObservableObject {
         let terminal = sorted.filter { record in
             record.status != .waiting && record.status != .processing && record.status != .discovered
         }
-        return (active + terminal.prefix(maximumRecentRecords))
+        return (active.prefix(maximumActiveRecords) + terminal.prefix(maximumRecentRecords))
             .sorted { $0.discoveredAt > $1.discoveredAt }
+    }
+
+    private static func comparisonPath(_ path: String) -> String {
+        let url = URL(fileURLWithPath: path)
+        let supportsCaseSensitiveNames = try? url.resourceValues(
+            forKeys: [.volumeSupportsCaseSensitiveNamesKey]
+        ).volumeSupportsCaseSensitiveNames
+        return supportsCaseSensitiveNames == false ? path.lowercased() : path
+    }
+
+    private static func routesOverlap(_ lhs: FolderWatchRoute, _ rhs: FolderWatchRoute) -> Bool {
+        guard let lhsExtensions = routedExtensions(lhs),
+              let rhsExtensions = routedExtensions(rhs) else {
+            return true
+        }
+        return !lhsExtensions.isDisjoint(with: rhsExtensions)
+    }
+
+    private static func routedExtensions(_ route: FolderWatchRoute) -> Set<String>? {
+        if route.fileTypeAllowlist.contains(.all) { return nil }
+        var extensions = route.fileTypeAllowlist
+            .filter { $0 != .all && $0 != .custom }
+            .reduce(into: Set<String>()) { result, type in
+                result.formUnion(type.extensions)
+            }
+        if route.fileTypeAllowlist.contains(.custom) {
+            extensions.formUnion(route.customExtensions)
+        }
+        return extensions
     }
 
     private static func rulesOverlap(

@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     private var popoverKeyMonitor: Any?
     private let queueQuickLook = QueueQuickLookBridge()
     private var shakeBasketID: UUID?
+    private var lastFolderWatchBasketReveal: (id: UUID, date: Date)?
     private var statusDropView: StatusItemDropView?
     private var statusItemCancellables = Set<AnyCancellable>()
 
@@ -138,6 +139,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         }
         model.onFolderWatchFileAddedToBasket = { [weak self] basketID in
             guard let self else { return }
+            let now = Date()
+            if let previous = lastFolderWatchBasketReveal,
+               previous.id == basketID,
+               now.timeIntervalSince(previous.date) < 2 {
+                return
+            }
+            lastFolderWatchBasketReveal = (basketID, now)
             popover.close()
             fileBasketCoordinator.showIncomingAPIItem(in: basketID)
         }

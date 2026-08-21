@@ -5,6 +5,7 @@ import SwiftUI
 private enum ServicesPage: String, CaseIterable, Identifiable {
     case general
     case baskets
+    case monitoring
     case integrations
 
     var id: String { rawValue }
@@ -13,6 +14,7 @@ private enum ServicesPage: String, CaseIterable, Identifiable {
         switch self {
         case .general: "常用"
         case .baskets: "文件篮"
+        case .monitoring: "监控"
         case .integrations: "集成"
         }
     }
@@ -21,6 +23,7 @@ private enum ServicesPage: String, CaseIterable, Identifiable {
         switch self {
         case .general: "slider.horizontal.3"
         case .baskets: "rectangle.stack"
+        case .monitoring: "folder.badge.gearshape"
         case .integrations: "puzzlepiece.extension"
         }
     }
@@ -149,8 +152,9 @@ struct ServicesView: View {
                     settingsSection
                 case .baskets:
                     shelfSettingsSection
-                case .integrations:
+                case .monitoring:
                     folderWatchSettingsSection
+                case .integrations:
                     localAPISection
                     updatesAndIntegrationsSection
                     feedbackSection
@@ -656,6 +660,8 @@ struct ServicesView: View {
                 set: { model.setFolderWatchEnabled($0) }
             ),
             statusText: model.folderWatchStatusText,
+            shelfEnabled: model.shelfEnabled,
+            unavailableRuleIDs: model.unavailableFolderWatchRuleIDs,
             addFolders: chooseFolderWatchFolders,
             update: model.updateFolderWatchRule,
             remove: model.removeFolderWatchRule
