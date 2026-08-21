@@ -445,6 +445,16 @@ precondition(!shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 5.6, contains
 precondition(!shakeSession.observe(point: CGPoint(x: 60, y: 0), at: 5.7, containsFiles: true))
 precondition(shakeSession.endDrag())
 
+var fileDragPasteboardSession = FileDragPasteboardSession()
+precondition(!fileDragPasteboardSession.containsCurrentFiles(changeCount: 10, containsFiles: true))
+fileDragPasteboardSession.begin(changeCount: 10)
+precondition(!fileDragPasteboardSession.containsCurrentFiles(changeCount: 10, containsFiles: true))
+precondition(!fileDragPasteboardSession.containsCurrentFiles(changeCount: 11, containsFiles: false))
+precondition(fileDragPasteboardSession.containsCurrentFiles(changeCount: 11, containsFiles: true))
+precondition(fileDragPasteboardSession.containsCurrentFiles(changeCount: 11, containsFiles: false))
+fileDragPasteboardSession.reset()
+precondition(!fileDragPasteboardSession.containsCurrentFiles(changeCount: 11, containsFiles: true))
+
 precondition(FileBasketCloseAction.resolve(isEmpty: true, keepItemsOnClose: true) == .delete)
 precondition(FileBasketCloseAction.resolve(isEmpty: true, keepItemsOnClose: false) == .delete)
 precondition(FileBasketCloseAction.resolve(isEmpty: false, keepItemsOnClose: false) == .delete)

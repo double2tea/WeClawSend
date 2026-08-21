@@ -1198,41 +1198,52 @@ struct ShelfView: View {
                 selectionShareButton(.mail)
                 selectionShareButton(.messages)
             } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.secondary)
-                    .frame(width: 28, height: 28)
-                    .background(Color.primary.opacity(0.05), in: Circle())
-                    .contentShape(Circle())
+                selectionFooterIcon("square.and.arrow.up")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
+            .frame(width: 28, height: 28)
             .fixedSize()
             .help("分享所选项目")
             .accessibilityLabel("分享所选项目")
 
-            Button("复制") {
+            Button {
                 copyFiles(session.selectedItems(in: shelf.items))
+            } label: {
+                selectionFooterIcon("doc.on.doc")
             }
             .buttonStyle(.plain)
-            .font(.system(size: 10.5, weight: .medium))
+            .help("复制所选项目")
+            .accessibilityLabel("复制所选项目")
 
-            Button("移除", role: .destructive, action: removeSelectedItems)
-                .buttonStyle(.plain)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(Brand.danger)
+            Button(role: .destructive, action: removeSelectedItems) {
+                selectionFooterIcon("trash", color: Brand.danger)
+            }
+            .buttonStyle(.plain)
+            .help("移除所选项目")
+            .accessibilityLabel("移除所选项目")
 
             Button {
                 session.select(nil)
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .frame(width: 24, height: 24)
+                selectionFooterIcon("xmark")
             }
             .buttonStyle(.plain)
             .help("取消选择")
             .accessibilityLabel("取消多选")
         }
+    }
+
+    private func selectionFooterIcon(
+        _ systemImage: String,
+        color: Color = .secondary
+    ) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(color)
+            .frame(width: 28, height: 28)
+            .background(Color.primary.opacity(0.05), in: Circle())
+            .contentShape(Circle())
     }
 
     private func selectionShareButton(_ destination: ShelfShareDestination) -> some View {

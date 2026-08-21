@@ -179,6 +179,31 @@ struct DragShakeSession: Sendable {
     }
 }
 
+struct FileDragPasteboardSession: Sendable {
+    private var initialChangeCount: Int?
+    private var hasCurrentFilePayload = false
+
+    mutating func begin(changeCount: Int) {
+        initialChangeCount = changeCount
+        hasCurrentFilePayload = false
+    }
+
+    mutating func containsCurrentFiles(changeCount: Int, containsFiles: Bool) -> Bool {
+        guard initialChangeCount != nil else { return false }
+        if !hasCurrentFilePayload,
+           changeCount != initialChangeCount,
+           containsFiles {
+            hasCurrentFilePayload = true
+        }
+        return hasCurrentFilePayload
+    }
+
+    mutating func reset() {
+        initialChangeCount = nil
+        hasCurrentFilePayload = false
+    }
+}
+
 @MainActor
 final class ShelfActivationController {
     var onShortcut: (() -> Void)?
@@ -193,6 +218,7 @@ final class ShelfActivationController {
     nonisolated(unsafe) private var globalDragMonitor: Any?
     nonisolated(unsafe) private var localDragMonitor: Any?
     private var shakeSession: DragShakeSession
+    private var fileDragPasteboardSession = FileDragPasteboardSession()
 
     init(
         options: ShelfActivationOptions = .enabled,
@@ -245,6 +271,7 @@ final class ShelfActivationController {
         unregisterHotKey()
         removeDragMonitor()
         shakeSession.reset()
+        fileDragPasteboardSession.reset()
     }
 
     private func applyOptions() {
@@ -259,6 +286,7 @@ final class ShelfActivationController {
         } else {
             removeDragMonitor()
             shakeSession.reset()
+            fileDragPasteboardSession.reset()
         }
     }
 
@@ -351,23 +379,35 @@ final class ShelfActivationController {
 
     private func handleDragEvent(_ event: NSEvent) {
         let mouseLocation = NSEvent.mouseLocation
+        let dragPasteboard = NSPasteboard(name: .drag)
+        if event.type == .leftMouseDown {
+            shakeSession.reset()
+            fileDragPasteboardSession.begin(changeCount: dragPasteboard.changeCount)
+            return
+        }
         if event.type == .leftMouseUp {
             if shakeSession.endDrag() {
                 onShakeEnded?(mouseLocation)
             }
+            fileDragPasteboardSession.reset()
             return
         }
         guard event.type == .leftMouseDragged else {
             shakeSession.reset()
+            fileDragPasteboardSession.reset()
             return
         }
+        let containsCurrentFiles = fileDragPasteboardSession.containsCurrentFiles(
+            changeCount: dragPasteboard.changeCount,
+            containsFiles: !fileURLs(
+                from: dragPasteboard,
+                includingDirectories: true
+            ).isEmpty
+        )
         if shakeSession.observe(
             point: mouseLocation,
             at: event.timestamp,
-            containsFiles: !fileURLs(
-                from: NSPasteboard(name: .drag),
-                includingDirectories: true
-            ).isEmpty
+            containsFiles: containsCurrentFiles
         ) {
             onShake?(mouseLocation)
         }
