@@ -10,6 +10,7 @@ DAVINCI_ZIP="$DIST/WeClaw-Send-DaVinci-Resolve.zip"
 COMPONENTS="$DIST/WeClaw-Send-Components.json"
 CHECKSUMS="$DIST/SHA256SUMS.txt"
 TUTORIAL_LINK="$ROOT/docs/视频教程.webloc"
+TUTORIAL_URL="https://xhslink.cn/o/njUmexGUhg"
 VERIFY="$(mktemp -d "${TMPDIR:-/tmp/}weclaw-send-release.XXXXXX")"
 PACKAGE="$VERIFY/package"
 DMG_PACKAGE="$VERIFY/dmg"
@@ -33,7 +34,7 @@ BUILD_PATTERN='^[0-9]+$'
 [[ "$PREMIERE_VERSION" =~ $VERSION_PATTERN ]]
 [[ "$DAVINCI_VERSION" =~ $VERSION_PATTERN ]]
 [[ -f "$TUTORIAL_LINK" ]]
-grep -q 'https://weclaw-send.pages.dev/#film' "$TUTORIAL_LINK"
+grep -Fq "$TUTORIAL_URL" "$TUTORIAL_LINK"
 
 detach_mounted_image() {
     [[ "$MOUNTED" == true ]] || return 0
@@ -154,8 +155,8 @@ EXTRACTED_TUTORIAL_LINK="$VERIFY/视频教程.webloc"
 [[ -f "$EXTRACTED_GUIDE" ]]
 [[ -f "$EXTRACTED_TUTORIAL_LINK" ]]
 grep -q '系统设置 → 隐私与安全性' "$EXTRACTED_GUIDE"
-grep -q 'https://weclaw-send.pages.dev/#film' "$EXTRACTED_GUIDE"
-grep -q 'https://weclaw-send.pages.dev/#film' "$EXTRACTED_TUTORIAL_LINK"
+grep -Fq "$TUTORIAL_URL" "$EXTRACTED_GUIDE"
+grep -Fq "$TUTORIAL_URL" "$EXTRACTED_TUTORIAL_LINK"
 lipo "$EXTRACTED_BINARY" -verify_arch arm64 x86_64
 codesign --verify --deep --strict "$EXTRACTED_APP"
 [[ "$(shasum -a 256 "$BINARY" | awk '{print $1}')" == "$(shasum -a 256 "$EXTRACTED_BINARY" | awk '{print $1}')" ]]
@@ -168,7 +169,7 @@ MOUNT_DEVICE="$(print -r -- "$ATTACH_OUTPUT" | awk '$1 ~ "^/dev/" { print $1; ex
 [[ -d "$MOUNT/WeClaw Send.app" ]]
 [[ -f "$MOUNT/使用说明.html" ]]
 [[ -f "$MOUNT/视频教程.webloc" ]]
-grep -q 'https://weclaw-send.pages.dev/#film' "$MOUNT/视频教程.webloc"
+grep -Fq "$TUTORIAL_URL" "$MOUNT/视频教程.webloc"
 [[ "$(readlink "$MOUNT/Applications")" == "/Applications" ]]
 lipo "$MOUNT/WeClaw Send.app/Contents/MacOS/WeClawSend" -verify_arch arm64 x86_64
 codesign --verify --deep --strict "$MOUNT/WeClaw Send.app"
