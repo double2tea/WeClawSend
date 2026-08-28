@@ -42,6 +42,19 @@ final class FolderWatchStatusCapture: @unchecked Sendable {
     }
 }
 
+final class FileIntakeArbiterTestCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var failureMessage: String?
+
+    func fail(_ message: String) {
+        lock.withLock { failureMessage = message }
+    }
+
+    func failure() -> String? {
+        lock.withLock { failureMessage }
+    }
+}
+
 let folderWatchRule = FolderWatchRule(
     folderPath: "/tmp/WeClaw Watch/",
     includesSubfolders: true,
@@ -76,6 +89,86 @@ let splitFolderWatchRule = FolderWatchRule(
 precondition(splitFolderWatchRule.matchingRoute(for: URL(fileURLWithPath: "/tmp/a.mp4"))?.basketID == videoBasketID)
 precondition(splitFolderWatchRule.matchingRoute(for: URL(fileURLWithPath: "/tmp/a.png"))?.basketID == imageBasketID)
 precondition(splitFolderWatchRule.matchingRoute(for: URL(fileURLWithPath: "/tmp/a.pdf")) == nil)
+
+let intakeArbiterCapture = FileIntakeArbiterTestCapture()
+let intakeArbiterFinished = DispatchSemaphore(value: 0)
+Task {
+    let arbiter = FileIntakeArbiter()
+    let fileURL = URL(fileURLWithPath: "/tmp/weclaw-intake-priority.mp4")
+    let now = Date(timeIntervalSince1970: 1_000)
+    guard case let .granted(watchClaim) = await arbiter.claim(
+        fileURL: fileURL,
+        source: .folderWatch,
+        now: now
+    ) else {
+        intakeArbiterCapture.fail("folder watch should receive the first pending claim")
+        intakeArbiterFinished.signal()
+        return
+    }
+    guard case let .granted(apiClaim) = await arbiter.claim(
+        fileURL: fileURL,
+        source: .localAPI,
+        now: now.addingTimeInterval(0.1)
+    ) else {
+        intakeArbiterCapture.fail("local API should replace a pending folder watch claim")
+        intakeArbiterFinished.signal()
+        return
+    }
+    guard await !arbiter.commit(watchClaim, now: now.addingTimeInterval(0.2)) else {
+        intakeArbiterCapture.fail("replaced folder watch claim must not commit")
+        intakeArbiterFinished.signal()
+        return
+    }
+    guard await arbiter.commit(apiClaim, now: now.addingTimeInterval(0.2)) else {
+        intakeArbiterCapture.fail("local API claim should commit")
+        intakeArbiterFinished.signal()
+        return
+    }
+    await arbiter.complete(apiClaim, now: now.addingTimeInterval(1))
+    guard case .denied(existingSource: .localAPI) = await arbiter.claim(
+        fileURL: fileURL,
+        source: .folderWatch,
+        now: now.addingTimeInterval(30)
+    ) else {
+        intakeArbiterCapture.fail("completion cooldown should prevent a duplicate monitor intake")
+        intakeArbiterFinished.signal()
+        return
+    }
+    guard case let .granted(newWatchClaim) = await arbiter.claim(
+        fileURL: fileURL,
+        source: .folderWatch,
+        now: now.addingTimeInterval(62)
+    ), await arbiter.commit(newWatchClaim, now: now.addingTimeInterval(62)) else {
+        intakeArbiterCapture.fail("expired completion cooldown should allow a new intake")
+        intakeArbiterFinished.signal()
+        return
+    }
+    guard case .denied(existingSource: .folderWatch) = await arbiter.claim(
+        fileURL: fileURL,
+        source: .localAPI,
+        now: now.addingTimeInterval(63)
+    ) else {
+        intakeArbiterCapture.fail("a committed monitor intake must not be interrupted mid-send")
+        intakeArbiterFinished.signal()
+        return
+    }
+    await arbiter.release(newWatchClaim)
+    guard case .granted = await arbiter.claim(
+        fileURL: fileURL,
+        source: .localAPI,
+        now: now.addingTimeInterval(64)
+    ) else {
+        intakeArbiterCapture.fail("releasing a failed intake should permit a retry")
+        intakeArbiterFinished.signal()
+        return
+    }
+    intakeArbiterFinished.signal()
+}
+precondition(intakeArbiterFinished.wait(timeout: .now() + 5) == .success)
+if let failure = intakeArbiterCapture.failure() {
+    preconditionFailure(failure)
+}
+
 let folderWatchCanonicalRoot = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-watch-canonical-\(UUID())", directoryHint: .isDirectory)
 let folderWatchCanonicalAlias = FileManager.default.temporaryDirectory
@@ -611,6 +704,8 @@ precondition(AppSettings.appUpdateChannel(default: .stable) == .beta)
 
 let shelfSettingKeys: [String] = [
     AppSettings.shelfEnabledKey,
+    AppSettings.notchDropZoneEnabledKey,
+    AppSettings.notchDropBehaviorKey,
     AppSettings.shelfShakeToOpenEnabledKey,
     AppSettings.shelfShakeSensitivityKey,
     AppSettings.shelfGlobalShortcutEnabledKey,
@@ -641,6 +736,16 @@ for key in shelfSettingKeys {
     UserDefaults.standard.removeObject(forKey: key)
 }
 precondition(AppSettings.shelfEnabled)
+precondition(AppSettings.notchDropZoneEnabled)
+precondition(AppSettings.notchDropBehavior == .choose)
+precondition(NotchDropBehavior.allCases.map(\.title) == ["每次选择", "立即发送", "放入文件篮"])
+UserDefaults.standard.set(NotchDropBehavior.direct.rawValue, forKey: AppSettings.notchDropBehaviorKey)
+precondition(AppSettings.notchDropBehavior == .direct)
+UserDefaults.standard.set(false, forKey: AppSettings.shelfEnabledKey)
+UserDefaults.standard.set(NotchDropBehavior.fileBasket.rawValue, forKey: AppSettings.notchDropBehaviorKey)
+precondition(AppSettings.notchDropBehavior == .direct)
+UserDefaults.standard.set(true, forKey: AppSettings.shelfEnabledKey)
+precondition(AppSettings.notchDropBehavior == .fileBasket)
 precondition(AppSettings.shelfShakeToOpenEnabled)
 precondition(AppSettings.shelfShakeSensitivity == .medium)
 precondition(AppSettings.shelfShakeSensitivity.title == "中")
@@ -686,7 +791,7 @@ let invalidShortcutEvent = NSEvent.keyEvent(
 precondition(ShelfGlobalShortcut(event: invalidShortcutEvent) == nil)
 precondition(AppSettings.shelfAlwaysOnTop)
 precondition(AppSettings.shelfKeepItemsOnClose)
-precondition(!AppSettings.shelfRestoreOnLaunch)
+precondition(AppSettings.shelfRestoreOnLaunch)
 precondition(AppSettings.shelfClearAfterSend)
 UserDefaults.standard.set(ShelfShakeSensitivity.high.rawValue, forKey: AppSettings.shelfShakeSensitivityKey)
 precondition(AppSettings.shelfShakeSensitivity == .high)
@@ -730,9 +835,135 @@ fileDragPasteboardSession.begin(changeCount: 10)
 precondition(!fileDragPasteboardSession.containsCurrentFiles(changeCount: 10, containsFiles: true))
 precondition(!fileDragPasteboardSession.containsCurrentFiles(changeCount: 11, containsFiles: false))
 precondition(fileDragPasteboardSession.containsCurrentFiles(changeCount: 11, containsFiles: true))
+precondition(fileDragPasteboardSession.containsFilePayload)
 precondition(fileDragPasteboardSession.containsCurrentFiles(changeCount: 11, containsFiles: false))
 fileDragPasteboardSession.reset()
+precondition(!fileDragPasteboardSession.containsFilePayload)
 precondition(!fileDragPasteboardSession.containsCurrentFiles(changeCount: 11, containsFiles: true))
+
+let notchScreenFrame = NSRect(x: 0, y: 0, width: 1_512, height: 982)
+let notchLayout = NotchDropLayout(
+    screenFrame: notchScreenFrame,
+    topInset: 32,
+    auxiliaryTopLeftArea: NSRect(x: 0, y: 950, width: 650, height: 32),
+    auxiliaryTopRightArea: NSRect(x: 862, y: 950, width: 650, height: 32)
+)
+precondition(notchLayout != nil)
+precondition(notchLayout?.notchCenterX == 756)
+precondition(notchLayout?.dragFrame.maxY == notchScreenFrame.maxY)
+precondition(notchLayout?.feedbackFrame.maxY == notchScreenFrame.maxY - 32)
+precondition(notchLayout?.activationFrame.contains(NSPoint(x: 756, y: 970)) == true)
+precondition(notchLayout?.activationFrame.contains(NSPoint(x: 620, y: 970)) == false)
+precondition(notchLayout?.activationFrame.contains(NSPoint(x: 649, y: 970)) == false)
+precondition(notchLayout?.activationFrame.contains(NSPoint(x: 756, y: 949)) == false)
+precondition(notchLayout?.activationFrame.contains(NSPoint(x: 756, y: 940)) == false)
+precondition(notchLayout?.activationFrame.contains(NSPoint(x: 756, y: 700)) == false)
+precondition(
+    notchLayout?.target(at: NSPoint(x: 700, y: 970), behavior: .choose, basketEnabled: true) == .basket
+)
+precondition(
+    notchLayout?.target(at: NSPoint(x: 800, y: 970), behavior: .choose, basketEnabled: true) == .direct
+)
+precondition(
+    notchLayout?.target(at: NSPoint(x: 700, y: 970), behavior: .choose, basketEnabled: false) == .direct
+)
+precondition(
+    notchLayout?.target(at: NSPoint(x: 700, y: 970), behavior: .direct, basketEnabled: true) == .direct
+)
+precondition(
+    notchLayout?.target(at: NSPoint(x: 800, y: 970), behavior: .fileBasket, basketEnabled: true) == .basket
+)
+precondition(
+    notchLayout.map {
+        NotchDropReleasePolicy.accepts(
+            point: NSPoint(x: 700, y: 970),
+            layout: $0,
+            isArmed: true,
+            pendingItemCount: 1
+        )
+    } == true
+)
+precondition(
+    notchLayout.map {
+        NotchDropReleasePolicy.accepts(
+            point: NSPoint(x: 700, y: 970),
+            layout: $0,
+            isArmed: false,
+            pendingItemCount: 1
+        )
+    } == false
+)
+precondition(
+    notchLayout.map {
+        NotchDropReleasePolicy.accepts(
+            point: NSPoint(x: 700, y: 700),
+            layout: $0,
+            isArmed: true,
+            pendingItemCount: 1
+        )
+    } == false
+)
+precondition(NotchDropLayout(
+    screenFrame: notchScreenFrame,
+    topInset: 0,
+    auxiliaryTopLeftArea: nil,
+    auxiliaryTopRightArea: nil
+) == nil)
+
+let notchFirstURL = URL(fileURLWithPath: "/tmp/weclaw-notch-a.mov")
+let notchSecondURL = URL(fileURLWithPath: "/tmp/weclaw-notch-b.mov")
+let baselineNotchTransferID = UUID()
+let notchTracker = NotchTransferTracker(
+    urls: [notchFirstURL, notchSecondURL],
+    baselineTransferIDs: [baselineNotchTransferID]
+)
+let baselineNotchTransfer = TransferRecord(
+    transferID: baselineNotchTransferID,
+    path: notchFirstURL.path,
+    fileName: notchFirstURL.lastPathComponent,
+    byteCount: 10,
+    date: Date(timeIntervalSince1970: 1),
+    status: .sent,
+    message: nil,
+    stage: nil,
+    progress: 1,
+    sentBytes: 10
+)
+precondition(notchTracker.state(in: [baselineNotchTransfer]) == .waiting)
+let sendingNotchTransfer = TransferRecord(
+    path: notchFirstURL.path,
+    fileName: notchFirstURL.lastPathComponent,
+    byteCount: 10,
+    date: Date(timeIntervalSince1970: 2),
+    status: .sending,
+    message: nil,
+    stage: nil,
+    progress: 0.5,
+    sentBytes: 5
+)
+let queuedNotchTransfer = TransferRecord(
+    path: notchSecondURL.path,
+    fileName: notchSecondURL.lastPathComponent,
+    byteCount: 10,
+    date: Date(timeIntervalSince1970: 2),
+    status: .queued,
+    message: nil,
+    stage: nil,
+    progress: nil,
+    sentBytes: nil
+)
+precondition(notchTracker.state(in: [sendingNotchTransfer, queuedNotchTransfer]) == .sending(progress: 0.25))
+var sentFirstNotchTransfer = sendingNotchTransfer
+sentFirstNotchTransfer.status = .sent
+sentFirstNotchTransfer.progress = 1
+var sentSecondNotchTransfer = queuedNotchTransfer
+sentSecondNotchTransfer.status = .sent
+sentSecondNotchTransfer.progress = 1
+precondition(notchTracker.state(in: [sentFirstNotchTransfer, sentSecondNotchTransfer]) == .success)
+var failedNotchTransfer = queuedNotchTransfer
+failedNotchTransfer.status = .failed
+failedNotchTransfer.message = "网络失败"
+precondition(notchTracker.state(in: [sendingNotchTransfer, failedNotchTransfer]) == .failure("网络失败"))
 
 precondition(FileBasketCloseAction.resolve(isEmpty: true, keepItemsOnClose: true) == .delete)
 precondition(FileBasketCloseAction.resolve(isEmpty: true, keepItemsOnClose: false) == .delete)
@@ -1009,9 +1240,14 @@ try MainActor.assumeIsolated {
     }
     customDefaults.removePersistentDomain(forName: customDefaultsName)
     customDefaults.set(false, forKey: AppSettings.shelfAlwaysOnTopKey)
+    precondition(AppSettings.shelfRestoreOnLaunch(in: customDefaults))
     let customStore = FileBasketStore(defaults: customDefaults)
     let customBasket = customStore.createBasket()
     precondition(!customStore.windowState(for: customBasket.id).isAlwaysOnTop)
+    precondition(customDefaults.data(forKey: AppSettings.fileBasketArchiveKey) != nil)
+    customStore.setRestoresItemsOnLaunch(false)
+    precondition(!AppSettings.shelfRestoreOnLaunch(in: customDefaults))
+    precondition(customDefaults.data(forKey: AppSettings.fileBasketArchiveKey) == nil)
     customDefaults.removePersistentDomain(forName: customDefaultsName)
 
     let legacyArchiveDefaultsName = "WeClawSend.FileBasketArchive.Legacy.\(UUID())"
@@ -3116,7 +3352,10 @@ Task {
         port: apiPort
     )
     server.setSendHandler { request in
-        .addedToBasket(
+        if request.fileName == "conflict.txt" {
+            throw FileIntakeConflictError(existingSource: .folderWatch)
+        }
+        return .addedToBasket(
             LocalAPIBasketResult(
                 status: "added_to_basket",
                 filePath: request.filePath,
@@ -3172,6 +3411,18 @@ Task {
         precondition(sendObject["ok"] as? Bool == true)
         precondition(sendObject["status"] as? String == "added_to_basket")
         precondition(sendObject["basket_id"] as? String == apiBasketID.uuidString)
+
+        var conflictRequest = URLRequest(url: URL(string: "http://127.0.0.1:\(apiPort)/send")!)
+        conflictRequest.httpMethod = "POST"
+        conflictRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        conflictRequest.httpBody = try JSONEncoder().encode(
+            SendRequest(filePath: apiFile.path, fileName: "conflict.txt")
+        )
+        let (conflictData, conflictResponse) = try await session.data(for: conflictRequest)
+        precondition((conflictResponse as? HTTPURLResponse)?.statusCode == 409)
+        let conflictObject = try JSONSerialization.jsonObject(with: conflictData) as! [String: Any]
+        precondition(conflictObject["ok"] as? Bool == false)
+        precondition((conflictObject["error"] as? String)?.contains("文件夹监控") == true)
     } catch {
         apiResult.error = error
     }

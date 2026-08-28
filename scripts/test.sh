@@ -34,6 +34,7 @@ swiftc \
     "$ROOT/Sources/WeClawSend/PasteboardURLs.swift" \
     "$ROOT/Sources/WeClawSend/ShelfGlobalShortcut.swift" \
     "$ROOT/Sources/WeClawSend/AppSettings.swift" \
+    "$ROOT/Sources/WeClawSend/FileIntakeArbiter.swift" \
     "$ROOT/Sources/WeClawSend/FolderWatchModels.swift" \
     "$ROOT/Sources/WeClawSend/FolderWatchStore.swift" \
     "$ROOT/Sources/WeClawSend/FolderWatchService.swift" \
@@ -52,6 +53,8 @@ swiftc \
     "$ROOT/Sources/WeClawSend/UpdateCheckReporter.swift" \
     "$ROOT/Sources/WeClawSend/PopoverAutoClosePolicy.swift" \
     "$ROOT/Sources/WeClawSend/TransferRecord.swift" \
+    "$ROOT/Sources/WeClawSend/Brand.swift" \
+    "$ROOT/Sources/WeClawSend/NotchDropController.swift" \
     "$ROOT/Sources/WeClawSend/WeChatCredentials.swift" \
     "$ROOT/Sources/WeClawSend/WeChatCrypto.swift" \
     "$ROOT/Sources/WeClawSend/ScheduledSendPlan.swift" \

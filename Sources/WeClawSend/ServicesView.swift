@@ -706,6 +706,52 @@ struct ServicesView: View {
                     )
                 )
 
+                Divider().opacity(0.35).padding(.vertical, 6)
+
+                settingRow(
+                    icon: "macbook",
+                    title: "刘海投递区",
+                    subtitle: "文件进入内置屏幕黑色刘海区域时展开",
+                    isOn: Binding(
+                        get: { model.notchDropZoneEnabled },
+                        set: { model.setNotchDropZoneEnabled($0) }
+                    )
+                )
+
+                if model.notchDropZoneEnabled {
+                    HStack(spacing: 8) {
+                        Image(systemName: "cursorarrow.motionlines")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 22)
+                            .background(Circle().fill(Color.primary.opacity(0.05)))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("投递动作")
+                                .font(.system(size: 11.5, weight: .medium))
+                            Text(model.notchDropBehavior == .choose ? "在刘海内左右选择" : "进入刘海后松手即执行")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                        Spacer(minLength: 8)
+                        Picker("投递动作", selection: Binding(
+                            get: { model.notchDropBehavior },
+                            set: { model.setNotchDropBehavior($0) }
+                        )) {
+                            ForEach(NotchDropBehavior.allCases) { behavior in
+                                Text(behavior.title)
+                                    .tag(behavior)
+                                    .disabled(behavior == .fileBasket && !model.shelfEnabled)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .controlSize(.small)
+                        .frame(width: 112)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+                }
+
                 if model.shelfEnabled {
                     shelfSettingsGroupLabel("唤出方式")
 
@@ -781,8 +827,8 @@ struct ServicesView: View {
 
                     settingRow(
                         icon: "arrow.clockwise",
-                        title: "退出后保存",
-                        subtitle: "下次启动恢复文件篮、位置与窗口状态",
+                        title: "重启后恢复文件篮",
+                        subtitle: "保存内容、名称、外观、位置与窗口状态",
                         isOn: Binding(
                             get: { model.shelfRestoreOnLaunch },
                             set: { model.setShelfRestoreOnLaunch($0) }

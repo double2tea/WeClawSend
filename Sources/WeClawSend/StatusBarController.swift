@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     private var popoverEventMonitor: Any?
     private var popoverKeyMonitor: Any?
     private let queueQuickLook = QueueQuickLookBridge()
+    private var notchDropController: NotchDropController!
     private var shakeBasketID: UUID?
     private var lastFolderWatchBasketReveal: (id: UUID, date: Date)?
     private var statusDropView: StatusItemDropView?
@@ -39,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         guard let button = statusItem.button else { return }
         button.image = Brand.menuBarImage
-        button.toolTip = "\(Brand.name) · 拖入立即发送 · \(model.shelfGlobalShortcut.displayText) 显示最近文件篮"
+        button.toolTip = "\(Brand.name) · 拖入立即发送 · \(model.shelfGlobalShortcut.displayText) 显示最近文件篮 · 右键管理文件篮"
 
         let dropView = StatusItemDropView(frame: .zero)
         dropView.translatesAutoresizingMaskIntoConstraints = false
@@ -77,6 +78,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
             chooseFiles: { [weak self] id in self?.chooseBasketFiles(id: id) },
             sendAll: { [unowned self] id in sendBasketItems(id: id) }
         )
+        notchDropController = NotchDropController(
+            isEnabled: model.notchDropZoneEnabled,
+            currentTransfers: { [weak self] in self?.model.recentTransfers ?? [] },
+            isBasketEnabled: { [weak self] in self?.model.shelfEnabled == true },
+            dropBehavior: { [weak self] in self?.model.notchDropBehavior ?? .choose },
+            submit: { [weak self] target, urls in
+                self?.submitNotchDrop(target: target, urls: urls)
+                    ?? .rejected("WeClaw Send 尚未就绪")
+            },
+            openDetails: { [weak self] target in
+                self?.openNotchDropDetails(target: target)
+            }
+        )
         // 与 Brand 尺寸保持一致，避免 SwiftUI 内容被裁切
         popover.contentViewController = NSHostingController(
             rootView: ContentView(
@@ -113,6 +127,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
             guard let self, let id = shakeBasketID else { return }
             shakeBasketID = nil
             fileBasketCoordinator.discardEmptyShakeBasket(id: id, toward: point)
+        }
+        shelfActivationController.onFileDragMoved = { [weak self] point in
+            self?.notchDropController.handleFileDragMoved(to: point)
+        }
+        shelfActivationController.onFileDragEnded = { [weak self] point in
+            self?.notchDropController.handleFileDragEnded(at: point)
         }
         shelfActivationController.onError = { [weak self] message in
             guard let self else { return }
@@ -154,6 +174,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         }
 
 #if DEBUG
+        if let phase = ProcessInfo.processInfo.environment["WECLAW_NOTCH_QA"] {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(350))
+                self?.notchDropController.showForDebug(phase)
+            }
+        }
         if ProcessInfo.processInfo.environment["WECLAW_SETTINGS_QA"] == "1" {
             model.showsServices = true
             Task { @MainActor [weak self] in
@@ -245,6 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     private var shelfActivationOptions: ShelfActivationOptions {
         ShelfActivationOptions(
             isEnabled: model.shelfEnabled,
+            notchDropEnabled: model.notchDropZoneEnabled,
             shortcutEnabled: model.shelfGlobalShortcutEnabled,
             shortcut: model.shelfGlobalShortcut,
             shakeEnabled: model.shelfShakeToOpenEnabled,
@@ -254,6 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
 
     private func applyShelfPreferences() {
         fileBasketCoordinator.applyPreferences()
+        notchDropController.setEnabled(model.notchDropZoneEnabled)
         shelfActivationController.update(options: shelfActivationOptions)
     }
 
@@ -263,6 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
             .receive(on: RunLoop.main)
             .sink { [weak self] _, _ in
                 self?.refreshStatusItemActivity()
+                self?.notchDropController.update(transfers: self?.model.recentTransfers ?? [])
             }
             .store(in: &statusItemCancellables)
         refreshStatusItemActivity()
@@ -275,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     }
 
     private func menuBarTooltip(_ activity: MenuBarActivity) -> String {
-        let base = "\(Brand.name) · 拖入立即发送 · \(model.shelfGlobalShortcut.displayText) 显示最近文件篮"
+        let base = "\(Brand.name) · 拖入立即发送 · \(model.shelfGlobalShortcut.displayText) 显示最近文件篮 · 右键管理文件篮"
         if activity.isSending, activity.badgeCount > 0 {
             return "发送中 · 队列 \(activity.badgeCount) · \(base)"
         }
@@ -301,6 +330,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     private func showAllBasketsFromPopover() {
         popover.close()
         fileBasketCoordinator.showAll()
+    }
+
+    private func submitNotchDrop(
+        target: NotchDropTarget,
+        urls: [URL]
+    ) -> NotchDropSubmission {
+        switch target {
+        case .direct:
+            let sendableURLs = urls.filter { url in
+                (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            }
+            guard !sendableURLs.isEmpty else {
+                return .rejected("文件夹请放入文件篮后再发送")
+            }
+            guard model.send(urls: sendableURLs) else {
+                return .rejected(model.weChatStatus.isOnline ? "没有可发送的文件" : "请先登录微信")
+            }
+            model.showsServices = false
+            return .sending(sendableURLs)
+        case .basket:
+            guard model.shelfEnabled else {
+                return .rejected("文件篮功能未启用")
+            }
+            let basket = model.fileBaskets.recentBasketID
+                .flatMap { model.fileBaskets.basket(id: $0) }
+                ?? model.fileBaskets.createBasket()
+            let addedCount = basket.add(urls: urls)
+            model.fileBaskets.markRecent(id: basket.id)
+            if addedCount > 0 {
+                fileBasketCoordinator.show(id: basket.id, expanded: true)
+                return .saved("已加入\(basket.title)")
+            }
+            let alreadyPresent = urls.contains { url in
+                basket.items.contains { $0.path == url.standardizedFileURL.path }
+            }
+            guard alreadyPresent else {
+                return .rejected("没有可加入文件篮的项目")
+            }
+            fileBasketCoordinator.show(id: basket.id, expanded: true)
+            return .saved("项目已在\(basket.title)中")
+        }
+    }
+
+    private func openNotchDropDetails(target: NotchDropTarget) {
+        switch target {
+        case .direct:
+            model.showsServices = false
+            showPopover()
+        case .basket:
+            guard let id = model.fileBaskets.recentBasketID else { return }
+            popover.close()
+            fileBasketCoordinator.show(id: id, expanded: true)
+        }
     }
 
     private func startPopoverAutoCloseMonitoring() {
@@ -519,10 +601,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
 
     private func statusItemMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(menuItem("打开", action: #selector(openPopoverFromMenu)))
+        menu.appearance = popover.contentViewController?.view.effectiveAppearance
+        menu.addItem(menuItem("打开 WeClaw Send", action: #selector(openPopoverFromMenu)))
         menu.addItem(menuItem("设置", action: #selector(openSettingsFromMenu), keyEquivalent: ","))
         menu.addItem(.separator())
-        menu.addItem(toggleItem("文件篮", isOn: model.shelfEnabled, action: #selector(toggleShelfFromMenu)))
+
+        let basketItem = NSMenuItem(
+            title: fileBasketMenuTitle,
+            action: nil,
+            keyEquivalent: ""
+        )
+        basketItem.submenu = fileBasketMenu()
+        menu.addItem(basketItem)
+
+        let notchItem = NSMenuItem(
+            title: "刘海投递区 · \(model.notchDropBehavior.title)",
+            action: nil,
+            keyEquivalent: ""
+        )
+        notchItem.submenu = notchDropMenu()
+        menu.addItem(notchItem)
+
         menu.addItem(
             toggleItem(
                 "发送结果通知",
@@ -535,6 +634,116 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         )
         menu.addItem(.separator())
         menu.addItem(menuItem("退出 WeClaw Send", action: #selector(quitFromMenu), keyEquivalent: "q"))
+        return menu
+    }
+
+    private var fileBasketMenuTitle: String {
+        let count = model.fileBaskets.baskets.count
+        return count == 0 ? "文件篮" : "文件篮 · \(count) 个"
+    }
+
+    private func fileBasketMenu() -> NSMenu {
+        let menu = NSMenu(title: "文件篮")
+        menu.addItem(
+            toggleItem(
+                "启用文件篮",
+                isOn: model.shelfEnabled,
+                action: #selector(toggleShelfFromMenu)
+            )
+        )
+        menu.addItem(
+            toggleItem(
+                "重启后恢复文件篮",
+                isOn: model.shelfRestoreOnLaunch,
+                action: #selector(toggleShelfRestoreFromMenu)
+            )
+        )
+        menu.addItem(.separator())
+
+        let baskets = model.fileBaskets.baskets
+        let summary = NSMenuItem(
+            title: baskets.isEmpty
+                ? "还没有文件篮"
+                : "\(baskets.count) 个文件篮 · 共 \(model.fileBaskets.totalItemCount) 个项目",
+            action: nil,
+            keyEquivalent: ""
+        )
+        summary.isEnabled = false
+        menu.addItem(summary)
+
+        if baskets.isEmpty {
+            let create = menuItem("新建文件篮", action: #selector(createBasketFromMenu))
+            create.isEnabled = model.shelfEnabled
+            menu.addItem(create)
+        } else {
+            let toggleRecent = menuItem(
+                "显示或关闭最近文件篮",
+                action: #selector(toggleRecentBasketFromMenu)
+            )
+            toggleRecent.isEnabled = model.shelfEnabled
+            menu.addItem(toggleRecent)
+
+            let create = menuItem("新建文件篮", action: #selector(createBasketFromMenu))
+            create.isEnabled = model.shelfEnabled
+            menu.addItem(create)
+        }
+
+        guard !baskets.isEmpty else { return menu }
+
+        menu.addItem(.separator())
+        for basket in baskets {
+            let recentPrefix = basket.id == model.fileBaskets.recentBasketID ? "最近 · " : ""
+            let item = menuItem(
+                "\(recentPrefix)\(basket.title) · \(basket.items.count) 个项目",
+                action: #selector(showBasketFromMenu(_:))
+            )
+            item.representedObject = basket.id.uuidString
+            item.isEnabled = model.shelfEnabled
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+        let showAll = menuItem("显示全部文件篮", action: #selector(showAllBasketsFromMenu))
+        showAll.isEnabled = model.shelfEnabled
+        menu.addItem(showAll)
+        menu.addItem(menuItem("关闭全部文件篮", action: #selector(closeAllBasketsFromMenu)))
+
+        let deleteItem = NSMenuItem(title: "删除文件篮", action: nil, keyEquivalent: "")
+        let deleteMenu = NSMenu(title: "删除文件篮")
+        for basket in baskets {
+            let item = menuItem(
+                "\(basket.title) · \(basket.items.count) 个项目",
+                action: #selector(deleteBasketFromMenu(_:))
+            )
+            item.representedObject = basket.id.uuidString
+            deleteMenu.addItem(item)
+        }
+        deleteMenu.addItem(.separator())
+        deleteMenu.addItem(
+            menuItem("删除全部文件篮…", action: #selector(deleteAllBasketsFromMenu))
+        )
+        deleteItem.submenu = deleteMenu
+        menu.addItem(deleteItem)
+        return menu
+    }
+
+    private func notchDropMenu() -> NSMenu {
+        let menu = NSMenu(title: "刘海投递区")
+        menu.addItem(
+            toggleItem(
+                "启用刘海投递区",
+                isOn: model.notchDropZoneEnabled,
+                action: #selector(toggleNotchDropZoneFromMenu)
+            )
+        )
+        menu.addItem(.separator())
+        for behavior in NotchDropBehavior.allCases {
+            let item = menuItem(behavior.title, action: #selector(setNotchDropBehaviorFromMenu(_:)))
+            item.representedObject = behavior.rawValue
+            item.state = behavior == model.notchDropBehavior ? .on : .off
+            item.isEnabled = behavior != .fileBasket || model.shelfEnabled
+            menu.addItem(item)
+        }
         return menu
     }
 
@@ -567,6 +776,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
 
     @objc private func toggleShelfFromMenu() {
         model.setShelfEnabled(!model.shelfEnabled)
+    }
+
+    @objc private func toggleNotchDropZoneFromMenu() {
+        model.setNotchDropZoneEnabled(!model.notchDropZoneEnabled)
+    }
+
+    @objc private func setNotchDropBehaviorFromMenu(_ sender: NSMenuItem) {
+        guard
+            let rawValue = sender.representedObject as? String,
+            let behavior = NotchDropBehavior(rawValue: rawValue)
+        else { return }
+        model.setNotchDropBehavior(behavior)
+    }
+
+    @objc private func toggleShelfRestoreFromMenu() {
+        model.setShelfRestoreOnLaunch(!model.shelfRestoreOnLaunch)
+    }
+
+    @objc private func toggleRecentBasketFromMenu() {
+        popover.close()
+        fileBasketCoordinator.toggleRecent()
+    }
+
+    @objc private func createBasketFromMenu() {
+        guard model.shelfEnabled else { return }
+        popover.close()
+        fileBasketCoordinator.createBasket(near: NSEvent.mouseLocation)
+    }
+
+    @objc private func showBasketFromMenu(_ sender: NSMenuItem) {
+        guard
+            model.shelfEnabled,
+            let rawID = sender.representedObject as? String,
+            let id = UUID(uuidString: rawID)
+        else { return }
+        popover.close()
+        fileBasketCoordinator.show(id: id)
+    }
+
+    @objc private func showAllBasketsFromMenu() {
+        guard model.shelfEnabled else { return }
+        popover.close()
+        fileBasketCoordinator.showAll()
+    }
+
+    @objc private func closeAllBasketsFromMenu() {
+        fileBasketCoordinator.closeAll()
+    }
+
+    @objc private func deleteBasketFromMenu(_ sender: NSMenuItem) {
+        guard
+            let rawID = sender.representedObject as? String,
+            let id = UUID(uuidString: rawID),
+            let basket = model.fileBaskets.basket(id: id)
+        else { return }
+        if !basket.items.isEmpty, !confirmBasketDeletion(basket) { return }
+        fileBasketCoordinator.delete(id: id)
+    }
+
+    @objc private func deleteAllBasketsFromMenu() {
+        guard !model.fileBaskets.baskets.isEmpty, confirmAllBasketDeletion() else { return }
+        fileBasketCoordinator.deleteAll()
+    }
+
+    private func confirmBasketDeletion(_ basket: ShelfModel) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "删除\(basket.title)？"
+        alert.informativeText = "将移除篮内 \(basket.items.count) 个项目引用。Finder 中的原文件不会删除；文本便笺和图片便笺会从本机删除。"
+        alert.addButton(withTitle: "删除")
+        alert.addButton(withTitle: "取消")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func confirmAllBasketDeletion() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "删除全部文件篮？"
+        alert.informativeText = "将删除 \(model.fileBaskets.baskets.count) 个文件篮并移除 \(model.fileBaskets.totalItemCount) 个项目引用。Finder 中的原文件不会删除；文本便笺和图片便笺会从本机删除。"
+        alert.addButton(withTitle: "全部删除")
+        alert.addButton(withTitle: "取消")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     @objc private func toggleSendResultNotificationsFromMenu() {

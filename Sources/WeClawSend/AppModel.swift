@@ -64,6 +64,7 @@ private final class AppRuntime: Sendable {
     let coordinator: SendCoordinator
     let server: EmbeddedBridgeServer
     let updateCheckReporter: UpdateCheckReporter
+    let fileIntakeArbiter = FileIntakeArbiter()
 
     init() {
         weChat = WeChatService()
@@ -123,6 +124,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var unavailableFolderWatchRuleIDs: Set<UUID> = []
     @Published var sendResultNotificationsEnabled = AppSettings.sendResultNotificationsEnabled
     @Published var shelfEnabled = AppSettings.shelfEnabled
+    @Published var notchDropZoneEnabled = AppSettings.notchDropZoneEnabled
+    @Published var notchDropBehavior = AppSettings.notchDropBehavior
     @Published var shelfShakeToOpenEnabled = AppSettings.shelfShakeToOpenEnabled
     @Published var shelfShakeSensitivity = AppSettings.shelfShakeSensitivity
     @Published var shelfGlobalShortcutEnabled = AppSettings.shelfGlobalShortcutEnabled
@@ -179,10 +182,11 @@ final class AppModel: ObservableObject {
     private var contextRefreshTransfers: Set<UUID> = []
     private var retriedTransferIDs: Set<UUID> = []
     private var folderWatchConnectionRetryTask: Task<Void, Never>?
+    private var folderWatchRetryingRecordIDs: Set<UUID> = []
     private lazy var folderWatchService = FolderWatchService(
         onFileReady: { [weak self] ruleID, url in
             Task { @MainActor [weak self] in
-                self?.handleWatchedFile(ruleID: ruleID, url: url)
+                await self?.handleWatchedFile(ruleID: ruleID, url: url)
             }
         },
         onStatus: { [weak self] status in
@@ -205,12 +209,9 @@ final class AppModel: ObservableObject {
         }
         let runtime = AppRuntime()
         self.runtime = runtime
-        runtime.server.setSendHandler { [weak self, coordinator = runtime.coordinator] request in
-            if AppSettings.localAPISendBehavior == .direct {
-                return .sent(try await coordinator.send(request))
-            }
+        runtime.server.setSendHandler { [weak self] request in
             guard let self else { throw CancellationError() }
-            return try await self.addLocalAPIFileToBasket(request)
+            return try await self.handleLocalAPIRequest(request)
         }
         if shouldPersistLegacyTransfers {
             persistTransfers()
@@ -632,10 +633,15 @@ final class AppModel: ObservableObject {
                         )
                         continue
                     }
-                    if route.action == .basket {
-                        addWatchedFileToBasket(record: record, rule: rule, route: route)
-                    } else if weChatStatus.isOnline {
-                        deliverWatchedFile(record: record, route: route)
+                    if route.action == .basket || weChatStatus.isOnline {
+                        guard folderWatchRetryingRecordIDs.insert(record.id).inserted else {
+                            continue
+                        }
+                        Task { [weak self] in
+                            guard let self else { return }
+                            await processWatchedFile(record: record, rule: rule, route: route)
+                            folderWatchRetryingRecordIDs.remove(record.id)
+                        }
                     } else {
                         startFolderWatchConnectionRetryIfNeeded()
                     }
@@ -679,7 +685,26 @@ final class AppModel: ObservableObject {
     func setShelfEnabled(_ enabled: Bool) {
         shelfEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: AppSettings.shelfEnabledKey)
+        if !enabled, notchDropBehavior == .fileBasket {
+            notchDropBehavior = .direct
+            UserDefaults.standard.set(
+                NotchDropBehavior.direct.rawValue,
+                forKey: AppSettings.notchDropBehaviorKey
+            )
+        }
         refreshFolderWatchService()
+        onShelfPreferencesChanged?()
+    }
+
+    func setNotchDropZoneEnabled(_ enabled: Bool) {
+        notchDropZoneEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.notchDropZoneEnabledKey)
+        onShelfPreferencesChanged?()
+    }
+
+    func setNotchDropBehavior(_ behavior: NotchDropBehavior) {
+        notchDropBehavior = behavior
+        UserDefaults.standard.set(behavior.rawValue, forKey: AppSettings.notchDropBehaviorKey)
         onShelfPreferencesChanged?()
     }
 
@@ -1578,7 +1603,7 @@ final class AppModel: ObservableObject {
         folderWatchService.update(rules: effectiveRules)
     }
 
-    private func handleWatchedFile(ruleID: UUID, url: URL) {
+    private func handleWatchedFile(ruleID: UUID, url: URL) async {
         guard folderWatchEnabled,
               let rule = folderWatchStore.rule(id: ruleID),
               rule.enabled,
@@ -1600,42 +1625,102 @@ final class AppModel: ObservableObject {
         let record = FolderWatchRecord(
             filePath: url.path,
             ruleID: ruleID,
-            status: .processing,
-            message: "文件写入已完成"
+            status: .discovered,
+            message: "文件写入已完成，正在检查入口"
         )
         folderWatchStore.appendRecord(record)
 
-        switch route.action {
-        case .direct:
-            guard weChatStatus.isOnline else {
-                let waitingCount = folderWatchStore.records.count {
-                    $0.ruleID == ruleID && $0.status == .waiting
-                }
-                guard waitingCount < 20 else {
-                    folderWatchStore.updateRecord(
-                        id: record.id,
-                        status: .failed,
-                        message: "等待发送已达 20 个，请连接微信后再添加文件"
-                    )
-                    return
-                }
+        if route.action == .direct, !weChatStatus.isOnline {
+            let waitingCount = folderWatchStore.records.count {
+                $0.ruleID == ruleID && $0.status == .waiting
+            }
+            guard waitingCount < 20 else {
                 folderWatchStore.updateRecord(
                     id: record.id,
-                    status: .waiting,
-                    message: "等待微信连接"
+                    status: .failed,
+                    message: "等待发送已达 20 个，请连接微信后再添加文件"
                 )
-                startFolderWatchConnectionRetryIfNeeded()
                 return
             }
-            deliverWatchedFile(record: record, route: route)
+            folderWatchStore.updateRecord(
+                id: record.id,
+                status: .waiting,
+                message: "等待微信连接"
+            )
+            startFolderWatchConnectionRetryIfNeeded()
+            return
+        }
+        await processWatchedFile(record: record, rule: rule, route: route)
+    }
+
+    private func processWatchedFile(
+        record: FolderWatchRecord,
+        rule: FolderWatchRule,
+        route: FolderWatchRoute
+    ) async {
+        let decision = await runtime.fileIntakeArbiter.claim(
+            fileURL: record.fileURL,
+            source: .folderWatch
+        )
+        guard case let .granted(claim) = decision else {
+            if case let .denied(existingSource) = decision {
+                folderWatchStore.updateRecord(
+                    id: record.id,
+                    status: .ignored,
+                    message: "已由\(existingSource.displayName)接管，监控已跳过"
+                )
+            }
+            return
+        }
+
+        do {
+            try await Task.sleep(for: .milliseconds(200))
+        } catch {
+            await runtime.fileIntakeArbiter.release(claim)
+            return
+        }
+        guard await runtime.fileIntakeArbiter.commit(claim) else {
+            folderWatchStore.updateRecord(
+                id: record.id,
+                status: .ignored,
+                message: "本地 API 已优先接管，监控已跳过"
+            )
+            return
+        }
+        guard folderWatchEnabled,
+              let currentRule = folderWatchStore.rule(id: rule.id),
+              currentRule.enabled,
+              currentRule.matchingRoute(for: record.fileURL) == route else {
+            folderWatchStore.updateRecord(
+                id: record.id,
+                status: .ignored,
+                message: "监控规则已变更，本次处理已跳过"
+            )
+            await runtime.fileIntakeArbiter.release(claim)
+            return
+        }
+
+        folderWatchStore.updateRecord(
+            id: record.id,
+            status: .processing,
+            message: "已由文件夹监控接管"
+        )
+        switch route.action {
+        case .direct:
+            deliverWatchedFile(record: record, route: route, claim: claim)
         case .basket:
-            addWatchedFileToBasket(record: record, rule: rule, route: route)
+            if addWatchedFileToBasket(record: record, rule: rule, route: route) {
+                await runtime.fileIntakeArbiter.complete(claim)
+            } else {
+                await runtime.fileIntakeArbiter.release(claim)
+            }
         }
     }
 
     private func deliverWatchedFile(
         record: FolderWatchRecord,
-        route: FolderWatchRoute
+        route: FolderWatchRoute,
+        claim: FileIntakeClaim
     ) {
         guard route.action == .direct else { return }
         folderWatchStore.updateRecord(id: record.id, status: .processing, message: "已加入发送队列")
@@ -1644,16 +1729,21 @@ final class AppModel: ObservableObject {
             fileName: AppSettings.outgoingFileName(record.fileName)
         )
         Task { [weak self, runtime] in
-            guard let self else { return }
+            guard let self else {
+                await runtime.fileIntakeArbiter.release(claim)
+                return
+            }
             do {
                 _ = try await runtime.coordinator.send(request)
                 folderWatchStore.updateRecord(id: record.id, status: .sent, message: "发送完成")
+                await runtime.fileIntakeArbiter.complete(claim)
             } catch {
                 folderWatchStore.updateRecord(
                     id: record.id,
                     status: .failed,
                     message: sendFailureMessage(error)
                 )
+                await runtime.fileIntakeArbiter.release(claim)
             }
             await refreshServices()
         }
@@ -1663,10 +1753,12 @@ final class AppModel: ObservableObject {
         guard folderWatchEnabled, weChatStatus.isOnline else { return }
         let waiting = folderWatchStore.records.filter { $0.status == .waiting }
         for record in waiting {
+            guard folderWatchRetryingRecordIDs.insert(record.id).inserted else { continue }
             guard let rule = folderWatchStore.rule(id: record.ruleID),
                   rule.enabled,
                   let route = rule.matchingRoute(for: record.fileURL),
                   route.action == .direct else {
+                folderWatchRetryingRecordIDs.remove(record.id)
                 continue
             }
             guard FileManager.default.fileExists(atPath: record.filePath) else {
@@ -1675,9 +1767,14 @@ final class AppModel: ObservableObject {
                     status: .failed,
                     message: "等待期间文件已被移除"
                 )
+                folderWatchRetryingRecordIDs.remove(record.id)
                 continue
             }
-            deliverWatchedFile(record: record, route: route)
+            Task { [weak self] in
+                guard let self else { return }
+                await processWatchedFile(record: record, rule: rule, route: route)
+                folderWatchRetryingRecordIDs.remove(record.id)
+            }
         }
     }
 
@@ -1714,14 +1811,14 @@ final class AppModel: ObservableObject {
         record: FolderWatchRecord,
         rule: FolderWatchRule,
         route: FolderWatchRoute
-    ) {
+    ) -> Bool {
         guard shelfEnabled else {
             folderWatchStore.updateRecord(
                 id: record.id,
                 status: .failed,
                 message: "文件篮功能未启用"
             )
-            return
+            return false
         }
 
         let basket: ShelfModel
@@ -1732,7 +1829,7 @@ final class AppModel: ObservableObject {
                     status: .failed,
                     message: "目标文件篮已不存在"
                 )
-                return
+                return false
             }
             basket = selectedBasket
         } else if let recentID = fileBaskets.recentBasketID,
@@ -1749,7 +1846,7 @@ final class AppModel: ObservableObject {
                 status: .ignored,
                 message: "文件已在\(basket.title)中"
             )
-            return
+            return true
         }
         guard basket.add(urls: [record.fileURL]) == 1 else {
             folderWatchStore.updateRecord(
@@ -1757,7 +1854,7 @@ final class AppModel: ObservableObject {
                 status: .failed,
                 message: "无法加入\(basket.title)"
             )
-            return
+            return false
         }
         fileBaskets.markRecent(id: basket.id)
         folderWatchStore.updateRecord(
@@ -1766,6 +1863,7 @@ final class AppModel: ObservableObject {
             message: "已加入\(basket.title)"
         )
         onFolderWatchFileAddedToBasket?(basket.id)
+        return true
     }
 
     private func handleFolderWatchStatus(_ status: FolderWatchServiceStatus) {
@@ -1811,6 +1909,37 @@ final class AppModel: ObservableObject {
         case .streamCreationFailed:
             folderWatchStatusText = "监控启动失败"
             presentedError = "无法启动文件夹监控"
+        }
+    }
+
+    private func handleLocalAPIRequest(_ request: SendRequest) async throws -> LocalAPISendOutcome {
+        let fileURL = URL(fileURLWithPath: request.filePath)
+        let decision = await runtime.fileIntakeArbiter.claim(
+            fileURL: fileURL,
+            source: .localAPI
+        )
+        guard case let .granted(claim) = decision else {
+            if case let .denied(existingSource) = decision {
+                throw FileIntakeConflictError(existingSource: existingSource)
+            }
+            throw CancellationError()
+        }
+        guard await runtime.fileIntakeArbiter.commit(claim) else {
+            throw FileIntakeConflictError(existingSource: .folderWatch)
+        }
+
+        do {
+            let outcome: LocalAPISendOutcome
+            if AppSettings.localAPISendBehavior == .direct {
+                outcome = .sent(try await runtime.coordinator.send(request))
+            } else {
+                outcome = try addLocalAPIFileToBasket(request)
+            }
+            await runtime.fileIntakeArbiter.complete(claim)
+            return outcome
+        } catch {
+            await runtime.fileIntakeArbiter.release(claim)
+            throw error
         }
     }
 

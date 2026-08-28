@@ -1,52 +1,80 @@
-# Design QA
+# Notch Glass Fold Design QA
 
-**Source visual truth**
+## Evidence
 
-- `/var/folders/3x/gfdfg2x14f7_vd12c62fx0t40000gn/T/codex-clipboard-7cd99f40-c66b-4a42-a3f8-4002c3053c1c.png` — Dropover context menu, 728 × 1122 px
-- `/var/folders/3x/gfdfg2x14f7_vd12c62fx0t40000gn/T/codex-clipboard-5ad4f84d-9fe5-47d9-92f7-3b590e065cf9.png` — Dropover collapsed image stack, 396 × 414 px
-- `/var/folders/3x/gfdfg2x14f7_vd12c62fx0t40000gn/T/codex-clipboard-511dae35-594e-422d-8002-f031ad7be45c.png` — Dropover expanded file view, 800 × 620 px
+- Source visual truth: `/var/folders/3x/gfdfg2x14f7_vd12c62fx0t40000gn/T/codex-clipboard-5505bf91-1d0d-4aea-bb8f-f5898d62e6b8.png`
+- Implementation screenshot: `/tmp/weclaw-fold-narrow-final.jpeg`
+- Combined comparison: `/tmp/weclaw-fold-narrow-comparison.png`
+- State: fixed immediate-send mode, three dragged items, ready to release
+- Source pixels: 1740 × 904; generated concept without a measurable native point density
+- Implementation pixels: 352 × 122; native panel 352 × 122 pt at capture density 1
+- Implemented fold: approximately 145 × 40 pt on the QA MacBook display
+- Focused source crop: 700 × 280 px, normalized beside the implementation in the combined comparison
 
-**Implementation evidence**
+## Full-view comparison evidence
 
-- Intended app viewport: 340 × 340 pt expanded file basket, native macOS density.
-- Implementation screenshot: unavailable.
-- State intended for comparison: expanded basket containing several images and mixed file types, default grid mode, no selection; secondary states are list mode, multi-selection and collapsed stack.
-- Density normalization: not performed because a rendered implementation screenshot could not be captured.
+The source establishes the attached fold geometry, green plane icon, and native Chinese action label. The implementation preserves that hierarchy while intentionally reducing the fold from the concept's oversized proportion to a menu-bar-scale component, adapting the glass to the desktop appearance, and omitting the item count after user feedback. The app screenshot is component-only because the nonactivating transparent panel capture excludes surrounding desktop chrome.
 
-**Findings**
+## Focused region comparison evidence
 
-- [P1] Rendered app comparison is blocked.
-  Location: installed WeClaw Send file basket.
-  Evidence: the source Dropover screenshots are available, but the environment rejected the permission request needed to replace and launch `~/Applications/WeClaw Send.app`. A clean package build is additionally blocked by an inconsistent local Command Line Tools installation (Swift 6.2.4 with a macOS 26.2 SDK built by Swift 6.2.3), so there is no current-build implementation screenshot to combine with the source images. The changed `ShelfView.swift` and selection sources did compile before the unrelated module emission failure.
-  Impact: thumbnail crop, header density, three-column spacing, typography and interaction states cannot be visually approved from code alone.
-  Fix: align the active Swift toolchain and SDK, approve and run `./scripts/install.sh`, open a basket with representative images/documents/videos, capture the 340 × 340 pt window, then compare it with the Dropover expanded and collapsed references in one combined visual.
+The combined comparison checks the entire visible fold in both artifacts. A tighter crop was not needed because the icon, typography, radius, material, and edge treatment are all readable at this scale.
 
-**Required fidelity surfaces**
+## Required fidelity surfaces
 
-- Fonts and typography: implemented with macOS system font, 13 pt title, 11.5 pt item names and 9.5–10.5 pt metadata; rendered weights, truncation and antialiasing remain unverified.
-- Spacing and layout rhythm: implemented as a 340 × 340 pt window with adaptive three-column grid, 8 pt gaps and 10 pt cards; rendered header crowding and grid rhythm remain unverified.
-- Colors and visual tokens: uses existing app/system colors and system accent selection; rendered contrast remains unverified.
-- Image quality and asset fidelity: uses Quick Look thumbnails with high interpolation and system file-icon fallback; crop, sharpness and first-page/frame coverage remain unverified.
-- Copy and content: Chinese labels, item count/size summary, filenames and file-size metadata are implemented; rendered truncation remains unverified.
+- Fonts and typography: native system Chinese typography, semibold action label, and single-line copy match the intended hierarchy without truncation.
+- Spacing and layout rhythm: the fold is centered, compact, top-attached, and uses bottom-only 12 pt continuous corners. Internal icon/text spacing remains optically balanced in direct and basket modes after removing the count.
+- Colors and visual tokens: the plane uses `Brand.success`; the surface uses adaptive ultra-thin smoked glass, a 3% background correction, a 4.5% semantic state tint, and a short centered refraction line. No blue glow or opaque white card remains.
+- Image quality and asset fidelity: the UI contains no raster assets. The standard paper-plane and tray icons use SF Symbols at native resolution, appropriate for this macOS control.
+- Copy and content: `松手发送`, `松手加入文件篮`, the left/right hint, progress, success, and failure content all fit the compact surface. Project counts are not shown in any notch state; transfer progress percentage remains visible.
 
-**Full-view comparison evidence**
+## Comparison history
 
-Blocked: no rendered current-build implementation screenshot is available.
+### Iteration 1
 
-**Focused region comparison evidence**
+- Finding: [P1] The 220 × 60 pt fold was too large for the real menu-bar context.
+- Finding: [P1] Forced light appearance plus a 78% surface fill made the fold look like an opaque white panel instead of WeClaw glass.
+- Evidence: user rejected the first implementation as too large, off-brand, and opaque.
+- Fix: reduced the responsive fold to approximately 172 × 44 pt; changed to ultra-thin material with an 8% adaptive tint; reduced shadow opacity and radius; compacted feedback typography and progress layout.
 
-Blocked for the same reason. The first focused comparison should cover the header Grid/List control; the second should cover one image tile, one document/video tile and a multi-selected tile group.
+### Iteration 2
 
-**Comparison history**
+- Post-fix evidence: `/tmp/weclaw-fold-direct-final.jpeg` and the separately observed basket and sending QA states.
+- Result: no remaining actionable P0, P1, or P2 mismatch in the component state.
 
-- Iteration 1: blocked before visual comparison because the current build could not be cleanly packaged and installed/launched by the tool environment. No visual fixes were made from an unverified screenshot.
+### Iteration 3
 
-**Implementation checklist**
+- Finding: [P2] The 172 × 44 pt fold still occupied too much width in the user's real Finder context, and its forced light material read as a uniform gray panel rather than atmospheric glass.
+- Evidence: `/var/folders/3x/gfdfg2x14f7_vd12c62fx0t40000gn/T/codex-clipboard-57b77f3e-6056-4728-92b1-d60d31f42aeb.png`.
+- Fix: reduced the responsive fold to approximately 145 × 40 pt; restored adaptive appearance; added only a low-opacity semantic tint, short centered refraction line, and state-tinted ambient shadow.
+- Post-fix evidence: `/tmp/weclaw-fold-narrow-final.jpeg` and `/tmp/weclaw-fold-narrow-comparison.png`; basket and sending states were separately observed without truncation.
+- Result: no remaining actionable P0, P1, or P2 mismatch in the refined component state.
 
-- Align the local Swift compiler and macOS SDK, then install and launch the current build.
-- Populate one basket with representative image, video, PDF/document and folder items.
-- Capture default grid, list, multi-selected and collapsed states.
-- Combine source and implementation captures, fix any P0/P1/P2 drift, and repeat comparison.
-- Exercise box selection and drag all selected URLs into Finder.
+### Iteration 4
 
-final result: blocked
+- Finding: [P2] The item count added unnecessary visual weight to the compact action label and reappeared in preparing, sending, basket-success, and direct-success states.
+- Fix: removed project-count copy from every notch state while retaining the internal count for queue tracking and the percentage for transfer progress.
+- Post-fix evidence: direct, basket, sending, and success debug states were observed through the native macOS accessibility tree and component capture; no project count or stale spacing remained.
+- Result: no remaining actionable P0, P1, or P2 mismatch after count removal.
+
+## Findings
+
+- No actionable P0, P1, or P2 findings remain.
+
+## Open Questions
+
+- None blocking. A real user drag after installation remains useful for subjective motion tuning, but geometry, state content, and reduced-motion behavior use the existing verified controller path.
+
+## Implementation Checklist
+
+- [x] Compact fold scale
+- [x] Translucent app-aligned material
+- [x] Direct, basket, and left/right selection states
+- [x] Preparing, progress, success, and failure states
+- [x] Native typography and SF Symbols
+- [x] Reduced-motion compatibility
+
+## Follow-up Polish
+
+- [P3] If the unfolding spring feels too lively during a real drag, adjust only its response and damping after live use; no geometry change is required.
+
+final result: passed

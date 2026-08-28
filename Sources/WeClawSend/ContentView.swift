@@ -72,7 +72,7 @@ struct ContentView: View {
             }
         }
         .frame(width: Brand.panelWidth, height: Brand.panelHeight)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(.thinMaterial)
         .overlay(alignment: .top) {
             if let notice = model.transientNotice {
                 Label(notice, systemImage: "bell.fill")
@@ -202,26 +202,57 @@ struct ContentView: View {
                 .frame(width: 6, height: 6)
             if model.shelfEnabled {
                 Menu {
-                    Button {
-                        fileBasketCommands.create()
-                    } label: {
-                        Label("新建文件篮", systemImage: "plus")
+                    if fileBaskets.baskets.isEmpty {
+                        Button {
+                            fileBasketCommands.create()
+                        } label: {
+                            Label("新建文件篮", systemImage: "plus")
+                        }
+                    } else {
+                        Button {
+                            fileBasketCommands.toggleRecent()
+                        } label: {
+                            Label("显示或关闭最近文件篮", systemImage: "rectangle.stack")
+                        }
+
+                        Button {
+                            fileBasketCommands.create()
+                        } label: {
+                            Label("新建文件篮", systemImage: "plus")
+                        }
                     }
+
+                    Divider()
+
                     if !fileBaskets.baskets.isEmpty {
-                        Divider()
+                        Button(
+                            "\(fileBaskets.baskets.count) 个文件篮 · 共 \(fileBaskets.totalItemCount) 个项目"
+                        ) {}
+                        .disabled(true)
+
                         ForEach(fileBaskets.baskets, id: \.id) { basket in
                             Button {
                                 fileBasketCommands.show(basket.id)
                             } label: {
-                                Text("\(basket.title) · \(basket.items.count) 个文件")
+                                Label(
+                                    "\(basket.title) · \(basket.items.count) 个项目",
+                                    systemImage: basket.id == fileBaskets.recentBasketID
+                                        ? "clock.arrow.circlepath"
+                                        : "rectangle.stack"
+                                )
                             }
                         }
+
                         Divider()
+
                         Button("显示全部文件篮", action: fileBasketCommands.showAll)
                         Button("关闭全部文件篮", action: fileBasketCommands.closeAll)
+
+                        Divider()
+
                         Menu("删除文件篮") {
                             ForEach(fileBaskets.baskets, id: \.id) { basket in
-                                Button(basket.title, role: .destructive) {
+                                Button("\(basket.title) · \(basket.items.count) 个项目", role: .destructive) {
                                     requestBasketDeletion(basket)
                                 }
                             }
@@ -230,7 +261,20 @@ struct ContentView: View {
                         Button("删除全部文件篮…", role: .destructive) {
                             pendingBasketDeletion = .all
                         }
+                    } else {
+                        Button("还没有文件篮") {}
+                            .disabled(true)
                     }
+
+                    Divider()
+
+                    Toggle(
+                        "重启后恢复文件篮",
+                        isOn: Binding(
+                            get: { model.shelfRestoreOnLaunch },
+                            set: { model.setShelfRestoreOnLaunch($0) }
+                        )
+                    )
                 } label: {
                     Image(systemName: fileBaskets.baskets.isEmpty ? "rectangle.stack.badge.plus" : "rectangle.stack.fill")
                         .font(.system(size: 13, weight: .medium))
@@ -248,13 +292,11 @@ struct ContentView: View {
                                     .offset(x: 3, y: -2)
                             }
                         }
-                } primaryAction: {
-                    fileBasketCommands.toggleRecent()
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help(fileBaskets.baskets.isEmpty ? "新建文件篮" : "显示或隐藏最近文件篮；菜单可管理全部")
+                .help(fileBaskets.baskets.isEmpty ? "新建和管理文件篮" : "查看和管理文件篮")
                 .accessibilityLabel("文件篮，当前有 \(fileBaskets.baskets.count) 个")
             }
             Button {

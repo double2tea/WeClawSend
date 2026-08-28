@@ -47,7 +47,7 @@ final class FileBasketStore: ObservableObject {
     ) {
         self.defaults = defaults
         self.windowStatePersistenceDelay = windowStatePersistenceDelay
-        guard defaults.bool(forKey: AppSettings.shelfRestoreOnLaunchKey) else { return }
+        guard AppSettings.shelfRestoreOnLaunch(in: defaults) else { return }
         if let archive = restoreArchive() {
             restore(archive)
         } else {
@@ -190,14 +190,14 @@ final class FileBasketStore: ObservableObject {
     }
 
     private func persistIfNeeded() {
-        guard defaults.bool(forKey: AppSettings.shelfRestoreOnLaunchKey) else { return }
+        guard AppSettings.shelfRestoreOnLaunch(in: defaults) else { return }
         windowStatePersistenceTask?.cancel()
         windowStatePersistenceTask = nil
         persist()
     }
 
     private func scheduleWindowStatePersistenceIfNeeded() {
-        guard defaults.bool(forKey: AppSettings.shelfRestoreOnLaunchKey) else { return }
+        guard AppSettings.shelfRestoreOnLaunch(in: defaults) else { return }
         windowStatePersistenceTask?.cancel()
         windowStatePersistenceTask = Task { @MainActor [weak self] in
             guard let self else { return }

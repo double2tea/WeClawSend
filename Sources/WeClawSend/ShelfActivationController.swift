@@ -4,6 +4,7 @@ import Foundation
 
 struct ShelfActivationOptions: Equatable, Sendable {
     var isEnabled: Bool
+    var notchDropEnabled: Bool
     var shortcutEnabled: Bool
     var shortcut: ShelfGlobalShortcut
     var shakeEnabled: Bool
@@ -11,6 +12,7 @@ struct ShelfActivationOptions: Equatable, Sendable {
 
     static let enabled = ShelfActivationOptions(
         isEnabled: true,
+        notchDropEnabled: true,
         shortcutEnabled: true,
         shortcut: .default,
         shakeEnabled: true,
@@ -183,6 +185,10 @@ struct FileDragPasteboardSession: Sendable {
     private var initialChangeCount: Int?
     private var hasCurrentFilePayload = false
 
+    var containsFilePayload: Bool {
+        hasCurrentFilePayload
+    }
+
     mutating func begin(changeCount: Int) {
         initialChangeCount = changeCount
         hasCurrentFilePayload = false
@@ -209,6 +215,8 @@ final class ShelfActivationController {
     var onShortcut: (() -> Void)?
     var onShake: ((NSPoint) -> Void)?
     var onShakeEnded: ((NSPoint) -> Void)?
+    var onFileDragMoved: ((NSPoint) -> Void)?
+    var onFileDragEnded: ((NSPoint) -> Void)?
     var onError: ((String) -> Void)?
 
     private var options: ShelfActivationOptions
@@ -281,7 +289,7 @@ final class ShelfActivationController {
             unregisterHotKey()
         }
 
-        if options.isEnabled, options.shakeEnabled {
+        if options.notchDropEnabled || (options.isEnabled && options.shakeEnabled) {
             installDragMonitorIfNeeded()
         } else {
             removeDragMonitor()
@@ -386,10 +394,14 @@ final class ShelfActivationController {
             return
         }
         if event.type == .leftMouseUp {
+            let hadCurrentFilePayload = fileDragPasteboardSession.containsFilePayload
             if shakeSession.endDrag() {
                 onShakeEnded?(mouseLocation)
             }
             fileDragPasteboardSession.reset()
+            if options.notchDropEnabled, hadCurrentFilePayload {
+                onFileDragEnded?(mouseLocation)
+            }
             return
         }
         guard event.type == .leftMouseDragged else {
@@ -404,7 +416,12 @@ final class ShelfActivationController {
                 includingDirectories: true
             ).isEmpty
         )
-        if shakeSession.observe(
+        if options.notchDropEnabled, containsCurrentFiles {
+            onFileDragMoved?(mouseLocation)
+        }
+        if options.isEnabled,
+           options.shakeEnabled,
+           shakeSession.observe(
             point: mouseLocation,
             at: event.timestamp,
             containsFiles: containsCurrentFiles

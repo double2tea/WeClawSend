@@ -570,6 +570,7 @@ private final class HTTPConnectionHandler: @unchecked Sendable {
 
 private func httpStatus(for error: Error) -> Int {
     if error is DecodingError { return 400 }
+    if error is FileIntakeConflictError { return 409 }
     if case .notFound = error as? ScheduledSendError { return 404 }
     if case .conflict = error as? ScheduledSendError { return 409 }
     if case .invalidRequest = error as? ScheduledSendError { return 400 }

@@ -64,6 +64,22 @@ enum LocalAPISendBehavior: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+enum NotchDropBehavior: String, CaseIterable, Identifiable, Sendable {
+    case choose
+    case direct
+    case fileBasket = "file_basket"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .choose: "每次选择"
+        case .direct: "立即发送"
+        case .fileBasket: "放入文件篮"
+        }
+    }
+}
+
 enum ScheduledSendPreset: Int, CaseIterable, Identifiable, Sendable {
     case tenSeconds = 10
     case fifteenSeconds = 15
@@ -139,6 +155,8 @@ enum AppSettings {
     static let weChatCredentialSourceKey = "WeChatCredentialSource"
     static let openClawAccountIDKey = "OpenClawAccountID"
     static let shelfEnabledKey = "ShelfEnabled"
+    static let notchDropZoneEnabledKey = "NotchDropZoneEnabled"
+    static let notchDropBehaviorKey = "NotchDropBehavior"
     static let shelfShakeToOpenEnabledKey = "ShelfShakeToOpenEnabled"
     static let shelfShakeSensitivityKey = "ShelfShakeSensitivity"
     static let shelfGlobalShortcutEnabledKey = "ShelfGlobalShortcutEnabled"
@@ -217,6 +235,17 @@ enum AppSettings {
         bool(forKey: shelfEnabledKey, default: true)
     }
 
+    static var notchDropZoneEnabled: Bool {
+        bool(forKey: notchDropZoneEnabledKey, default: true)
+    }
+
+    static var notchDropBehavior: NotchDropBehavior {
+        let behavior = UserDefaults.standard.string(forKey: notchDropBehaviorKey)
+            .flatMap(NotchDropBehavior.init(rawValue:))
+            ?? .choose
+        return behavior == .fileBasket && !shelfEnabled ? .direct : behavior
+    }
+
     static var shelfShakeToOpenEnabled: Bool {
         bool(forKey: shelfShakeToOpenEnabledKey, default: true)
     }
@@ -256,7 +285,12 @@ enum AppSettings {
     }
 
     static var shelfRestoreOnLaunch: Bool {
-        bool(forKey: shelfRestoreOnLaunchKey, default: false)
+        shelfRestoreOnLaunch(in: .standard)
+    }
+
+    static func shelfRestoreOnLaunch(in defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: shelfRestoreOnLaunchKey) != nil else { return true }
+        return defaults.bool(forKey: shelfRestoreOnLaunchKey)
     }
 
     static var shelfClearAfterSend: Bool {
