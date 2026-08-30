@@ -42,6 +42,7 @@ struct ContentView: View {
     @State private var hoveredTransferID: UUID?
     @State private var isDataSafetyHovered = false
     @State private var pendingBasketDeletion: FileBasketDeletionRequest?
+    @State private var pendingTransferDeletionID: UUID?
     @State private var transferFilter: TransferHistoryFilter = .all
     @State private var hoveredTransferFilter: TransferHistoryFilter?
 
@@ -129,6 +130,21 @@ struct ContentView: View {
             }
         } message: {
             Text(pendingBasketDeletionMessage)
+        }
+        .confirmationDialog(
+            "删除这条记录？",
+            isPresented: Binding(
+                get: { pendingTransferDeletionID != nil },
+                set: { if !$0 { pendingTransferDeletionID = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("删除记录", role: .destructive, action: confirmTransferDeletion)
+            Button("取消", role: .cancel) {
+                pendingTransferDeletionID = nil
+            }
+        } message: {
+            Text("只移除任务记录，不会删除 Finder 中的原文件；自动生成且不再使用的临时归档会一并清理。")
         }
     }
 
@@ -341,6 +357,12 @@ struct ContentView: View {
         case .all:
             fileBasketCommands.deleteAll()
         }
+    }
+
+    private func confirmTransferDeletion() {
+        guard let id = pendingTransferDeletionID else { return }
+        pendingTransferDeletionID = nil
+        model.clearTransfers(ids: Set([id]))
     }
 
     private var deletionDialogTitle: String {
@@ -791,11 +813,28 @@ struct ContentView: View {
             hoveredTransferID = hovering ? transfer.id : nil
             updateQueueHoverSelection(.transfer(transfer.id), hovering: hovering)
         }
+        .onLongPressGesture(minimumDuration: 0.6) {
+            guard transfer.isTerminal else { return }
+            pendingTransferDeletionID = transfer.id
+        }
+        .contextMenu {
+            if transfer.isTerminal {
+                Button("删除记录…", role: .destructive) {
+                    pendingTransferDeletionID = transfer.id
+                }
+            }
+        }
         .animation(
             reduceMotion ? nil : .easeOut(duration: 0.12),
             value: model.queueSelection == .transfer(transfer.id) || hoveredTransferID == transfer.id
         )
-        .help(displayedFailureMessage(transfer) ?? transfer.message ?? "点缩略图预览，连按文件名在 Finder 中显示")
+        .help(
+            displayedFailureMessage(transfer)
+                ?? transfer.message
+                ?? (transfer.isTerminal
+                    ? "点缩略图预览，连按文件名在 Finder 中显示；长按或右键可删除记录"
+                    : "点缩略图预览，连按文件名在 Finder 中显示")
+        )
     }
 
     private func updateQueueHoverSelection(_ selection: QueueSelection, hovering: Bool) {
