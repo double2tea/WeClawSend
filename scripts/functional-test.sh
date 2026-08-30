@@ -68,6 +68,18 @@ BUNDLE="$(realpath "$ROOT/.build/WeClaw Send.app")"
     && ok "bundle icon metadata" || bad "CFBundleIconFile not AppIcon"
 /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$BUNDLE/Contents/Info.plist" | grep -qx public.movie \
     && ok "Final Cut video handoff metadata" || bad "public.movie document type missing"
+/usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSMessage' "$BUNDLE/Contents/Info.plist" | grep -qx sendSelectedFiles \
+    && ok "Finder send service metadata" || bad "Finder send service missing"
+/usr/libexec/PlistBuddy -c 'Print :NSServices:1:NSMessage' "$BUNDLE/Contents/Info.plist" | grep -qx addSelectedFilesToBasket \
+    && ok "Finder basket service metadata" || bad "Finder basket service missing"
+/usr/libexec/PlistBuddy -c 'Print :NSAppleEventsUsageDescription' "$BUNDLE/Contents/Info.plist" | grep -q Finder \
+    && ok "Finder Automation privacy description" || bad "Finder Automation privacy description missing"
+if /usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSKeyEquivalent' "$BUNDLE/Contents/Info.plist" >/dev/null 2>&1 \
+    || /usr/libexec/PlistBuddy -c 'Print :NSServices:1:NSKeyEquivalent' "$BUNDLE/Contents/Info.plist" >/dev/null 2>&1; then
+    bad "Finder service shortcuts still conflict with App-managed hotkeys"
+else
+    ok "Finder service shortcuts delegated to App"
+fi
 
 print "== 3) reinstall & launch =="
 killall WeClawSend >/dev/null 2>&1 || true

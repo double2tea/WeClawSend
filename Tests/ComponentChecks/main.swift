@@ -712,6 +712,14 @@ let shelfSettingKeys: [String] = [
     AppSettings.shelfGlobalShortcutKeyCodeKey,
     AppSettings.shelfGlobalShortcutModifiersKey,
     AppSettings.shelfGlobalShortcutLabelKey,
+    AppSettings.finderSendShortcutEnabledKey,
+    AppSettings.finderSendShortcutKeyCodeKey,
+    AppSettings.finderSendShortcutModifiersKey,
+    AppSettings.finderSendShortcutLabelKey,
+    AppSettings.finderBasketShortcutEnabledKey,
+    AppSettings.finderBasketShortcutKeyCodeKey,
+    AppSettings.finderBasketShortcutModifiersKey,
+    AppSettings.finderBasketShortcutLabelKey,
     AppSettings.shelfAlwaysOnTopKey,
     AppSettings.shelfKeepItemsOnCloseKey,
     AppSettings.shelfRestoreOnLaunchKey,
@@ -752,6 +760,12 @@ precondition(AppSettings.shelfShakeSensitivity.title == "中")
 precondition(AppSettings.shelfGlobalShortcutEnabled)
 precondition(AppSettings.shelfGlobalShortcut == .default)
 precondition(ShelfGlobalShortcut.default.displayText == "⌥⌘S")
+precondition(AppSettings.finderSendShortcutEnabled)
+precondition(AppSettings.finderSendShortcut == .finderSendDefault)
+precondition(AppSettings.finderSendShortcut.displayText == "⇧⌘X")
+precondition(AppSettings.finderBasketShortcutEnabled)
+precondition(AppSettings.finderBasketShortcut == .finderBasketDefault)
+precondition(AppSettings.finderBasketShortcut.displayText == "⇧⌘B")
 precondition(ShelfGlobalShortcut(keyCode: 1, modifiers: 0, keyLabel: "S") == nil)
 let customShelfShortcut = ShelfGlobalShortcut(
     keyCode: 40,
@@ -789,6 +803,33 @@ let invalidShortcutEvent = NSEvent.keyEvent(
     keyCode: 40
 )!
 precondition(ShelfGlobalShortcut(event: invalidShortcutEvent) == nil)
+let customFinderSendShortcut = ShelfGlobalShortcut(
+    keyCode: 17,
+    modifiers: ShelfGlobalShortcut.finderSendDefault.modifiers,
+    keyLabel: "T"
+)!
+UserDefaults.standard.set(
+    Int(customFinderSendShortcut.keyCode),
+    forKey: AppSettings.finderSendShortcutKeyCodeKey
+)
+UserDefaults.standard.set(
+    Int(customFinderSendShortcut.modifiers),
+    forKey: AppSettings.finderSendShortcutModifiersKey
+)
+UserDefaults.standard.set(
+    customFinderSendShortcut.keyLabel,
+    forKey: AppSettings.finderSendShortcutLabelKey
+)
+precondition(AppSettings.finderSendShortcut == customFinderSendShortcut)
+let finderSelectionDescriptor = NSAppleEventDescriptor.list()
+finderSelectionDescriptor.insert(NSAppleEventDescriptor(string: "/tmp/WeClaw A.mp4"), at: 1)
+finderSelectionDescriptor.insert(NSAppleEventDescriptor(string: "/tmp/WeClaw B"), at: 2)
+finderSelectionDescriptor.insert(NSAppleEventDescriptor(string: "/tmp/WeClaw A.mp4"), at: 3)
+precondition(
+    FinderSelectionReader.urls(from: finderSelectionDescriptor).map(\.path)
+        == ["/tmp/WeClaw A.mp4", "/tmp/WeClaw B"]
+)
+precondition(FinderSelectionReader.urls(from: .list()).isEmpty)
 precondition(AppSettings.shelfAlwaysOnTop)
 precondition(AppSettings.shelfKeepItemsOnClose)
 precondition(AppSettings.shelfRestoreOnLaunch)
@@ -2756,6 +2797,35 @@ precondition(
     fileURLs(from: pasteboard, includingDirectories: true)
         == [fileURL, secondFileURL, FileManager.default.temporaryDirectory]
 )
+MainActor.assumeIsolated {
+    var invocations: [(action: FinderServiceAction, urls: [URL])] = []
+    let serviceProvider = FinderServiceProvider { action, urls in
+        invocations.append((action, urls))
+    }
+    var serviceError: NSString?
+    serviceProvider.sendSelectedFiles(
+        pasteboard,
+        userData: nil,
+        error: &serviceError
+    )
+    precondition(serviceError == nil)
+    precondition(invocations.count == 1)
+    precondition(invocations[0].action == .send)
+    precondition(invocations[0].urls == [fileURL, secondFileURL])
+
+    serviceProvider.addSelectedFilesToBasket(
+        pasteboard,
+        userData: nil,
+        error: &serviceError
+    )
+    precondition(serviceError == nil)
+    precondition(invocations.count == 2)
+    precondition(invocations[1].action == .addToBasket)
+    precondition(
+        invocations[1].urls
+            == [fileURL, secondFileURL, FileManager.default.temporaryDirectory]
+    )
+}
 pasteboard.clearContents()
 
 print("Component checks passed")

@@ -12,6 +12,15 @@ python3 -m unittest discover \
 plutil -lint "$ROOT/Resources/Info.plist" >/dev/null
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$ROOT/Resources/Info.plist")" == "public.movie" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSHandlerRank' "$ROOT/Resources/Info.plist")" == "Alternate" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSMessage' "$ROOT/Resources/Info.plist")" == "sendSelectedFiles" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :NSServices:1:NSMessage' "$ROOT/Resources/Info.plist")" == "addSelectedFilesToBasket" ]]
+[[ -n "$(/usr/libexec/PlistBuddy -c 'Print :NSAppleEventsUsageDescription' "$ROOT/Resources/Info.plist")" ]]
+if /usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSKeyEquivalent' "$ROOT/Resources/Info.plist" >/dev/null 2>&1; then
+    exit 1
+fi
+if /usr/libexec/PlistBuddy -c 'Print :NSServices:1:NSKeyEquivalent' "$ROOT/Resources/Info.plist" >/dev/null 2>&1; then
+    exit 1
+fi
 APP_CHANNEL="$(/usr/libexec/PlistBuddy -c 'Print :WeClawReleaseChannel' "$ROOT/Resources/Info.plist")"
 [[ "$APP_CHANNEL" == "stable" || "$APP_CHANNEL" == "beta" ]]
 
@@ -32,6 +41,9 @@ swiftc \
     -I "$ROOT/Sources/CCommonCrypto" \
     -Xcc -fmodule-map-file="$ROOT/Sources/CCommonCrypto/module.modulemap" \
     "$ROOT/Sources/WeClawSend/PasteboardURLs.swift" \
+    "$ROOT/Sources/WeClawSend/FinderServiceProvider.swift" \
+    "$ROOT/Sources/WeClawSend/FinderSelectionReader.swift" \
+    "$ROOT/Sources/WeClawSend/FinderShortcutController.swift" \
     "$ROOT/Sources/WeClawSend/ShelfGlobalShortcut.swift" \
     "$ROOT/Sources/WeClawSend/AppSettings.swift" \
     "$ROOT/Sources/WeClawSend/FileIntakeArbiter.swift" \

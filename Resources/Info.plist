@@ -45,5 +45,54 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>用于在你按下 Finder 快捷键时读取当前所选文件，并执行发送或放入文件篮操作。</string>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>通过 WeClaw Send 发送</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>sendSelectedFiles</string>
+			<key>NSPortName</key>
+			<string>WeClawSend</string>
+			<key>NSRequiredContext</key>
+			<dict>
+				<key>NSApplicationIdentifier</key>
+				<string>com.apple.finder</string>
+			</dict>
+			<key>NSServiceDescription</key>
+			<string>立即发送 Finder 中选择的文件</string>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.item</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>放入 WeClaw 文件篮</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>addSelectedFilesToBasket</string>
+			<key>NSPortName</key>
+			<string>WeClawSend</string>
+			<key>NSRequiredContext</key>
+			<dict>
+				<key>NSApplicationIdentifier</key>
+				<string>com.apple.finder</string>
+			</dict>
+			<key>NSServiceDescription</key>
+			<string>把 Finder 中选择的项目加入最近使用的文件篮</string>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.item</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

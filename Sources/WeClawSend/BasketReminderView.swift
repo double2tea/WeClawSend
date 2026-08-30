@@ -8,7 +8,7 @@ struct BasketReminderView: View {
     let title: String
     let url: URL
     let isEditable: Bool
-    let color: Color
+    let basketColor: FileBasketColor
     let backgroundOpacity: Double
     let onEdit: () -> Void
     let onCopy: () -> Void
@@ -35,9 +35,10 @@ struct BasketReminderView: View {
         .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .stroke(color.opacity(0.23), lineWidth: 1)
+                .stroke(accentColor.opacity(0.32), lineWidth: 1)
         }
         .frame(minWidth: 320, minHeight: 140)
+        .environment(\.colorScheme, .dark)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hoveredAction)
         .task(id: url.standardizedFileURL.path) {
             await loadText()
@@ -47,7 +48,7 @@ struct BasketReminderView: View {
     private var header: some View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(color)
+                .fill(accentColor)
                 .frame(width: 4, height: 20)
 
             VStack(alignment: .leading, spacing: 1) {
@@ -129,7 +130,7 @@ struct BasketReminderView: View {
                 } label: {
                     Image(systemName: isChecked ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(isChecked ? color : Color.secondary)
+                        .foregroundStyle(isChecked ? accentColor : Color.secondary)
                 }
                 .buttonStyle(.plain)
                 .disabled(!isEditable)
@@ -235,7 +236,7 @@ struct BasketReminderView: View {
                 )
                 .overlay {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(hoveredAction == action ? color.opacity(0.4) : .clear, lineWidth: 1)
+                        .stroke(hoveredAction == action ? accentColor.opacity(0.5) : .clear, lineWidth: 1)
                 }
                 .overlay(alignment: .top) {
                     if !showsLabel, hoveredAction == action {
@@ -268,8 +269,12 @@ struct BasketReminderView: View {
     private var backgroundSurface: some View {
         ZStack {
             Color.black.opacity(min(max(backgroundOpacity, 0.35), 1))
-            color.opacity(0.08)
+            accentColor.opacity(basketColor == .graphite ? 0.035 : 0.09)
         }
+    }
+
+    private var accentColor: Color {
+        basketColor == .graphite ? Color.white.opacity(0.78) : basketColor.color
     }
 
     private enum ReminderAction: Hashable {

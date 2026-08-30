@@ -163,6 +163,14 @@ enum AppSettings {
     static let shelfGlobalShortcutKeyCodeKey = "ShelfGlobalShortcutKeyCode"
     static let shelfGlobalShortcutModifiersKey = "ShelfGlobalShortcutModifiers"
     static let shelfGlobalShortcutLabelKey = "ShelfGlobalShortcutLabel"
+    static let finderSendShortcutEnabledKey = "FinderSendShortcutEnabled"
+    static let finderSendShortcutKeyCodeKey = "FinderSendShortcutKeyCode"
+    static let finderSendShortcutModifiersKey = "FinderSendShortcutModifiers"
+    static let finderSendShortcutLabelKey = "FinderSendShortcutLabel"
+    static let finderBasketShortcutEnabledKey = "FinderBasketShortcutEnabled"
+    static let finderBasketShortcutKeyCodeKey = "FinderBasketShortcutKeyCode"
+    static let finderBasketShortcutModifiersKey = "FinderBasketShortcutModifiers"
+    static let finderBasketShortcutLabelKey = "FinderBasketShortcutLabel"
     static let shelfAlwaysOnTopKey = "ShelfAlwaysOnTop"
     static let shelfKeepItemsOnCloseKey = "ShelfKeepItemsOnClose"
     static let shelfRestoreOnLaunchKey = "ShelfRestoreOnLaunch"
@@ -262,16 +270,56 @@ enum AppSettings {
     }
 
     static var shelfGlobalShortcut: ShelfGlobalShortcut {
+        globalShortcut(
+            keyCodeKey: shelfGlobalShortcutKeyCodeKey,
+            modifiersKey: shelfGlobalShortcutModifiersKey,
+            labelKey: shelfGlobalShortcutLabelKey,
+            default: .default
+        )
+    }
+
+    static var finderSendShortcutEnabled: Bool {
+        bool(forKey: finderSendShortcutEnabledKey, default: true)
+    }
+
+    static var finderSendShortcut: ShelfGlobalShortcut {
+        globalShortcut(
+            keyCodeKey: finderSendShortcutKeyCodeKey,
+            modifiersKey: finderSendShortcutModifiersKey,
+            labelKey: finderSendShortcutLabelKey,
+            default: .finderSendDefault
+        )
+    }
+
+    static var finderBasketShortcutEnabled: Bool {
+        bool(forKey: finderBasketShortcutEnabledKey, default: true)
+    }
+
+    static var finderBasketShortcut: ShelfGlobalShortcut {
+        globalShortcut(
+            keyCodeKey: finderBasketShortcutKeyCodeKey,
+            modifiersKey: finderBasketShortcutModifiersKey,
+            labelKey: finderBasketShortcutLabelKey,
+            default: .finderBasketDefault
+        )
+    }
+
+    private static func globalShortcut(
+        keyCodeKey: String,
+        modifiersKey: String,
+        labelKey: String,
+        default defaultShortcut: ShelfGlobalShortcut
+    ) -> ShelfGlobalShortcut {
         let defaults = UserDefaults.standard
-        guard defaults.object(forKey: shelfGlobalShortcutKeyCodeKey) != nil,
-              defaults.object(forKey: shelfGlobalShortcutModifiersKey) != nil,
+        guard defaults.object(forKey: keyCodeKey) != nil,
+              defaults.object(forKey: modifiersKey) != nil,
               let shortcut = ShelfGlobalShortcut(
-                  keyCode: UInt32(defaults.integer(forKey: shelfGlobalShortcutKeyCodeKey)),
-                  modifiers: UInt32(defaults.integer(forKey: shelfGlobalShortcutModifiersKey)),
-                  keyLabel: defaults.string(forKey: shelfGlobalShortcutLabelKey)
+                  keyCode: UInt32(defaults.integer(forKey: keyCodeKey)),
+                  modifiers: UInt32(defaults.integer(forKey: modifiersKey)),
+                  keyLabel: defaults.string(forKey: labelKey)
               )
         else {
-            return .default
+            return defaultShortcut
         }
         return shortcut
     }

@@ -8,6 +8,16 @@ struct ShelfGlobalShortcut: Equatable, Sendable {
         modifiers: UInt32(cmdKey | optionKey),
         keyLabel: "S"
     )!
+    nonisolated static let finderSendDefault = ShelfGlobalShortcut(
+        keyCode: UInt32(kVK_ANSI_X),
+        modifiers: UInt32(cmdKey | shiftKey),
+        keyLabel: "X"
+    )!
+    nonisolated static let finderBasketDefault = ShelfGlobalShortcut(
+        keyCode: UInt32(kVK_ANSI_B),
+        modifiers: UInt32(cmdKey | shiftKey),
+        keyLabel: "B"
+    )!
 
     nonisolated static let supportedModifierMask = UInt32(cmdKey | optionKey | controlKey | shiftKey)
     nonisolated static let primaryModifierMask = UInt32(cmdKey | optionKey | controlKey)
@@ -141,6 +151,8 @@ struct ShelfGlobalShortcut: Equatable, Sendable {
 
 struct ShelfShortcutRecorder: View {
     let shortcut: ShelfGlobalShortcut
+    var defaultShortcut: ShelfGlobalShortcut = .default
+    var resetHelp: String = "恢复默认快捷键 ⌥⌘S"
     let onChange: (ShelfGlobalShortcut) -> Void
 
     @State private var isRecording = false
@@ -159,16 +171,16 @@ struct ShelfShortcutRecorder: View {
             .help("点击后按下新快捷键；Esc 取消，Delete 恢复默认")
             .accessibilityLabel(isRecording ? "正在录入全局快捷键" : "全局快捷键 \(shortcut.displayText)")
 
-            if shortcut != .default {
+            if shortcut != defaultShortcut {
                 Button {
-                    onChange(.default)
+                    onChange(defaultShortcut)
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 9.5, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("恢复默认快捷键 ⌥⌘S")
+                .help(resetHelp)
                 .accessibilityLabel("恢复默认快捷键")
             }
         }
@@ -176,7 +188,7 @@ struct ShelfShortcutRecorder: View {
             ShelfShortcutCaptureView(
                 isRecording: $isRecording,
                 onShortcut: onChange,
-                onReset: { onChange(.default) }
+                onReset: { onChange(defaultShortcut) }
             )
         }
         .onDisappear { isRecording = false }

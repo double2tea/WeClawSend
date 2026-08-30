@@ -21,12 +21,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     private var openPanelDestination: FileSelectionDestination?
     private var fileBasketCoordinator: FileBasketWindowCoordinator!
     private let shelfActivationController = ShelfActivationController()
+    private let finderShortcutController = FinderShortcutController(
+        options: FinderShortcutOptions(
+            sendEnabled: AppSettings.finderSendShortcutEnabled,
+            sendShortcut: AppSettings.finderSendShortcut,
+            basketEnabled: AppSettings.shelfEnabled && AppSettings.finderBasketShortcutEnabled,
+            basketShortcut: AppSettings.finderBasketShortcut
+        )
+    )
     private var popoverAutoClosePolicy = PopoverAutoClosePolicy()
     private var popoverAutoCloseTask: Task<Void, Never>?
     private var popoverEventMonitor: Any?
     private var popoverKeyMonitor: Any?
     private let queueQuickLook = QueueQuickLookBridge()
     private var notchDropController: NotchDropController!
+    private var finderServiceProvider: FinderServiceProvider?
     private var shakeBasketID: UUID?
     private var lastFolderWatchBasketReveal: (id: UUID, date: Date)?
     private var statusDropView: StatusItemDropView?
@@ -91,6 +100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
                 self?.openNotchDropDetails(target: target)
             }
         )
+        let finderServiceProvider = FinderServiceProvider { [weak self] action, urls in
+            self?.performFinderService(action, urls: urls)
+        }
+        self.finderServiceProvider = finderServiceProvider
+        NSApp.servicesProvider = finderServiceProvider
+        NSUpdateDynamicServices()
         // 与 Brand 尺寸保持一致，避免 SwiftUI 内容被裁切
         popover.contentViewController = NSHostingController(
             rootView: ContentView(
@@ -141,6 +156,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         }
         shelfActivationController.update(options: shelfActivationOptions)
         shelfActivationController.start()
+
+        finderShortcutController.onSend = { [weak self] in
+            self?.performFinderShortcut(.send)
+        }
+        finderShortcutController.onAddToBasket = { [weak self] in
+            self?.performFinderShortcut(.addToBasket)
+        }
+        finderShortcutController.onError = { [weak self] message in
+            guard let self else { return }
+            model.presentedError = message
+            showPopover()
+        }
+        finderShortcutController.update(options: finderShortcutOptions)
+        finderShortcutController.start()
 
         model.onContextRefreshRequired = { [weak self] in
             guard let self, !popover.isShown else { return }
@@ -207,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        finderShortcutController.stop()
         model.stopFolderWatching()
         model.fileBaskets.flushPendingPersistence()
     }
@@ -279,10 +309,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         )
     }
 
+    private var finderShortcutOptions: FinderShortcutOptions {
+        FinderShortcutOptions(
+            sendEnabled: model.finderSendShortcutEnabled,
+            sendShortcut: model.finderSendShortcut,
+            basketEnabled: model.shelfEnabled && model.finderBasketShortcutEnabled,
+            basketShortcut: model.finderBasketShortcut
+        )
+    }
+
     private func applyShelfPreferences() {
         fileBasketCoordinator.applyPreferences()
         notchDropController.setEnabled(model.notchDropZoneEnabled)
         shelfActivationController.update(options: shelfActivationOptions)
+        finderShortcutController.update(options: finderShortcutOptions)
     }
 
     private func observeMenuBarActivity() {
@@ -370,6 +410,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
             }
             fileBasketCoordinator.show(id: basket.id, expanded: true)
             return .saved("项目已在\(basket.title)中")
+        }
+    }
+
+    private func performFinderService(_ action: FinderServiceAction, urls: [URL]) {
+        let target: NotchDropTarget = switch action {
+        case .send: .direct
+        case .addToBasket: .basket
+        }
+        let submission = submitNotchDrop(target: target, urls: urls)
+        guard case let .rejected(message) = submission else { return }
+        model.presentedError = message
+        showPopover()
+    }
+
+    private func performFinderShortcut(_ action: FinderServiceAction) {
+        do {
+            performFinderService(action, urls: try FinderSelectionReader.selectedURLs())
+        } catch {
+            model.presentedError = error.localizedDescription
+            showPopover()
         }
     }
 

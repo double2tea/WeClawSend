@@ -752,6 +752,57 @@ struct ServicesView: View {
                     .padding(.top, 6)
                 }
 
+                shelfSettingsGroupLabel("Finder 右键与快捷键")
+
+                finderShortcutRow(
+                    icon: "paperplane",
+                    title: "立即发送所选文件",
+                    subtitle: "Finder 右键「服务」或使用全局快捷键",
+                    shortcut: model.finderSendShortcut,
+                    defaultShortcut: .finderSendDefault,
+                    isEnabled: Binding(
+                        get: { model.finderSendShortcutEnabled },
+                        set: { model.setFinderSendShortcutEnabled($0) }
+                    ),
+                    isAvailable: true,
+                    onChange: model.setFinderSendShortcut
+                )
+
+                Divider().opacity(0.35).padding(.vertical, 6)
+
+                finderShortcutRow(
+                    icon: "tray.and.arrow.down",
+                    title: "放入最近文件篮",
+                    subtitle: model.shelfEnabled
+                        ? "Finder 右键「服务」或使用全局快捷键"
+                        : "启用文件篮后可使用",
+                    shortcut: model.finderBasketShortcut,
+                    defaultShortcut: .finderBasketDefault,
+                    isEnabled: Binding(
+                        get: { model.finderBasketShortcutEnabled },
+                        set: { model.setFinderBasketShortcutEnabled($0) }
+                    ),
+                    isAvailable: model.shelfEnabled,
+                    onChange: model.setFinderBasketShortcut
+                )
+
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("快捷键首次读取 Finder 所选项目时，macOS 会请求自动化权限。右键服务不需要该权限。")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 6)
+                    Button("权限设置…") {
+                        guard let url = URL(
+                            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+                        ) else { return }
+                        openURL(url)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                }
+                .padding(.top, 8)
+
                 if model.shelfEnabled {
                     shelfSettingsGroupLabel("唤出方式")
 
@@ -891,6 +942,51 @@ struct ServicesView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 2)
+    }
+
+    private func finderShortcutRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        shortcut: ShelfGlobalShortcut,
+        defaultShortcut: ShelfGlobalShortcut,
+        isEnabled: Binding<Bool>,
+        isAvailable: Bool,
+        onChange: @escaping (ShelfGlobalShortcut) -> Void
+    ) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.primary.opacity(0.05)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 11.5, weight: .medium))
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 8)
+            ShelfShortcutRecorder(
+                shortcut: shortcut,
+                defaultShortcut: defaultShortcut,
+                resetHelp: "恢复默认快捷键 \(defaultShortcut.displayText)",
+                onChange: onChange
+            )
+            Toggle(
+                "",
+                isOn: isEnabled
+            )
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .tint(Brand.controlAccent)
+            .accessibilityLabel("启用\(title)快捷键")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 2)
+        .disabled(!isAvailable)
     }
 
     private func shelfSettingsGroupLabel(_ title: String) -> some View {

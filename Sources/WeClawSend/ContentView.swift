@@ -276,22 +276,22 @@ struct ContentView: View {
                         )
                     )
                 } label: {
-                    Image(systemName: fileBaskets.baskets.isEmpty ? "rectangle.stack.badge.plus" : "rectangle.stack.fill")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Brand.accent)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                        .overlay(alignment: .topTrailing) {
-                            if !fileBaskets.baskets.isEmpty {
-                                Text(fileBaskets.baskets.count > 9 ? "9+" : String(fileBaskets.baskets.count))
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 3.5)
-                                    .frame(minWidth: 14, minHeight: 14)
-                                    .background(Capsule().fill(Brand.action))
-                                    .offset(x: 3, y: -2)
-                            }
+                    HStack(spacing: 4) {
+                        Image(systemName: fileBaskets.baskets.isEmpty ? "rectangle.stack.badge.plus" : "rectangle.stack.fill")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Brand.accent)
+                            .frame(width: 24, height: 28)
+
+                        if !fileBaskets.baskets.isEmpty {
+                            Text(fileBaskets.baskets.count > 9 ? "9+" : String(fileBaskets.baskets.count))
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(Brand.accent)
+                                .frame(minWidth: 10)
                         }
+                    }
+                    .frame(height: 28)
+                    .contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)

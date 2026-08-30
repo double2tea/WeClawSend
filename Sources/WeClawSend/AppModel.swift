@@ -79,6 +79,20 @@ final class AppModel: ObservableObject {
     static let maxRecentTransfers = 20
     static let maxFailedTransfers = 20
 
+    private enum ShortcutSlot {
+        case shelf
+        case finderSend
+        case finderBasket
+
+        var title: String {
+            switch self {
+            case .shelf: "显示最近文件篮"
+            case .finderSend: "Finder 立即发送"
+            case .finderBasket: "Finder 放入文件篮"
+            }
+        }
+    }
+
     private static var bundledUpdateChannel: AppUpdateChannel {
         guard
             let value = Bundle.main.object(forInfoDictionaryKey: "WeClawReleaseChannel") as? String,
@@ -130,6 +144,10 @@ final class AppModel: ObservableObject {
     @Published var shelfShakeSensitivity = AppSettings.shelfShakeSensitivity
     @Published var shelfGlobalShortcutEnabled = AppSettings.shelfGlobalShortcutEnabled
     @Published var shelfGlobalShortcut = AppSettings.shelfGlobalShortcut
+    @Published var finderSendShortcutEnabled = AppSettings.finderSendShortcutEnabled
+    @Published var finderSendShortcut = AppSettings.finderSendShortcut
+    @Published var finderBasketShortcutEnabled = AppSettings.finderBasketShortcutEnabled
+    @Published var finderBasketShortcut = AppSettings.finderBasketShortcut
     @Published var shelfAlwaysOnTop = AppSettings.shelfAlwaysOnTop
     @Published var shelfKeepItemsOnClose = AppSettings.shelfKeepItemsOnClose
     @Published var shelfRestoreOnLaunch = AppSettings.shelfRestoreOnLaunch
@@ -721,6 +739,10 @@ final class AppModel: ObservableObject {
     }
 
     func setShelfGlobalShortcutEnabled(_ enabled: Bool) {
+        if enabled, let conflict = shortcutConflict(for: shelfGlobalShortcut, excluding: .shelf) {
+            presentedError = "快捷键 \(shelfGlobalShortcut.displayText) 已用于\(conflict.title)"
+            return
+        }
         shelfGlobalShortcutEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: AppSettings.shelfGlobalShortcutEnabledKey)
         onShelfPreferencesChanged?()
@@ -728,12 +750,100 @@ final class AppModel: ObservableObject {
 
     func setShelfGlobalShortcut(_ shortcut: ShelfGlobalShortcut) {
         guard shortcut != shelfGlobalShortcut else { return }
+        if shelfGlobalShortcutEnabled,
+           let conflict = shortcutConflict(for: shortcut, excluding: .shelf) {
+            presentedError = "快捷键 \(shortcut.displayText) 已用于\(conflict.title)"
+            return
+        }
         shelfGlobalShortcut = shortcut
-        let defaults = UserDefaults.standard
-        defaults.set(Int(shortcut.keyCode), forKey: AppSettings.shelfGlobalShortcutKeyCodeKey)
-        defaults.set(Int(shortcut.modifiers), forKey: AppSettings.shelfGlobalShortcutModifiersKey)
-        defaults.set(shortcut.keyLabel, forKey: AppSettings.shelfGlobalShortcutLabelKey)
+        storeShortcut(
+            shortcut,
+            keyCodeKey: AppSettings.shelfGlobalShortcutKeyCodeKey,
+            modifiersKey: AppSettings.shelfGlobalShortcutModifiersKey,
+            labelKey: AppSettings.shelfGlobalShortcutLabelKey
+        )
         onShelfPreferencesChanged?()
+    }
+
+    func setFinderSendShortcutEnabled(_ enabled: Bool) {
+        if enabled, let conflict = shortcutConflict(for: finderSendShortcut, excluding: .finderSend) {
+            presentedError = "快捷键 \(finderSendShortcut.displayText) 已用于\(conflict.title)"
+            return
+        }
+        finderSendShortcutEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.finderSendShortcutEnabledKey)
+        onShelfPreferencesChanged?()
+    }
+
+    func setFinderSendShortcut(_ shortcut: ShelfGlobalShortcut) {
+        guard shortcut != finderSendShortcut else { return }
+        if finderSendShortcutEnabled,
+           let conflict = shortcutConflict(for: shortcut, excluding: .finderSend) {
+            presentedError = "快捷键 \(shortcut.displayText) 已用于\(conflict.title)"
+            return
+        }
+        finderSendShortcut = shortcut
+        storeShortcut(
+            shortcut,
+            keyCodeKey: AppSettings.finderSendShortcutKeyCodeKey,
+            modifiersKey: AppSettings.finderSendShortcutModifiersKey,
+            labelKey: AppSettings.finderSendShortcutLabelKey
+        )
+        onShelfPreferencesChanged?()
+    }
+
+    func setFinderBasketShortcutEnabled(_ enabled: Bool) {
+        if enabled,
+           let conflict = shortcutConflict(for: finderBasketShortcut, excluding: .finderBasket) {
+            presentedError = "快捷键 \(finderBasketShortcut.displayText) 已用于\(conflict.title)"
+            return
+        }
+        finderBasketShortcutEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.finderBasketShortcutEnabledKey)
+        onShelfPreferencesChanged?()
+    }
+
+    func setFinderBasketShortcut(_ shortcut: ShelfGlobalShortcut) {
+        guard shortcut != finderBasketShortcut else { return }
+        if finderBasketShortcutEnabled,
+           let conflict = shortcutConflict(for: shortcut, excluding: .finderBasket) {
+            presentedError = "快捷键 \(shortcut.displayText) 已用于\(conflict.title)"
+            return
+        }
+        finderBasketShortcut = shortcut
+        storeShortcut(
+            shortcut,
+            keyCodeKey: AppSettings.finderBasketShortcutKeyCodeKey,
+            modifiersKey: AppSettings.finderBasketShortcutModifiersKey,
+            labelKey: AppSettings.finderBasketShortcutLabelKey
+        )
+        onShelfPreferencesChanged?()
+    }
+
+    private func shortcutConflict(
+        for shortcut: ShelfGlobalShortcut,
+        excluding slot: ShortcutSlot
+    ) -> ShortcutSlot? {
+        let activeShortcuts: [(ShortcutSlot, Bool, ShelfGlobalShortcut)] = [
+            (.shelf, shelfGlobalShortcutEnabled, shelfGlobalShortcut),
+            (.finderSend, finderSendShortcutEnabled, finderSendShortcut),
+            (.finderBasket, finderBasketShortcutEnabled, finderBasketShortcut),
+        ]
+        return activeShortcuts.first { entry in
+            entry.0 != slot && entry.1 && entry.2 == shortcut
+        }?.0
+    }
+
+    private func storeShortcut(
+        _ shortcut: ShelfGlobalShortcut,
+        keyCodeKey: String,
+        modifiersKey: String,
+        labelKey: String
+    ) {
+        let defaults = UserDefaults.standard
+        defaults.set(Int(shortcut.keyCode), forKey: keyCodeKey)
+        defaults.set(Int(shortcut.modifiers), forKey: modifiersKey)
+        defaults.set(shortcut.keyLabel, forKey: labelKey)
     }
 
     func setShelfAlwaysOnTop(_ enabled: Bool) {

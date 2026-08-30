@@ -351,7 +351,7 @@ struct ShelfView: View {
                 title: item.fileName,
                 url: item.url,
                 isEditable: BasketTextClipStore.isManaged(item.url),
-                color: shelf.color.color,
+                basketColor: shelf.color,
                 backgroundOpacity: shelf.backgroundOpacity,
                 onEdit: { editTextClip(item) },
                 onCopy: { copyFiles([item]) },
