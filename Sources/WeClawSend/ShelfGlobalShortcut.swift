@@ -162,9 +162,13 @@ struct ShelfShortcutRecorder: View {
             Button {
                 isRecording = true
             } label: {
-                Text(isRecording ? "请按快捷键" : shortcut.displayText)
-                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                    .frame(minWidth: isRecording ? 68 : 48)
+                HStack(spacing: 4) {
+                    Image(systemName: isRecording ? "keyboard" : "pencil")
+                        .font(.system(size: 8.5, weight: .semibold))
+                    Text(isRecording ? "请按快捷键" : shortcut.displayText)
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                }
+                .frame(minWidth: isRecording ? 76 : 54)
             }
             .buttonStyle(.bordered)
             .controlSize(.mini)
@@ -220,6 +224,10 @@ private struct ShelfShortcutCaptureView: NSViewRepresentable {
         }
     }
 
+    static func dismantleNSView(_ view: ShelfShortcutCaptureNSView, coordinator: ()) {
+        view.stopRecording()
+    }
+
     private func configure(_ view: ShelfShortcutCaptureNSView) {
         view.isRecording = isRecording
         view.onShortcut = { shortcut in
@@ -236,10 +244,16 @@ private struct ShelfShortcutCaptureView: NSViewRepresentable {
 
 @MainActor
 private final class ShelfShortcutCaptureNSView: NSView {
-    var isRecording = false
+    var isRecording = false {
+        didSet {
+            guard isRecording != oldValue else { return }
+            updateLocalMonitor()
+        }
+    }
     var onShortcut: ((ShelfGlobalShortcut) -> Void)?
     var onCancel: (() -> Void)?
     var onReset: (() -> Void)?
+    private var localMonitor: Any?
 
     override var acceptsFirstResponder: Bool { true }
     override var intrinsicContentSize: NSSize { .zero }
@@ -262,12 +276,20 @@ private final class ShelfShortcutCaptureNSView: NSView {
         onCancel?()
     }
 
-    override func resignFirstResponder() -> Bool {
-        let resigned = super.resignFirstResponder()
-        if resigned, isRecording {
-            onCancel?()
+    func stopRecording() {
+        isRecording = false
+    }
+
+    private func updateLocalMonitor() {
+        if let localMonitor {
+            NSEvent.removeMonitor(localMonitor)
+            self.localMonitor = nil
         }
-        return resigned
+        guard isRecording else { return }
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.isRecording else { return event }
+            return self.capture(event) ? nil : event
+        }
     }
 
     private func capture(_ event: NSEvent) -> Bool {

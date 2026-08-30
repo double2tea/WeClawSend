@@ -22,6 +22,22 @@ enum FinderSelectionError: LocalizedError {
 
 @MainActor
 enum FinderSelectionReader {
+    static func requestAutomationPermission() throws {
+        let source = #"tell application "Finder" to get name"#
+        guard let script = NSAppleScript(source: source) else {
+            throw FinderSelectionError.executionFailed("Apple Events 脚本无效")
+        }
+        var errorInfo: NSDictionary?
+        _ = script.executeAndReturnError(&errorInfo)
+        guard let errorInfo else { return }
+        let errorNumber = (errorInfo[NSAppleScript.errorNumber] as? NSNumber)?.intValue
+        if errorNumber == -1743 {
+            throw FinderSelectionError.automationDenied
+        }
+        let message = errorInfo[NSAppleScript.errorMessage] as? String ?? "未知错误"
+        throw FinderSelectionError.executionFailed(message)
+    }
+
     static func selectedURLs() throws -> [URL] {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" else {
             throw FinderSelectionError.finderNotFrontmost

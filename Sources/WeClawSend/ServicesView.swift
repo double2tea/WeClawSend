@@ -787,12 +787,17 @@ struct ServicesView: View {
                 )
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("快捷键首次读取 Finder 所选项目时，macOS 会请求自动化权限。右键服务不需要该权限。")
+                    Text("点击“请求权限”即可触发 macOS 授权；右键服务不需要该权限。快捷键标签可点击后直接重新录入。")
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 6)
-                    Button("权限设置…") {
+                    Button("请求权限") {
+                        model.requestFinderAutomationPermission()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.mini)
+                    Button("系统设置…") {
                         guard let url = URL(
                             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
                         ) else { return }

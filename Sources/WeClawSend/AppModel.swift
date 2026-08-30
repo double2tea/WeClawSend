@@ -822,6 +822,15 @@ final class AppModel: ObservableObject {
         onShelfPreferencesChanged?()
     }
 
+    func requestFinderAutomationPermission() {
+        do {
+            try FinderSelectionReader.requestAutomationPermission()
+            showTransientNotice("Finder 自动化权限已就绪")
+        } catch {
+            presentedError = error.localizedDescription
+        }
+    }
+
     private func shortcutConflict(
         for shortcut: ShelfGlobalShortcut,
         excluding slot: ShortcutSlot
