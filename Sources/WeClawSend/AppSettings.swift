@@ -171,6 +171,7 @@ enum AppSettings {
     static let finderBasketShortcutKeyCodeKey = "FinderBasketShortcutKeyCode"
     static let finderBasketShortcutModifiersKey = "FinderBasketShortcutModifiers"
     static let finderBasketShortcutLabelKey = "FinderBasketShortcutLabel"
+    static let finderShortcutDefaultsVersionKey = "FinderShortcutDefaultsVersion"
     static let shelfAlwaysOnTopKey = "ShelfAlwaysOnTop"
     static let shelfKeepItemsOnCloseKey = "ShelfKeepItemsOnClose"
     static let shelfRestoreOnLaunchKey = "ShelfRestoreOnLaunch"
@@ -283,7 +284,8 @@ enum AppSettings {
     }
 
     static var finderSendShortcut: ShelfGlobalShortcut {
-        globalShortcut(
+        migrateFinderShortcutDefaultsIfNeeded()
+        return globalShortcut(
             keyCodeKey: finderSendShortcutKeyCodeKey,
             modifiersKey: finderSendShortcutModifiersKey,
             labelKey: finderSendShortcutLabelKey,
@@ -296,7 +298,8 @@ enum AppSettings {
     }
 
     static var finderBasketShortcut: ShelfGlobalShortcut {
-        globalShortcut(
+        migrateFinderShortcutDefaultsIfNeeded()
+        return globalShortcut(
             keyCodeKey: finderBasketShortcutKeyCodeKey,
             modifiersKey: finderBasketShortcutModifiersKey,
             labelKey: finderBasketShortcutLabelKey,
@@ -322,6 +325,46 @@ enum AppSettings {
             return defaultShortcut
         }
         return shortcut
+    }
+
+    private static func migrateFinderShortcutDefaultsIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard defaults.integer(forKey: finderShortcutDefaultsVersionKey) < 2 else { return }
+        migrateStoredShortcut(
+            legacy: .legacyFinderSendDefault,
+            keyCodeKey: finderSendShortcutKeyCodeKey,
+            modifiersKey: finderSendShortcutModifiersKey,
+            labelKey: finderSendShortcutLabelKey,
+            defaults: defaults
+        )
+        migrateStoredShortcut(
+            legacy: .legacyFinderBasketDefault,
+            keyCodeKey: finderBasketShortcutKeyCodeKey,
+            modifiersKey: finderBasketShortcutModifiersKey,
+            labelKey: finderBasketShortcutLabelKey,
+            defaults: defaults
+        )
+        defaults.set(2, forKey: finderShortcutDefaultsVersionKey)
+    }
+
+    private static func migrateStoredShortcut(
+        legacy: ShelfGlobalShortcut,
+        keyCodeKey: String,
+        modifiersKey: String,
+        labelKey: String,
+        defaults: UserDefaults
+    ) {
+        guard defaults.object(forKey: keyCodeKey) != nil,
+              defaults.object(forKey: modifiersKey) != nil,
+              ShelfGlobalShortcut(
+                  keyCode: UInt32(defaults.integer(forKey: keyCodeKey)),
+                  modifiers: UInt32(defaults.integer(forKey: modifiersKey)),
+                  keyLabel: defaults.string(forKey: labelKey)
+              ) == legacy
+        else { return }
+        defaults.removeObject(forKey: keyCodeKey)
+        defaults.removeObject(forKey: modifiersKey)
+        defaults.removeObject(forKey: labelKey)
     }
 
     static var shelfAlwaysOnTop: Bool {

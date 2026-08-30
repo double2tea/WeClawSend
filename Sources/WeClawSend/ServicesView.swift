@@ -787,7 +787,7 @@ struct ServicesView: View {
                 )
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("点击“请求权限”即可触发 macOS 授权；右键服务不需要该权限。快捷键标签可点击后直接重新录入。")
+                    Text("快捷键支持两个键组合：⌘、⌥ 或 ⌃ 加一个按键。点击“请求权限”可触发 macOS 授权；右键服务不需要该权限。")
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)

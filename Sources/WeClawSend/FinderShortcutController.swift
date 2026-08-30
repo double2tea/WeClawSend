@@ -56,7 +56,7 @@ final class FinderShortcutController: NSObject {
         if !observesWorkspaceActivation {
             NSWorkspace.shared.notificationCenter.addObserver(
                 self,
-                selector: #selector(workspaceDidActivateApplication),
+                selector: #selector(workspaceDidActivateApplication(_:)),
                 name: NSWorkspace.didActivateApplicationNotification,
                 object: nil
             )
@@ -112,8 +112,10 @@ final class FinderShortcutController: NSObject {
         }
     }
 
-    @objc private func workspaceDidActivateApplication() {
-        let finderIsFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder"
+    @objc private func workspaceDidActivateApplication(_ notification: Notification) {
+        let activatedApplication = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+            as? NSRunningApplication
+        let finderIsFrontmost = activatedApplication?.bundleIdentifier == "com.apple.finder"
         guard finderIsFrontmost != isFinderFrontmost else { return }
         isFinderFrontmost = finderIsFrontmost
         applyOptions()

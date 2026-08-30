@@ -10,10 +10,20 @@ struct ShelfGlobalShortcut: Equatable, Sendable {
     )!
     nonisolated static let finderSendDefault = ShelfGlobalShortcut(
         keyCode: UInt32(kVK_ANSI_X),
-        modifiers: UInt32(cmdKey | shiftKey),
+        modifiers: UInt32(optionKey),
         keyLabel: "X"
     )!
     nonisolated static let finderBasketDefault = ShelfGlobalShortcut(
+        keyCode: UInt32(kVK_ANSI_B),
+        modifiers: UInt32(optionKey),
+        keyLabel: "B"
+    )!
+    nonisolated static let legacyFinderSendDefault = ShelfGlobalShortcut(
+        keyCode: UInt32(kVK_ANSI_X),
+        modifiers: UInt32(cmdKey | shiftKey),
+        keyLabel: "X"
+    )!
+    nonisolated static let legacyFinderBasketDefault = ShelfGlobalShortcut(
         keyCode: UInt32(kVK_ANSI_B),
         modifiers: UInt32(cmdKey | shiftKey),
         keyLabel: "B"
@@ -155,25 +165,36 @@ struct ShelfShortcutRecorder: View {
     var resetHelp: String = "恢复默认快捷键 ⌥⌘S"
     let onChange: (ShelfGlobalShortcut) -> Void
 
-    @State private var isRecording = false
+    @StateObject private var captureController = ShelfShortcutCaptureController()
 
     var body: some View {
         HStack(spacing: 4) {
             Button {
-                isRecording = true
+                captureController.start(
+                    onShortcut: onChange,
+                    onReset: { onChange(defaultShortcut) }
+                )
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: isRecording ? "keyboard" : "pencil")
+                    Image(systemName: captureController.isRecording ? "keyboard" : "pencil")
                         .font(.system(size: 8.5, weight: .semibold))
-                    Text(isRecording ? "请按快捷键" : shortcut.displayText)
+                    Text(
+                        captureController.isRecording
+                            ? "按 ⌘ / ⌥ / ⌃ + 按键"
+                            : shortcut.displayText
+                    )
                         .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                 }
-                .frame(minWidth: isRecording ? 76 : 54)
+                .frame(minWidth: captureController.isRecording ? 124 : 54)
             }
             .buttonStyle(.bordered)
             .controlSize(.mini)
-            .help("点击后按下新快捷键；Esc 取消，Delete 恢复默认")
-            .accessibilityLabel(isRecording ? "正在录入全局快捷键" : "全局快捷键 \(shortcut.displayText)")
+            .help("支持两个键：按住 ⌘、⌥ 或 ⌃，再按一个按键；Esc 取消，Delete 恢复默认")
+            .accessibilityLabel(
+                captureController.isRecording
+                    ? "正在录入全局快捷键"
+                    : "全局快捷键 \(shortcut.displayText)"
+            )
 
             if shortcut != defaultShortcut {
                 Button {
@@ -188,125 +209,58 @@ struct ShelfShortcutRecorder: View {
                 .accessibilityLabel("恢复默认快捷键")
             }
         }
-        .background {
-            ShelfShortcutCaptureView(
-                isRecording: $isRecording,
-                onShortcut: onChange,
-                onReset: { onChange(defaultShortcut) }
-            )
-        }
-        .onDisappear { isRecording = false }
-    }
-}
-
-private struct ShelfShortcutCaptureView: NSViewRepresentable {
-    @Binding var isRecording: Bool
-    let onShortcut: (ShelfGlobalShortcut) -> Void
-    let onReset: () -> Void
-
-    func makeNSView(context: Context) -> ShelfShortcutCaptureNSView {
-        let view = ShelfShortcutCaptureNSView()
-        configure(view)
-        return view
-    }
-
-    func updateNSView(_ view: ShelfShortcutCaptureNSView, context: Context) {
-        configure(view)
-        guard isRecording else {
-            if view.window?.firstResponder === view {
-                view.window?.makeFirstResponder(nil)
-            }
-            return
-        }
-        Task { @MainActor [weak view] in
-            guard let view, view.isRecording else { return }
-            view.window?.makeFirstResponder(view)
-        }
-    }
-
-    static func dismantleNSView(_ view: ShelfShortcutCaptureNSView, coordinator: ()) {
-        view.stopRecording()
-    }
-
-    private func configure(_ view: ShelfShortcutCaptureNSView) {
-        view.isRecording = isRecording
-        view.onShortcut = { shortcut in
-            onShortcut(shortcut)
-            isRecording = false
-        }
-        view.onCancel = { isRecording = false }
-        view.onReset = {
-            onReset()
-            isRecording = false
-        }
+        .onDisappear { captureController.stop() }
     }
 }
 
 @MainActor
-private final class ShelfShortcutCaptureNSView: NSView {
-    var isRecording = false {
-        didSet {
-            guard isRecording != oldValue else { return }
-            updateLocalMonitor()
-        }
-    }
-    var onShortcut: ((ShelfGlobalShortcut) -> Void)?
-    var onCancel: (() -> Void)?
-    var onReset: (() -> Void)?
+private final class ShelfShortcutCaptureController: ObservableObject {
+    @Published private(set) var isRecording = false
     private var localMonitor: Any?
 
-    override var acceptsFirstResponder: Bool { true }
-    override var intrinsicContentSize: NSSize { .zero }
-
-    override func keyDown(with event: NSEvent) {
-        if !capture(event) {
-            super.keyDown(with: event)
+    func start(
+        onShortcut: @escaping (ShelfGlobalShortcut) -> Void,
+        onReset: @escaping () -> Void
+    ) {
+        stop()
+        isRecording = true
+        let monitoredEvents: NSEvent.EventTypeMask = [
+            .keyDown,
+            .leftMouseDown,
+            .rightMouseDown,
+            .otherMouseDown,
+        ]
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: monitoredEvents) { [weak self] event in
+            guard let self, self.isRecording else { return event }
+            guard event.type == .keyDown else {
+                self.stop()
+                return event
+            }
+            if event.keyCode == UInt16(kVK_Escape) {
+                self.stop()
+                return nil
+            }
+            if event.keyCode == UInt16(kVK_Delete)
+                || event.keyCode == UInt16(kVK_ForwardDelete) {
+                self.stop()
+                onReset()
+                return nil
+            }
+            guard let shortcut = ShelfGlobalShortcut(event: event) else {
+                NSSound.beep()
+                return nil
+            }
+            self.stop()
+            onShortcut(shortcut)
+            return nil
         }
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        isRecording ? capture(event) : super.performKeyEquivalent(with: event)
-    }
-
-    override func cancelOperation(_ sender: Any?) {
-        guard isRecording else {
-            super.cancelOperation(sender)
-            return
-        }
-        onCancel?()
-    }
-
-    func stopRecording() {
-        isRecording = false
-    }
-
-    private func updateLocalMonitor() {
+    func stop() {
         if let localMonitor {
             NSEvent.removeMonitor(localMonitor)
             self.localMonitor = nil
         }
-        guard isRecording else { return }
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, self.isRecording else { return event }
-            return self.capture(event) ? nil : event
-        }
-    }
-
-    private func capture(_ event: NSEvent) -> Bool {
-        guard isRecording else { return false }
-        if event.keyCode == UInt16(kVK_Escape) {
-            onCancel?()
-            return true
-        }
-        if event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete) {
-            onReset?()
-            return true
-        }
-        guard let shortcut = ShelfGlobalShortcut(event: event) else {
-            NSSound.beep()
-            return true
-        }
-        onShortcut?(shortcut)
-        return true
+        isRecording = false
     }
 }

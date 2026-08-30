@@ -720,6 +720,7 @@ let shelfSettingKeys: [String] = [
     AppSettings.finderBasketShortcutKeyCodeKey,
     AppSettings.finderBasketShortcutModifiersKey,
     AppSettings.finderBasketShortcutLabelKey,
+    AppSettings.finderShortcutDefaultsVersionKey,
     AppSettings.shelfAlwaysOnTopKey,
     AppSettings.shelfKeepItemsOnCloseKey,
     AppSettings.shelfRestoreOnLaunchKey,
@@ -760,12 +761,38 @@ precondition(AppSettings.shelfShakeSensitivity.title == "中")
 precondition(AppSettings.shelfGlobalShortcutEnabled)
 precondition(AppSettings.shelfGlobalShortcut == .default)
 precondition(ShelfGlobalShortcut.default.displayText == "⌥⌘S")
+UserDefaults.standard.set(
+    Int(ShelfGlobalShortcut.legacyFinderSendDefault.keyCode),
+    forKey: AppSettings.finderSendShortcutKeyCodeKey
+)
+UserDefaults.standard.set(
+    Int(ShelfGlobalShortcut.legacyFinderSendDefault.modifiers),
+    forKey: AppSettings.finderSendShortcutModifiersKey
+)
+UserDefaults.standard.set(
+    ShelfGlobalShortcut.legacyFinderSendDefault.keyLabel,
+    forKey: AppSettings.finderSendShortcutLabelKey
+)
+UserDefaults.standard.set(
+    Int(ShelfGlobalShortcut.legacyFinderBasketDefault.keyCode),
+    forKey: AppSettings.finderBasketShortcutKeyCodeKey
+)
+UserDefaults.standard.set(
+    Int(ShelfGlobalShortcut.legacyFinderBasketDefault.modifiers),
+    forKey: AppSettings.finderBasketShortcutModifiersKey
+)
+UserDefaults.standard.set(
+    ShelfGlobalShortcut.legacyFinderBasketDefault.keyLabel,
+    forKey: AppSettings.finderBasketShortcutLabelKey
+)
 precondition(AppSettings.finderSendShortcutEnabled)
 precondition(AppSettings.finderSendShortcut == .finderSendDefault)
-precondition(AppSettings.finderSendShortcut.displayText == "⇧⌘X")
+precondition(AppSettings.finderSendShortcut.displayText == "⌥X")
+precondition(UserDefaults.standard.object(forKey: AppSettings.finderSendShortcutKeyCodeKey) == nil)
 precondition(AppSettings.finderBasketShortcutEnabled)
 precondition(AppSettings.finderBasketShortcut == .finderBasketDefault)
-precondition(AppSettings.finderBasketShortcut.displayText == "⇧⌘B")
+precondition(AppSettings.finderBasketShortcut.displayText == "⌥B")
+precondition(UserDefaults.standard.object(forKey: AppSettings.finderBasketShortcutKeyCodeKey) == nil)
 precondition(ShelfGlobalShortcut(keyCode: 1, modifiers: 0, keyLabel: "S") == nil)
 let customShelfShortcut = ShelfGlobalShortcut(
     keyCode: 40,
@@ -790,6 +817,19 @@ let customShortcutEvent = NSEvent.keyEvent(
     keyCode: 40
 )!
 precondition(ShelfGlobalShortcut(event: customShortcutEvent) == customShelfShortcut)
+let twoKeyShortcutEvent = NSEvent.keyEvent(
+    with: .keyDown,
+    location: .zero,
+    modifierFlags: [.option],
+    timestamp: 0,
+    windowNumber: 0,
+    context: nil,
+    characters: "x",
+    charactersIgnoringModifiers: "x",
+    isARepeat: false,
+    keyCode: UInt16(ShelfGlobalShortcut.finderSendDefault.keyCode)
+)!
+precondition(ShelfGlobalShortcut(event: twoKeyShortcutEvent) == .finderSendDefault)
 let invalidShortcutEvent = NSEvent.keyEvent(
     with: .keyDown,
     location: .zero,
