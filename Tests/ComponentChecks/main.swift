@@ -2474,6 +2474,64 @@ precondition(updateCountResult.thirdSent)
 precondition(updateCountResult.clockRollbackSent)
 precondition(updateCountResult.requestCount == 3)
 precondition(updateCountResult.payload == updateCountPayload)
+
+let accountPresenceDefaultsName = "WeClawSend.AccountPresenceChecks.\(UUID())"
+let accountPresenceDefaults = UserDefaults(suiteName: accountPresenceDefaultsName)!
+defer { UserDefaults.standard.removePersistentDomain(forName: accountPresenceDefaultsName) }
+let accountPresenceEndpoint = URL(string: "https://mock.local/api/account-presence")!
+let accountPresenceResult = AccountPresenceReportBox()
+MockURLProtocol.handler = { request in
+    precondition(request.url == accountPresenceEndpoint)
+    precondition(request.httpMethod == "POST")
+    precondition(request.timeoutInterval == 3)
+    precondition(request.value(forHTTPHeaderField: "User-Agent") == "WeClawSend-AccountPresence")
+    accountPresenceResult.payload = try JSONDecoder().decode(
+        AccountPresencePayload.self,
+        from: requestBody(request)
+    )
+    accountPresenceResult.requestCount += 1
+    return MockURLProtocol.response(request, statusCode: 204, body: "")
+}
+let accountPresenceReporter = AccountPresenceReporter(
+    endpoint: accountPresenceEndpoint,
+    version: "2.5.1",
+    build: "51",
+    channel: "stable",
+    userDefaults: accountPresenceDefaults,
+    session: updateSession
+)
+let accountPresenceFinished = DispatchSemaphore(value: 0)
+let accountPresenceStart = Date(timeIntervalSince1970: 1_800_100_000)
+Task {
+    accountPresenceResult.firstSent = await accountPresenceReporter.reportIfNeeded(
+        userID: "ilink-user-1",
+        source: .weClawSend,
+        now: accountPresenceStart
+    )
+    accountPresenceResult.secondSent = await accountPresenceReporter.reportIfNeeded(
+        userID: "ilink-user-1",
+        source: .weClawSend,
+        now: accountPresenceStart.addingTimeInterval(3_600)
+    )
+    accountPresenceResult.thirdSent = await accountPresenceReporter.reportIfNeeded(
+        userID: "ilink-user-1",
+        source: .weClawSend,
+        now: accountPresenceStart.addingTimeInterval(AccountPresenceReporter.minimumInterval + 1)
+    )
+    accountPresenceFinished.signal()
+}
+precondition(accountPresenceFinished.wait(timeout: .now() + 10) == .success)
+precondition(accountPresenceResult.firstSent)
+precondition(!accountPresenceResult.secondSent)
+precondition(accountPresenceResult.thirdSent)
+precondition(accountPresenceResult.requestCount == 2)
+precondition(accountPresenceResult.payload?.accountHash.count == 64)
+precondition(accountPresenceResult.payload?.accountHash != "ilink-user-1")
+precondition(accountPresenceResult.payload?.source == WeChatCredentialSource.weClawSend.rawValue)
+precondition(
+    accountPresenceResult.payload?.accountHash
+        == AccountPresenceReporter.anonymousAccountHash(userID: "ilink-user-1")
+)
 precondition(betaResult.metadataRequestCount == 1)
 
 let installerRoot = FileManager.default.temporaryDirectory
@@ -2944,6 +3002,14 @@ final class UpdateCheckReportBox: @unchecked Sendable {
     var secondSent = false
     var thirdSent = false
     var clockRollbackSent = false
+}
+
+final class AccountPresenceReportBox: @unchecked Sendable {
+    var requestCount = 0
+    var payload: AccountPresencePayload?
+    var firstSent = false
+    var secondSent = false
+    var thirdSent = false
 }
 
 final class UpdateInstallResultBox: @unchecked Sendable {

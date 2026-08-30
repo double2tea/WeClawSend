@@ -34,6 +34,12 @@ if [[ -n "${WECLAW_UPDATE_COUNT_ENDPOINT:-}" ]]; then
         "Add :WeClawUpdateCountEndpoint string $WECLAW_UPDATE_COUNT_ENDPOINT" \
         "$APP/Contents/Info.plist"
 fi
+if [[ -n "${WECLAW_ACCOUNT_PRESENCE_ENDPOINT:-}" ]]; then
+    [[ "$WECLAW_ACCOUNT_PRESENCE_ENDPOINT" == https://* ]]
+    /usr/libexec/PlistBuddy -c \
+        "Add :WeClawAccountPresenceEndpoint string $WECLAW_ACCOUNT_PRESENCE_ENDPOINT" \
+        "$APP/Contents/Info.plist"
+fi
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$ROOT/Resources/MenuBarIcon.png" "$APP/Contents/Resources/MenuBarIcon.png"
 if [[ -f "$ROOT/Resources/MenuBarIcon@2x.png" ]]; then

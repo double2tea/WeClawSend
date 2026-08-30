@@ -2,9 +2,10 @@ import SwiftUI
 
 struct DataSafetyHint: View {
     static let detail = """
-    本应用不设文件中转服务器，文件和账号都不会经过开发者。
+    本应用不设文件中转服务器，文件不会经过开发者。
     发送走微信官方通道，到达后的保存与传输由微信执行。
-    登录、设置和发送记录只留在本机，更新检查不含用户或设备标识。
+    登录、设置和发送记录只留在本机。
+    匿名使用统计不包含文件、消息或微信令牌。
     """
 
     @Binding var isHovered: Bool

@@ -1,6 +1,11 @@
 import Foundation
 import OSLog
 
+struct WeChatAccountPresenceIdentity: Equatable, Sendable {
+    let userID: String
+    let source: WeChatCredentialSource
+}
+
 enum WeChatError: LocalizedError {
     case notLoggedIn
     case invalidResponse
@@ -236,6 +241,11 @@ actor WeChatService {
 
     func accountID() -> String? {
         credentials?.botID
+    }
+
+    func accountPresenceIdentity() -> WeChatAccountPresenceIdentity? {
+        guard credentialsValidated, let credentials else { return nil }
+        return WeChatAccountPresenceIdentity(userID: credentials.userID, source: credentialSource)
     }
 
     func isConnected() -> Bool {

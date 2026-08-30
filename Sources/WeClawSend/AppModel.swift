@@ -64,6 +64,7 @@ private final class AppRuntime: Sendable {
     let coordinator: SendCoordinator
     let server: EmbeddedBridgeServer
     let updateCheckReporter: UpdateCheckReporter
+    let accountPresenceReporter: AccountPresenceReporter
     let fileIntakeArbiter = FileIntakeArbiter()
 
     init() {
@@ -71,6 +72,7 @@ private final class AppRuntime: Sendable {
         coordinator = SendCoordinator(weChat: weChat)
         server = EmbeddedBridgeServer(coordinator: coordinator)
         updateCheckReporter = UpdateCheckReporter()
+        accountPresenceReporter = AccountPresenceReporter()
     }
 }
 
@@ -1206,6 +1208,11 @@ final class AppModel: ObservableObject {
         do {
             try await runtime.weChat.validateCredentials()
             weChatStatus = .online(await runtime.weChat.accountID())
+            if let account = await runtime.weChat.accountPresenceIdentity() {
+                Task { [reporter = runtime.accountPresenceReporter] in
+                    await reporter.reportIfNeeded(userID: account.userID, source: account.source)
+                }
+            }
         } catch {
             weChatStatus = .offline
         }

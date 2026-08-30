@@ -56,6 +56,7 @@ jobs:
       - name: Build release assets
         env:
           WECLAW_UPDATE_COUNT_ENDPOINT: https://weclaw-send.pages.dev/api/update-check
+          WECLAW_ACCOUNT_PRESENCE_ENDPOINT: https://weclaw-send.pages.dev/api/account-presence
         run: ./scripts/release.sh
 
       - name: Create GitHub Release
