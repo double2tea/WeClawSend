@@ -70,6 +70,14 @@ jobs:
               --dir _site/downloads
           fi
 
+          app_version="$(jq -r '.app' _site/downloads/WeClaw-Send-Components.json)"
+          app_build="$(jq -r '.app_build' _site/downloads/WeClaw-Send-Components.json)"
+          versioned_dmg="WeClaw-Send-$app_version-build$app_build.dmg"
+          gh release download "$latest_tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$versioned_dmg" \
+            --dir _site/downloads
+
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$latest_tag" > _site/downloads/release.json
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             | jq '[
@@ -85,6 +93,7 @@ jobs:
               ]' > _site/downloads/update-versions.json
           for file in \
             WeClaw-Send.dmg \
+            "$versioned_dmg" \
             WeClaw-Send.zip \
             WeClaw-Send-Premiere-CEP12.zip \
             WeClaw-Send-DaVinci-Resolve.zip \
@@ -100,6 +109,7 @@ jobs:
             cd _site/downloads
             for file in \
               WeClaw-Send.dmg \
+              "$versioned_dmg" \
               WeClaw-Send.zip \
               WeClaw-Send-Premiere-CEP12.zip \
               WeClaw-Send-DaVinci-Resolve.zip \

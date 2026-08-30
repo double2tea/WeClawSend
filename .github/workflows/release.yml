@@ -63,6 +63,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          app_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Resources/Info.plist)"
           app_channel="$(/usr/libexec/PlistBuddy -c 'Print :WeClawReleaseChannel' Resources/Info.plist)"
           release_flags=()
           if [[ "$app_channel" == "beta" ]]; then
@@ -71,6 +73,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             dist/WeClaw-Send.zip \
             dist/WeClaw-Send.dmg \
+            "dist/WeClaw-Send-$app_version-build$app_build.dmg" \
             dist/WeClaw-Send-Premiere-CEP12.zip \
             dist/WeClaw-Send-DaVinci-Resolve.zip \
             dist/WeClaw-Send-Components.json \
