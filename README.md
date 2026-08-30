@@ -94,7 +94,7 @@
 
 ## 隐私
 
-WeClaw Send 不设自有云端存储，不会向开发者上传文件或账号信息。文件仅通过微信官方 ClawBot API 发送至用户本人的微信 ClawBot；登录凭据、偏好设置和传输记录仅保存在本机。
+WeClaw Send 不设自有文件中转服务器，不会向开发者上传文件。文件仅通过微信官方 ClawBot API 发送至用户本人的微信 ClawBot；登录凭据、偏好设置和传输记录保存在本机。
 
 选择 OpenClaw 登录时，WeClaw Send 只读取 `~/.openclaw/openclaw-weixin` 中当前账号和会话信息，不复制或修改这些文件，也不收取微信消息。OpenClaw 需要保持运行，以便微信回复后更新会话。
 
