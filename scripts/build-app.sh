@@ -17,21 +17,13 @@ compile_app_icon() {
     local app="$1"
     local work
     work="$(mktemp -d "${TMPDIR:-/tmp/}weclaw-icon.XXXXXX")"
-    mkdir -p "$work/Assets.xcassets"
-    cat > "$work/Assets.xcassets/Contents.json" <<'JSON'
-{
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
-  }
-}
-JSON
-    cp -R "$ROOT/Resources/AppIcon.icon" "$work/Assets.xcassets/AppIcon.icon"
     mkdir -p "$work/out"
     "$ACTOOL" \
-        "$work/Assets.xcassets" \
+        "$ROOT/Resources/AppIcon.icon" \
         --compile "$work/out" \
         --app-icon AppIcon \
+        --include-all-app-icons \
+        --output-format human-readable-text --notices --warnings \
         --output-partial-info-plist "$work/assetcatalog_generated_info.plist" \
         --target-device mac \
         --platform macosx \
@@ -42,6 +34,8 @@ JSON
         rm -rf "$work"
         exit 1
     fi
+    xcrun assetutil --info "$work/out/Assets.car" > "$work/assets.json"
+    grep -q AppIcon "$work/assets.json"
     cp "$work/out/Assets.car" "$app/Contents/Resources/Assets.car"
     rm -rf "$work"
 }

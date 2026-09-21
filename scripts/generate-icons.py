@@ -108,8 +108,9 @@ def srgb(color: tuple[int, int, int]) -> str:
 
 def write_icon_composer_package() -> None:
     shutil.rmtree(ICON_COMPOSER, ignore_errors=True)
-    os.makedirs(ICON_COMPOSER, exist_ok=True)
-    make_plane_layer(1024).save(os.path.join(ICON_COMPOSER, "plane.png"), "PNG")
+    assets = os.path.join(ICON_COMPOSER, "Assets")
+    os.makedirs(assets, exist_ok=True)
+    make_plane_layer(1024).save(os.path.join(assets, "plane.png"), "PNG")
     fill = {"linear-gradient": [srgb(BG_TOP), srgb(BG_BOTTOM)]}
     document = {
         "fill-specializations": [

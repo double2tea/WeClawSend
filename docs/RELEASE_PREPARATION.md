@@ -37,7 +37,7 @@
 1. CI 已增加 `./scripts/release.sh` 验证步骤：在 GitHub macOS 26 / 完整 Xcode 环境中检查 Assets.car 编译、最终 App 签名、ZIP/DMG 打包与挂载。推送代码后须等待该步骤通过，再推送版本标签。本机仅有 Command Line Tools，不能替代这一步。
 2. 在 macOS 26/27 上验证实际菜单栏重排、进度环清除、密集状态项命中、Liquid Glass 和拖放行为。自动化检查不替代这些视觉与系统集成验收。
 3. 真实微信发送未执行；现有 `functional-test.sh` 会替换本地安装并发送测试文件，需要确认接收目标与内容后才运行。
-4. 提交时纳入 `Resources/AppIcon.icon/icon.json` 与 `Resources/AppIcon.icon/plane.png`。
+4. 提交时纳入 `Resources/AppIcon.icon/icon.json` 与 `Resources/AppIcon.icon/Assets/plane.png`。首次 CI 发现 `.icon` 放入 `.xcassets` 会被忽略，已修正为直接传给 `actool`，图片层放在标准 `Assets` 子目录，并检查产物包含 AppIcon。
 5. 用户已授权推送 `v2.6.0` 标签；CI 验证通过后执行。推送标签会触发 GitHub Release，后续触发网站部署。
 
 建议提交标题：`feat: prepare WeClaw Send 2.6.0 for macOS 26`。
