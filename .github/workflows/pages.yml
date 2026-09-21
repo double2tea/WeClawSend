@@ -43,15 +43,13 @@ jobs:
           mv _site/functions functions
 
           latest_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$latest_tag" > _site/downloads/release.json
-          app_archive="$(jq -er '[.assets[].name | select(. == "WeClaw-Send-macOS26.zip" or . == "WeClaw-Send.zip")] | if length == 1 then .[0] else error("Expected one app ZIP") end' _site/downloads/release.json)"
           production_tag="$(curl -fsSL https://weclaw-send.pages.dev/downloads/release.json \
             | jq -r '.tag_name // empty' || true)"
 
           if [[ "$production_tag" == "$latest_tag" ]]; then
             for file in \
               WeClaw-Send.dmg \
-              "$app_archive" \
+              WeClaw-Send.zip \
               WeClaw-Send-Premiere-CEP12.zip \
               WeClaw-Send-DaVinci-Resolve.zip \
               WeClaw-Send-Components.json \
@@ -64,7 +62,7 @@ jobs:
             gh release download "$latest_tag" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern 'WeClaw-Send.dmg' \
-              --pattern "$app_archive" \
+              --pattern 'WeClaw-Send.zip' \
               --pattern 'WeClaw-Send-Premiere-CEP12.zip' \
               --pattern 'WeClaw-Send-DaVinci-Resolve.zip' \
               --pattern 'WeClaw-Send-Components.json' \
@@ -80,6 +78,7 @@ jobs:
             --pattern "$versioned_dmg" \
             --dir _site/downloads
 
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$latest_tag" > _site/downloads/release.json
           gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             | jq '[
                 .[]
@@ -95,7 +94,7 @@ jobs:
           for file in \
             WeClaw-Send.dmg \
             "$versioned_dmg" \
-            "$app_archive" \
+            WeClaw-Send.zip \
             WeClaw-Send-Premiere-CEP12.zip \
             WeClaw-Send-DaVinci-Resolve.zip \
             WeClaw-Send-Components.json \
@@ -111,7 +110,7 @@ jobs:
             for file in \
               WeClaw-Send.dmg \
               "$versioned_dmg" \
-              "$app_archive" \
+              WeClaw-Send.zip \
               WeClaw-Send-Premiere-CEP12.zip \
               WeClaw-Send-DaVinci-Resolve.zip \
               WeClaw-Send-Components.json
@@ -122,12 +121,6 @@ jobs:
               [[ "$actual" == "$expected" ]]
             done
           )
-
-          # Before 2.6.0 is published, the website can still serve the current 2.5.x ZIP.
-          # Never alias a macOS 26 ZIP back to the legacy updater filename.
-          if [[ "$app_archive" != "WeClaw-Send-macOS26.zip" ]]; then
-            cp "_site/downloads/$app_archive" _site/downloads/WeClaw-Send-macOS26.zip
-          fi
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

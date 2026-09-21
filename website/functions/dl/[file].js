@@ -1,6 +1,6 @@
 const FILES = {
   dmg: "WeClaw-Send.dmg",
-  zip: "WeClaw-Send-macOS26.zip",
+  zip: "WeClaw-Send.zip",
 };
 
 export async function onRequestGet(context) {
