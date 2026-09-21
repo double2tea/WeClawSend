@@ -64,7 +64,9 @@ struct DragShakeDetector: Sendable {
 
         guard
             reversalTimes.count >= thresholds.minimumReversals,
-            horizontalTravel >= thresholds.minimumHorizontalTravel
+            horizontalTravel >= thresholds.minimumHorizontalTravel,
+            let start = samples.first?.time,
+            time - start >= thresholds.minimumDuration
         else {
             return false
         }
@@ -93,25 +95,28 @@ struct DragShakeDetector: Sendable {
             Thresholds(
                 window: 0.9,
                 cooldown: 1.2,
-                minimumSegmentDistance: 44,
-                minimumHorizontalTravel: 280,
-                minimumReversals: 4
+                minimumSegmentDistance: 30,
+                minimumHorizontalTravel: 170,
+                minimumReversals: 4,
+                minimumDuration: 0.28
             )
         case .medium:
             Thresholds(
                 window: 0.8,
                 cooldown: 1.0,
-                minimumSegmentDistance: 32,
-                minimumHorizontalTravel: 210,
-                minimumReversals: 3
+                minimumSegmentDistance: 20,
+                minimumHorizontalTravel: 110,
+                minimumReversals: 3,
+                minimumDuration: 0.22
             )
         case .high:
             Thresholds(
                 window: 0.7,
                 cooldown: 0.8,
-                minimumSegmentDistance: 24,
-                minimumHorizontalTravel: 160,
-                minimumReversals: 3
+                minimumSegmentDistance: 16,
+                minimumHorizontalTravel: 80,
+                minimumReversals: 3,
+                minimumDuration: 0.18
             )
         }
     }
@@ -139,6 +144,7 @@ struct DragShakeDetector: Sendable {
         let minimumSegmentDistance: CGFloat
         let minimumHorizontalTravel: CGFloat
         let minimumReversals: Int
+        let minimumDuration: TimeInterval
     }
 }
 
@@ -172,6 +178,10 @@ struct DragShakeSession: Sendable {
     mutating func reset() {
         detector.reset()
         hasTriggeredCurrentDrag = false
+    }
+
+    mutating func clearDetectorSamples() {
+        detector.reset()
     }
 
     mutating func endDrag() -> Bool {
@@ -217,6 +227,8 @@ final class ShelfActivationController {
     var onShakeEnded: ((NSPoint) -> Void)?
     var onFileDragMoved: ((NSPoint) -> Void)?
     var onFileDragEnded: ((NSPoint) -> Void)?
+    var onFileDragSuppressed: (() -> Void)?
+    var shouldSuppressDragEffects: ((NSPoint) -> Bool)?
     var onError: ((String) -> Void)?
 
     private var options: ShelfActivationOptions
@@ -404,6 +416,10 @@ final class ShelfActivationController {
             }
             return
         }
+        if event.modifierFlags.contains(.command),
+           fileURLs(from: dragPasteboard, includingDirectories: true).isEmpty {
+            return
+        }
         guard event.type == .leftMouseDragged else {
             shakeSession.reset()
             fileDragPasteboardSession.reset()
@@ -416,6 +432,11 @@ final class ShelfActivationController {
                 includingDirectories: true
             ).isEmpty
         )
+        if shouldSuppressDragEffects?(mouseLocation) == true {
+            shakeSession.clearDetectorSamples()
+            onFileDragSuppressed?()
+            return
+        }
         if options.notchDropEnabled, containsCurrentFiles {
             onFileDragMoved?(mouseLocation)
         }

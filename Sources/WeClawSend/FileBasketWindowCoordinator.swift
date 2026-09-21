@@ -67,7 +67,26 @@ final class FileBasketWindowCoordinator {
         model.fileBaskets.markRecent(id: id)
     }
 
+    func discardHiddenEmptyBaskets() {
+        let visibleIDs = Set(controllers.compactMap { id, controller in
+            controller.isVisible ? id : nil
+        })
+        let targetIDs = Set(model.folderWatchStore.rules.flatMap { rule in
+            rule.routes.compactMap(\.basketID)
+        })
+        let ids = model.fileBaskets.baskets.compactMap { basket in
+            basket.items.isEmpty && !visibleIDs.contains(basket.id)
+                && !targetIDs.contains(basket.id) ? basket.id : nil
+        }
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            controllers.removeValue(forKey: id)?.hide()
+        }
+        model.removeFileBaskets(ids: ids)
+    }
+
     func showAll() {
+        discardHiddenEmptyBaskets()
         for basket in model.fileBaskets.baskets {
             controller(for: basket).show()
         }

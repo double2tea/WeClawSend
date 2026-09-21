@@ -15,7 +15,7 @@
 | 协议 | 腾讯微信 iLink + 加密 CDN |
 | 不依赖 | WeClaw / OpenClaw / Node / Go / 其它后台进程 |
 
-**系统要求：** macOS 14+
+**系统要求：** macOS 26+（已适配 macOS 27）
 
 **限制：**
 
@@ -34,6 +34,8 @@
 ./scripts/build-app.sh
 open ".build/WeClaw Send.app"
 ```
+
+打包需要完整 Xcode（`xcrun --find actool`），不只是 Command Line Tools。
 
 1. 用户在菜单栏打开应用 → **设置 → 扫码登录**
 2. 在设置中打开「启用本地接口」

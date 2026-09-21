@@ -87,7 +87,7 @@ struct ShelfView: View {
     @State private var pendingNewTextClipItemID: UUID?
     @State private var hoveredReaderAction: String?
 
-    private let cornerRadius: CGFloat = 14
+    private let cornerRadius: CGFloat = Brand.radiusWindow
     private let itemListCoordinateSpace = "ShelfItemList"
 
     var body: some View {

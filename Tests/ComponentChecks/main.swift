@@ -314,6 +314,8 @@ slowWriter.waitUntilExit()
 precondition(slowWriter.terminationStatus == 0)
 precondition(folderWatchReady.wait(timeout: .now() + 12) == .success)
 precondition(folderWatchCapture.size(for: rootVideoURL) == 2)
+// Refreshing unchanged rules must preserve the handled file identity across a rename.
+folderWatchService.update(rules: [folderWatchIntegrationRule])
 let renamedVideoURL = folderWatchIntegrationRoot.appending(path: "renamed.mp4")
 let renameProcess = Process()
 renameProcess.executableURL = URL(fileURLWithPath: "/bin/mv")
@@ -898,6 +900,7 @@ precondition(!shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 3.2, contains
 precondition(!shakeSession.observe(point: CGPoint(x: 60, y: 0), at: 3.3, containsFiles: true))
 precondition(shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 3.4, containsFiles: true))
 precondition(!shakeSession.observe(point: CGPoint(x: 60, y: 0), at: 3.5, containsFiles: true))
+shakeSession.clearDetectorSamples()
 precondition(shakeSession.endDrag())
 precondition(!shakeSession.endDrag())
 precondition(!shakeSession.observe(point: CGPoint(x: 0, y: 0), at: 5, containsFiles: true))
@@ -990,6 +993,15 @@ precondition(NotchDropLayout(
     auxiliaryTopLeftArea: nil,
     auxiliaryTopRightArea: nil
 ) == nil)
+let fallbackNotch = NotchDropLayout(
+    screenFrame: notchScreenFrame,
+    topInset: 32,
+    auxiliaryTopLeftArea: nil,
+    auxiliaryTopRightArea: nil
+)
+precondition(fallbackNotch != nil)
+precondition(fallbackNotch?.notchCenterX == notchScreenFrame.midX)
+precondition(fallbackNotch?.notchFrame.height == 32)
 
 let notchFirstURL = URL(fileURLWithPath: "/tmp/weclaw-notch-a.mov")
 let notchSecondURL = URL(fileURLWithPath: "/tmp/weclaw-notch-b.mov")
@@ -1284,6 +1296,7 @@ try MainActor.assumeIsolated {
 
     let restoredStore = FileBasketStore()
     precondition(restoredStore.baskets.count == 2)
+    precondition(restoredStore.basket(id: secondBasket.id)?.items.isEmpty == true)
     precondition(restoredStore.baskets[0].title == "交付文件")
     precondition(restoredStore.baskets[0].color == .purple)
     precondition(restoredStore.baskets[0].backgroundOpacity == 0.7)
@@ -2308,13 +2321,15 @@ precondition(
 let release = try JSONDecoder().decode(
     GitHubRelease.self,
     from: Data(
-        ###"{"tag_name":"v1.5.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v1.5.0","body":"## 更新内容\n- 支持批量发送\n- 修复登录问题\n\n**Full Changelog**: https://example.test","assets":[{"name":"WeClaw-Send.zip","browser_download_url":"https://example.test/WeClaw-Send.zip"}]}"###.utf8
+        ###"{"tag_name":"v1.5.0","html_url":"https://github.com/double2tea/WeClawSend/releases/tag/v1.5.0","body":"## 更新内容\n- 支持批量发送\n- 修复登录问题\n\n**Full Changelog**: https://example.test","assets":[{"name":"WeClaw-Send-macOS26.zip","browser_download_url":"https://example.test/WeClaw-Send-macOS26.zip"}]}"###.utf8
     )
 )
 precondition(release.version == version150)
 precondition(release.appVersion == AppBuildVersion(version: version150, build: 0, channel: .stable))
 precondition(!release.isPrerelease)
 precondition(release.asset(named: UpdateManager.appArchiveName)?.browserDownloadURL.host == "example.test")
+// 2.5.x looks up this exact name before it can download or replace the app.
+precondition(release.asset(named: "WeClaw-Send.zip") == nil)
 precondition(AppUpdateNotice.notes(from: release.body) == ["支持批量发送", "修复登录问题"])
 precondition(AppUpdateNotice(release: release, currentVersion: stable140, seenVersion: "") != nil)
 precondition(AppUpdateNotice(release: release, currentVersion: stable140, seenVersion: "1.5.0") == nil)
@@ -2327,8 +2342,36 @@ precondition(releaseComponents.app == version150)
 precondition(releaseComponents.appBuild == 11)
 precondition(releaseComponents.premiere == ReleaseVersion(tag: "2.0.0")!)
 precondition(releaseComponents.daVinci == ReleaseVersion(tag: "3.0.0")!)
+precondition(releaseComponents.minimumMacOS == nil)
+let gatedComponents = try JSONDecoder().decode(
+    ReleaseComponents.self,
+    from: Data(#"{"app":"2.6.0","app_build":54,"premiere":"2.6.0","davinci":"2.6.0","minimum_macos":"26.0"}"#.utf8)
+)
+precondition(gatedComponents.minimumMacOS == "26.0")
+for invalidMinimum in ["", "26..1", "26.beta", "-1", "26.0.0.1", "999999999999999999999999"] {
+    precondition(!UpdateManager.macOS(
+        OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0),
+        satisfies: invalidMinimum
+    ))
+}
+precondition(!UpdateManager.macOS(
+    OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0),
+    satisfies: "26.0.1"
+))
+precondition(
+    UpdateManager.macOS(
+        OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0),
+        satisfies: "26.0"
+    )
+)
+precondition(
+    !UpdateManager.macOS(
+        OperatingSystemVersion(majorVersion: 15, minorVersion: 6, patchVersion: 0),
+        satisfies: "26.0"
+    )
+)
 let checksumManifest = """
-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  WeClaw-Send.zip
+0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  WeClaw-Send-macOS26.zip
 """
 let releaseChecksum = try UpdateManager.checksum(
     for: UpdateManager.appArchiveName,

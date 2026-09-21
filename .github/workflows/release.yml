@@ -71,7 +71,7 @@ jobs:
             release_flags+=(--prerelease)
           fi
           gh release create "$GITHUB_REF_NAME" \
-            dist/WeClaw-Send.zip \
+            dist/WeClaw-Send-macOS26.zip \
             dist/WeClaw-Send.dmg \
             "dist/WeClaw-Send-$app_version-build$app_build.dmg" \
             dist/WeClaw-Send-Premiere-CEP12.zip \

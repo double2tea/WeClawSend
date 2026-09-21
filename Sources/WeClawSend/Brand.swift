@@ -43,6 +43,7 @@ enum Brand {
 
     static let panelWidth: CGFloat = 400
     static let panelHeight: CGFloat = 520
+    static let radiusWindow: CGFloat = 20
     static let radiusCard: CGFloat = 12
     static let radiusControl: CGFloat = 10
     static let radiusChip: CGFloat = 100
@@ -59,7 +60,7 @@ enum Brand {
         if let image = Bundle.main.image(forResource: "MenuBarIcon") {
             let copy = image.copy() as? NSImage ?? image
             copy.isTemplate = true
-            copy.size = NSSize(width: 18, height: 18)
+            copy.size = NSSize(width: 19, height: 19)
             return copy
         }
         let fallback = NSImage(
@@ -194,5 +195,19 @@ struct SectionCard<Content: View>: View {
             RoundedRectangle(cornerRadius: Brand.radiusCard, style: .continuous)
                 .stroke(Brand.hairline, lineWidth: 1)
         }
+    }
+}
+
+extension View {
+    func glassChrome<S: Shape>(
+        in shape: S,
+        tint: Color? = nil,
+        interactive: Bool = false
+    ) -> some View {
+        var glass = interactive ? Glass.regular.interactive() : Glass.regular
+        if let tint {
+            glass = glass.tint(tint)
+        }
+        return glassEffect(glass, in: shape)
     }
 }

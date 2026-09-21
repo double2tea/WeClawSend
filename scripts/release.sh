@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
-ZIP="$DIST/WeClaw-Send.zip"
+ZIP="$DIST/WeClaw-Send-macOS26.zip"
 DMG="$DIST/WeClaw-Send.dmg"
 PREMIERE_ZIP="$DIST/WeClaw-Send-Premiere-CEP12.zip"
 DAVINCI_ZIP="$DIST/WeClaw-Send-DaVinci-Resolve.zip"
@@ -66,7 +66,7 @@ BINARY="$APP/Contents/MacOS/WeClawSend"
 
 lipo "$BINARY" -verify_arch arm64 x86_64
 codesign --verify --deep --strict "$APP"
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")" == "14.0" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")" == "26.0" ]]
 
 mkdir -p "$DIST"
 rm -f \
@@ -133,11 +133,13 @@ if ! grep -qx 'davinci-resolve/Deliver/WeClawSend_Lua.lua' <<<"$DAVINCI_CONTENTS
     exit 1
 fi
 
-printf '{\n  "app": "%s",\n  "app_build": %s,\n  "premiere": "%s",\n  "davinci": "%s"\n}\n' \
+MIN_OS="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")"
+printf '{\n  "app": "%s",\n  "app_build": %s,\n  "premiere": "%s",\n  "davinci": "%s",\n  "minimum_macos": "%s"\n}\n' \
     "$APP_VERSION" \
     "$APP_BUILD" \
     "$PREMIERE_VERSION" \
-    "$DAVINCI_VERSION" > "$COMPONENTS"
+    "$DAVINCI_VERSION" \
+    "$MIN_OS" > "$COMPONENTS"
 python3 -m json.tool "$COMPONENTS" >/dev/null
 
 if grep -q '__pycache__' <<<"$DAVINCI_CONTENTS"; then
@@ -194,6 +196,6 @@ print "DaVinci：$DAVINCI_ZIP"
 print "组件版本：$COMPONENTS"
 print "校验：$CHECKSUMS"
 print "架构：$(lipo -archs "$EXTRACTED_BINARY")"
-print "系统：macOS 14+"
+print "系统：macOS 26+"
 print "签名：ad-hoc（首次打开需在系统设置中手动批准）"
 print "说明：ZIP 与 DMG 均内含《使用说明.html》和可双击的《视频教程.webloc》"

@@ -25,6 +25,8 @@
 ## 安装
 
 1. 从 [Releases](https://github.com/double2tea/WeClawSend/releases) 下载 DMG 或 ZIP，把 App 放进“应用程序”。
+
+   2.6.0 起需要 macOS 26+。2.5.x 用户须手动下载安装新版；新版 ZIP 名称为 `WeClaw-Send-macOS26.zip`，旧版内置更新会提示缺少旧名称附件。macOS 14/15 用户请继续使用 2.5.3。
 2. 点击菜单栏纸飞机，在设置中扫码登录微信；已经使用 OpenClaw，也可以把登录方式切到 OpenClaw。
 3. 拖入文件，或点击面板选择文件。
 
@@ -187,7 +189,7 @@ MP4/M4V 显示名由设置「发送时 .mp4 显示为 .m4v」处理。
 <details>
 <summary>构建、测试与发布</summary>
 
-需要 macOS 14+ 与 Swift 工具链。
+需要 macOS 26+ 与 Swift 工具链。打包 App（`scripts/install.sh` / `build-app.sh` / `release.sh`）需要完整 Xcode，`xcrun --find actool` 必须成功；仅 Command Line Tools 不够。已适配 macOS 27 Golden Gate。
 
 ```sh
 chmod +x scripts/*.sh

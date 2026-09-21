@@ -1008,14 +1008,18 @@ final class AppModel: ObservableObject {
                 currentVersion: currentVersion,
                 channel: appUpdateChannel
             )
-            let release = try await updateManager.latestRelease(channel: appUpdateChannel)
-            appUpdateNotice = AppUpdateNotice(
-                release: release,
-                currentVersion: currentVersion,
-                seenVersion: UserDefaults.standard.string(
-                    forKey: AppSettings.appUpdateNoticeSeenVersionKey
-                ) ?? ""
-            )
+            if case .updateAvailable = appUpdateAvailability {
+                let release = try await updateManager.latestRelease(channel: appUpdateChannel)
+                appUpdateNotice = AppUpdateNotice(
+                    release: release,
+                    currentVersion: currentVersion,
+                    seenVersion: UserDefaults.standard.string(
+                        forKey: AppSettings.appUpdateNoticeSeenVersionKey
+                    ) ?? ""
+                )
+            } else {
+                appUpdateNotice = nil
+            }
             let reporter = runtime.updateCheckReporter
             Task { await reporter.reportIfNeeded() }
         } catch {
@@ -1690,17 +1694,26 @@ final class AppModel: ObservableObject {
     }
 
     func removeFileBasket(id: UUID) {
-        guard let basket = fileBaskets.basket(id: id) else { return }
-        let items = basket.items
-        fileBaskets.removeBasket(id: id)
-        for var rule in folderWatchStore.rules where rule.routes.contains(where: { $0.basketID == id }) {
-            for index in rule.routes.indices where rule.routes[index].basketID == id {
-                rule.routes[index].basketID = nil
+        removeFileBaskets(ids: [id])
+    }
+
+    func removeFileBaskets(ids: [UUID]) {
+        let uniqueIDs = ids.filter { fileBaskets.basket(id: $0) != nil }
+        guard !uniqueIDs.isEmpty else { return }
+        var artifacts: [URL] = []
+        for id in uniqueIDs {
+            guard let basket = fileBaskets.basket(id: id) else { continue }
+            artifacts.append(contentsOf: basket.items.map(\.url))
+            for var rule in folderWatchStore.rules where rule.routes.contains(where: { $0.basketID == id }) {
+                for index in rule.routes.indices where rule.routes[index].basketID == id {
+                    rule.routes[index].basketID = nil
+                }
+                _ = try? folderWatchStore.updateRule(rule)
             }
-            _ = try? folderWatchStore.updateRule(rule)
         }
+        fileBaskets.removeBaskets(ids: Set(uniqueIDs))
         refreshFolderWatchService()
-        items.forEach { cleanupManagedBasketArtifactIfUnreferenced($0.url) }
+        artifacts.forEach { cleanupManagedBasketArtifactIfUnreferenced($0) }
     }
 
     private func refreshFolderWatchService() {
@@ -1966,7 +1979,9 @@ final class AppModel: ObservableObject {
             _ = basket.rename(to: "\(rule.folderURL.lastPathComponent)监控")
         }
 
-        if basket.items.contains(where: { $0.path == record.filePath }) {
+        if basket.items.contains(where: {
+            FolderWatchRule.normalizePath($0.path) == record.filePath
+        }) {
             folderWatchStore.updateRecord(
                 id: record.id,
                 status: .ignored,

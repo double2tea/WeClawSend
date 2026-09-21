@@ -32,9 +32,9 @@ struct BasketReminderView: View {
             footer
         }
         .background(backgroundSurface)
-        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Brand.radiusWindow, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
+            RoundedRectangle(cornerRadius: Brand.radiusWindow, style: .continuous)
                 .stroke(accentColor.opacity(0.32), lineWidth: 1)
         }
         .frame(minWidth: 320, minHeight: 140)

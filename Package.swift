@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "WeClawSend",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     products: [
         .executable(name: "WeClawSend", targets: ["WeClawSend"])
     ],

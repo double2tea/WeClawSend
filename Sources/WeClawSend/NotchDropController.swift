@@ -28,21 +28,29 @@ struct NotchDropLayout: Equatable {
         auxiliaryTopLeftArea: NSRect?,
         auxiliaryTopRightArea: NSRect?
     ) {
-        guard
-            topInset > 0,
-            let auxiliaryTopLeftArea,
-            let auxiliaryTopRightArea,
-            auxiliaryTopLeftArea.maxX < auxiliaryTopRightArea.minX
-        else { return nil }
+        guard topInset > 0 else { return nil }
         self.screenFrame = screenFrame
         self.topInset = topInset
-        notchCenterX = (auxiliaryTopLeftArea.maxX + auxiliaryTopRightArea.minX) / 2
-        notchFrame = NSRect(
-            x: auxiliaryTopLeftArea.maxX,
-            y: screenFrame.maxY - topInset,
-            width: auxiliaryTopRightArea.minX - auxiliaryTopLeftArea.maxX,
-            height: topInset
-        )
+        if let auxiliaryTopLeftArea,
+           let auxiliaryTopRightArea,
+           auxiliaryTopLeftArea.maxX < auxiliaryTopRightArea.minX {
+            notchCenterX = (auxiliaryTopLeftArea.maxX + auxiliaryTopRightArea.minX) / 2
+            notchFrame = NSRect(
+                x: auxiliaryTopLeftArea.maxX,
+                y: screenFrame.maxY - topInset,
+                width: auxiliaryTopRightArea.minX - auxiliaryTopLeftArea.maxX,
+                height: topInset
+            )
+        } else {
+            let width = min(topInset * 5, screenFrame.width * 0.35)
+            notchCenterX = screenFrame.midX
+            notchFrame = NSRect(
+                x: screenFrame.midX - width / 2,
+                y: screenFrame.maxY - topInset,
+                width: width,
+                height: topInset
+            )
+        }
     }
 
     init?(screen: NSScreen) {
@@ -254,6 +262,10 @@ final class NotchDropController {
         if !enabled {
             hide(immediately: true)
         }
+    }
+
+    func cancelArmedDrop() {
+        hide(immediately: true)
     }
 
     func handleFileDragMoved(to point: NSPoint) {
@@ -698,13 +710,8 @@ private struct NotchDropCapsuleView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .frame(width: foldWidth, height: 40)
-        .background {
-            foldShape
-                .fill(.ultraThinMaterial)
-            foldShape
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.03))
-            foldShape
-                .fill(atmosphereTint.opacity(0.045))
+        .glassChrome(in: foldShape, tint: atmosphereTint)
+        .overlay {
             foldShape
                 .stroke(Brand.hairline, lineWidth: 0.8)
         }
@@ -813,8 +820,8 @@ private struct NotchDropCapsuleView: View {
     private var foldShape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
             topLeadingRadius: 0,
-            bottomLeadingRadius: 12,
-            bottomTrailingRadius: 12,
+            bottomLeadingRadius: 16,
+            bottomTrailingRadius: 16,
             topTrailingRadius: 0,
             style: .continuous
         )

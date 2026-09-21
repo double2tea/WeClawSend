@@ -76,10 +76,7 @@ struct ServicesView: View {
             }
         }
         .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(Color.primary.opacity(0.045))
-        )
+        .glassChrome(in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .stroke(Color.primary.opacity(0.075), lineWidth: 0.8)
@@ -105,13 +102,7 @@ struct ServicesView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 31)
             .background {
-                RoundedRectangle(cornerRadius: 9.5, style: .continuous)
-                    .fill(tabBackground(isSelected: isSelected, isHovered: isHovered))
-                    .shadow(
-                        color: isSelected ? Color.black.opacity(0.12) : .clear,
-                        radius: 4,
-                        y: 2
-                    )
+                tabPillBackground(isSelected: isSelected, isHovered: isHovered)
             }
             .overlay(alignment: .bottom) {
                 if isSelected {
@@ -137,10 +128,15 @@ struct ServicesView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private func tabBackground(isSelected: Bool, isHovered: Bool) -> Color {
-        if isSelected { return Color.primary.opacity(0.105) }
-        if isHovered { return Color.primary.opacity(0.055) }
-        return .clear
+    @ViewBuilder
+    private func tabPillBackground(isSelected: Bool, isHovered: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 9.5, style: .continuous)
+        if isSelected {
+            shape.fill(.clear)
+                .glassChrome(in: shape, interactive: true)
+        } else {
+            shape.fill(isHovered ? Color.primary.opacity(0.055) : .clear)
+        }
     }
 
     private var settingsContent: some View {
@@ -177,7 +173,7 @@ struct ServicesView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 24, height: 24)
-                    .background(Circle().fill(Color.primary.opacity(0.05)))
+                    .glassChrome(in: Circle(), interactive: true)
             }
             .buttonStyle(.plain)
             .help("返回发送")
@@ -205,7 +201,7 @@ struct ServicesView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 24, height: 24)
-                    .background(Circle().fill(Color.primary.opacity(0.05)))
+                    .glassChrome(in: Circle(), interactive: true)
             }
             .buttonStyle(.plain)
             .help("刷新状态")
@@ -217,7 +213,7 @@ struct ServicesView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 24, height: 24)
-                    .background(Circle().fill(Color.primary.opacity(0.05)))
+                    .glassChrome(in: Circle(), interactive: true)
             }
             .buttonStyle(.plain)
             .help("退出")

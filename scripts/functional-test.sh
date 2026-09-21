@@ -63,9 +63,16 @@ print "== 2) package app with branding =="
 "$ROOT/scripts/build-app.sh"
 BUNDLE="$(realpath "$ROOT/.build/WeClaw Send.app")"
 [[ -f "$BUNDLE/Contents/Resources/AppIcon.icns" ]] || bad "AppIcon.icns missing in bundle"
+[[ -f "$BUNDLE/Contents/Resources/Assets.car" ]] || bad "Assets.car missing in bundle"
+xcrun assetutil --info "$BUNDLE/Contents/Resources/Assets.car" 2>/dev/null | grep -q AppIcon \
+    && ok "compiled AppIcon in Assets.car" || bad "Assets.car does not list AppIcon"
 [[ -f "$BUNDLE/Contents/Resources/MenuBarIcon.png" ]] || bad "MenuBarIcon.png missing in bundle"
 /usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$BUNDLE/Contents/Info.plist" | grep -q AppIcon \
     && ok "bundle icon metadata" || bad "CFBundleIconFile not AppIcon"
+/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$BUNDLE/Contents/Info.plist" | grep -q AppIcon \
+    && ok "layered icon name" || bad "CFBundleIconName not AppIcon"
+/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$BUNDLE/Contents/Info.plist" | grep -qx 26.0 \
+    && ok "minimum system version 26.0" || bad "LSMinimumSystemVersion is not 26.0"
 /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:LSItemContentTypes:0' "$BUNDLE/Contents/Info.plist" | grep -qx public.movie \
     && ok "Final Cut video handoff metadata" || bad "public.movie document type missing"
 /usr/libexec/PlistBuddy -c 'Print :NSServices:0:NSMessage' "$BUNDLE/Contents/Info.plist" | grep -qx sendSelectedFiles \

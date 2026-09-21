@@ -75,14 +75,28 @@ final class FileBasketStore: ObservableObject {
     }
 
     func removeBasket(id: UUID) {
-        guard baskets.contains(where: { $0.id == id }) else { return }
-        baskets.removeAll { $0.id == id }
-        windowStates.removeValue(forKey: id)
-        observations.removeValue(forKey: id)
-        if recentBasketID == id {
-            recentBasketID = baskets.last?.id
+        removeBaskets(ids: [id])
+    }
+
+    func removeBaskets(ids: Set<UUID>) {
+        let existing = ids.filter { id in baskets.contains { $0.id == id } }
+        guard !existing.isEmpty else { return }
+        baskets.removeAll { existing.contains($0.id) }
+        for id in existing {
+            windowStates.removeValue(forKey: id)
+            observations.removeValue(forKey: id)
+        }
+        if let recentBasketID, existing.contains(recentBasketID) {
+            self.recentBasketID = baskets.last?.id
         }
         persistIfNeeded()
+    }
+
+    func discardEmptyBaskets(except keepIDs: Set<UUID> = []) {
+        let ids = Set(baskets.compactMap { basket in
+            basket.items.isEmpty && !keepIDs.contains(basket.id) ? basket.id : nil
+        })
+        removeBaskets(ids: ids)
     }
 
     func markRecent(id: UUID) {

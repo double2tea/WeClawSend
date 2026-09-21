@@ -7,8 +7,47 @@ SIGNED_APP="$HOME/Library/Caches/WeClawSend/WeClaw Send.app"
 ARM_BUILD="$ROOT/.build/universal/arm64"
 X86_BUILD="$ROOT/.build/universal/x86_64"
 
-if [[ ! -f "$ROOT/Resources/AppIcon.icns" ]]; then
-    print -u2 "缺少 Resources/AppIcon.icns，请先运行: python3 scripts/generate-icons.py"
+ACTOOL="$(xcrun --find actool 2>/dev/null || true)"
+if [[ -z "$ACTOOL" ]]; then
+    print -u2 "缺少 actool。请安装完整 Xcode（不只是 Command Line Tools），以便把 AppIcon.icon 编成 Assets.car。"
+    exit 1
+fi
+
+compile_app_icon() {
+    local app="$1"
+    local work
+    work="$(mktemp -d "${TMPDIR:-/tmp/}weclaw-icon.XXXXXX")"
+    mkdir -p "$work/Assets.xcassets"
+    cat > "$work/Assets.xcassets/Contents.json" <<'JSON'
+{
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
+JSON
+    cp -R "$ROOT/Resources/AppIcon.icon" "$work/Assets.xcassets/AppIcon.icon"
+    mkdir -p "$work/out"
+    "$ACTOOL" \
+        "$work/Assets.xcassets" \
+        --compile "$work/out" \
+        --app-icon AppIcon \
+        --output-partial-info-plist "$work/assetcatalog_generated_info.plist" \
+        --target-device mac \
+        --platform macosx \
+        --minimum-deployment-target 26.0 \
+        --enable-on-demand-resources NO
+    if [[ ! -f "$work/out/Assets.car" ]]; then
+        print -u2 "actool 未生成 Assets.car"
+        rm -rf "$work"
+        exit 1
+    fi
+    cp "$work/out/Assets.car" "$app/Contents/Resources/Assets.car"
+    rm -rf "$work"
+}
+
+if [[ ! -f "$ROOT/Resources/AppIcon.icns" || ! -d "$ROOT/Resources/AppIcon.icon" ]]; then
+    print -u2 "缺少 AppIcon.icns 或 AppIcon.icon，请先运行: python3 scripts/generate-icons.py"
     exit 1
 fi
 
@@ -41,6 +80,7 @@ if [[ -n "${WECLAW_ACCOUNT_PRESENCE_ENDPOINT:-}" ]]; then
         "$APP/Contents/Info.plist"
 fi
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+compile_app_icon "$APP"
 cp "$ROOT/Resources/MenuBarIcon.png" "$APP/Contents/Resources/MenuBarIcon.png"
 if [[ -f "$ROOT/Resources/MenuBarIcon@2x.png" ]]; then
     cp "$ROOT/Resources/MenuBarIcon@2x.png" "$APP/Contents/Resources/MenuBarIcon@2x.png"

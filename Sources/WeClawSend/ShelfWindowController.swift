@@ -695,14 +695,15 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     private func neutralizeContentSafeArea() {
-        guard let contentView = panel.contentView else { return }
         let titlebarInset = max(0, panel.frame.height - panel.contentLayoutRect.height)
-        contentView.additionalSafeAreaInsets = NSEdgeInsets(
+        let insets = NSEdgeInsets(
             top: -titlebarInset,
             left: 0,
             bottom: 0,
             right: 0
         )
+        guard let contentView = panel.contentView else { return }
+        contentView.additionalSafeAreaInsets = insets
     }
 
     private func pointerPresenceChanged(_ isInside: Bool) {

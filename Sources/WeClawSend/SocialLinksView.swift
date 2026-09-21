@@ -39,15 +39,11 @@ struct DataSafetyHint: View {
             .fixedSize(horizontal: false, vertical: true)
             .frame(width: 248, alignment: .leading)
             .padding(10)
-            .background(
-                .regularMaterial,
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-            )
+            .glassChrome(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(Brand.hairline, lineWidth: 1)
             }
-            .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
 }
 

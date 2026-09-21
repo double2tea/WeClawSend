@@ -62,7 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
             if didEnqueue {
                 model.showsServices = false
             }
-            showPopover()
+            Task { @MainActor [weak self] in
+                self?.showPopover()
+            }
         }
         dropView.onDraggingChanged = { [weak self] isDragging in
             guard let self else { return }
@@ -71,13 +73,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         dropView.onRightClick = { [weak self] event in
             self?.showStatusItemMenu(with: event)
         }
+        dropView.onPressDismiss = { [weak self] in
+            guard let self, self.popover.isShown else { return false }
+            self.popover.close()
+            return true
+        }
         statusDropView = dropView
-        button.addSubview(dropView)
+        guard let dropHost = button.superview else {
+            preconditionFailure("状态栏按钮尚未加入视图层级")
+        }
+        dropHost.addSubview(dropView)
+        dropView.iconView = button
         NSLayoutConstraint.activate([
-            dropView.leadingAnchor.constraint(equalTo: button.leadingAnchor),
-            dropView.trailingAnchor.constraint(equalTo: button.trailingAnchor),
-            dropView.topAnchor.constraint(equalTo: button.topAnchor),
-            dropView.bottomAnchor.constraint(equalTo: button.bottomAnchor)
+            dropView.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            dropView.widthAnchor.constraint(equalTo: button.widthAnchor, constant: 8),
+            dropView.topAnchor.constraint(equalTo: dropHost.topAnchor),
+            dropView.bottomAnchor.constraint(equalTo: dropHost.bottomAnchor)
         ])
 
         popover.behavior = .transient
@@ -126,6 +137,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
                 )
             )
         )
+        popover.contentViewController?.view.wantsLayer = true
+        popover.contentViewController?.view.layer?.backgroundColor = NSColor.clear.cgColor
         popover.delegate = self
         self.statusItem = statusItem
         observeMenuBarActivity()
@@ -142,6 +155,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
             guard let self, let id = shakeBasketID else { return }
             shakeBasketID = nil
             fileBasketCoordinator.discardEmptyShakeBasket(id: id, toward: point)
+        }
+        shelfActivationController.shouldSuppressDragEffects = { [weak self] point in
+            self?.isPointerOverStatusItem(point) == true
+        }
+        shelfActivationController.onFileDragSuppressed = { [weak self] in
+            self?.notchDropController.cancelArmedDrop()
         }
         shelfActivationController.onFileDragMoved = { [weak self] point in
             self?.notchDropController.handleFileDragMoved(to: point)
@@ -250,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
 
     func popoverWillShow(_ notification: Notification) {
         statusItem?.button?.highlight(true)
+        fileBasketCoordinator.discardHiddenEmptyBaskets()
         model.startMonitoringServices()
         startPopoverAutoCloseMonitoring()
         startPopoverKeyMonitor()
@@ -285,9 +305,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         if openPanel != nil {
             closeOpenPanel()
         }
-        guard !popover.isShown, let button = statusItem?.button else { return }
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        guard !popover.isShown, let dropView = statusDropView else { return }
+        popover.show(relativeTo: dropView.bounds, of: dropView, preferredEdge: .minY)
         makePopoverKey()
+    }
+
+    private func isPointerOverStatusItem(_ point: NSPoint) -> Bool {
+        guard let button = statusItem?.button, let window = button.window else { return false }
+        let buttonScreen = window.convertToScreen(button.convert(button.bounds, to: nil))
+        let column = NSRect(
+            x: buttonScreen.minX,
+            y: window.frame.minY,
+            width: max(buttonScreen.width, 1),
+            height: window.frame.height
+        )
+        return column.insetBy(dx: -6, dy: 0).contains(point)
     }
 
     private func makePopoverKey() {
@@ -655,8 +687,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     }
 
     private func showStatusItemMenu(with event: NSEvent) {
-        guard let view = event.window?.contentView?.hitTest(event.locationInWindow) else { return }
-        NSMenu.popUpContextMenu(statusItemMenu(), with: event, for: view)
+        guard let button = statusItem?.button else { return }
+        NSMenu.popUpContextMenu(statusItemMenu(), with: event, for: button)
     }
 
     private func statusItemMenu() -> NSMenu {
@@ -703,6 +735,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     }
 
     private func fileBasketMenu() -> NSMenu {
+        fileBasketCoordinator.discardHiddenEmptyBaskets()
         let menu = NSMenu(title: "文件篮")
         menu.addItem(
             toggleItem(
@@ -1043,21 +1076,33 @@ private enum FileSelectionDestination {
 final class StatusItemDropView: NSView {
     var onClick: () -> Void = {}
     var onRightClick: (NSEvent) -> Void = { _ in }
+    var onPressDismiss: () -> Bool = { false }
     var onDrop: ([URL]) -> Void = { _ in }
     var onDraggingChanged: (Bool) -> Void = { _ in }
+    weak var iconView: NSView?
 
     private var activity = MenuBarActivity.idle
     private var spinAngle: CGFloat = 90
     private var spinTimer: Timer?
+    private var pressScreenPoint: NSPoint?
+    private var isMenuBarDrag = false
+    private var receivedFileDrop = false
+    private var suppressClick = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL])
-        wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        registerForDraggedTypes([.fileURL, filenamesPasteboardType])
     }
 
     override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if NSEvent.modifierFlags.contains(.command),
+           NSApp.currentEvent?.type == .leftMouseDown {
+            return nil
+        }
+        return super.hitTest(point)
+    }
 
     func setActivity(_ activity: MenuBarActivity) {
         let changed = activity != self.activity
@@ -1078,7 +1123,35 @@ final class StatusItemDropView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        onClick()
+        receivedFileDrop = false
+        pressScreenPoint = Self.screenPoint(from: event)
+        isMenuBarDrag = false
+        suppressClick = onPressDismiss()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let pressScreenPoint, !isMenuBarDrag else { return }
+        let now = Self.screenPoint(from: event)
+        if hypot(now.x - pressScreenPoint.x, now.y - pressScreenPoint.y) >= 4 {
+            isMenuBarDrag = true
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let shouldClick = !suppressClick && !receivedFileDrop && !isMenuBarDrag
+            && pressScreenPoint != nil
+        pressScreenPoint = nil
+        isMenuBarDrag = false
+        receivedFileDrop = false
+        suppressClick = false
+        if shouldClick {
+            onClick()
+        }
+    }
+
+    private static func screenPoint(from event: NSEvent) -> NSPoint {
+        event.window?.convertToScreen(NSRect(origin: event.locationInWindow, size: .zero)).origin
+            ?? NSEvent.mouseLocation
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -1101,19 +1174,21 @@ final class StatusItemDropView: NSView {
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         onDraggingChanged(false)
+        if pressScreenPoint == nil {
+            receivedFileDrop = false
+        }
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let urls = fileURLs(from: sender.draggingPasteboard)
         onDraggingChanged(false)
         guard !urls.isEmpty else { return false }
+        receivedFileDrop = true
         onDrop(urls)
         return true
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.clear.setFill()
-        bounds.fill(using: .copy)
         guard activity.isSending || activity.badgeCount > 0 else { return }
         if activity.isSending {
             drawProgressRing()
@@ -1123,11 +1198,26 @@ final class StatusItemDropView: NSView {
         }
     }
 
+    private var glyphBounds: NSRect {
+        guard let iconView else { return bounds }
+        let frame = convert(iconView.bounds, from: iconView)
+        let side = min(frame.width, frame.height)
+        return NSRect(
+            x: frame.midX - side / 2,
+            y: frame.midY - side / 2,
+            width: side,
+            height: side
+        )
+    }
+
     private func drawProgressRing() {
-        let inset: CGFloat = 1.6
-        let bounds = bounds.insetBy(dx: inset, dy: inset)
-        let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        let radius = min(bounds.width, bounds.height) / 2 - 0.6
+        let lineWidth: CGFloat = 1.3
+        let center: CGPoint = {
+            guard let iconView else { return CGPoint(x: bounds.midX, y: bounds.midY) }
+            let frame = convert(iconView.bounds, from: iconView)
+            return CGPoint(x: frame.midX, y: frame.midY)
+        }()
+        let radius = min(bounds.width, bounds.height) / 2 - lineWidth / 2 - 0.5
         let track = NSBezierPath()
         track.appendOval(in: NSRect(
             x: center.x - radius,
@@ -1135,12 +1225,12 @@ final class StatusItemDropView: NSView {
             width: radius * 2,
             height: radius * 2
         ))
-        track.lineWidth = 1.4
-        NSColor.labelColor.withAlphaComponent(0.16).setStroke()
+        track.lineWidth = lineWidth
+        NSColor.labelColor.withAlphaComponent(0.22).setStroke()
         track.stroke()
 
         let arc = NSBezierPath()
-        arc.lineWidth = 1.5
+        arc.lineWidth = lineWidth
         arc.lineCapStyle = .round
         if let progress = activity.progress {
             let sweep = max(8, 360 * min(max(progress, 0), 1))
@@ -1166,9 +1256,10 @@ final class StatusItemDropView: NSView {
 
     private func drawBadge(_ text: String) {
         let size: CGFloat = text.count > 1 ? 10 : 8.5
+        let glyph = glyphBounds
         let rect = NSRect(
-            x: bounds.maxX - size - 0.4,
-            y: bounds.maxY - size - 0.2,
+            x: glyph.maxX - size - 0.4,
+            y: glyph.maxY - size - 0.2,
             width: size,
             height: size
         )

@@ -4,7 +4,7 @@
 
 ## 前置条件
 
-- macOS 14+
+- macOS 26+
 - Premiere Pro 25+（manifest 覆盖 25.0–99.9）
 - 已安装并登录 WeClaw Send
 

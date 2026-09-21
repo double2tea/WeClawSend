@@ -192,6 +192,7 @@ struct ReleaseComponents: Equatable, Sendable {
     let appBuild: Int?
     let premiere: ReleaseVersion
     let daVinci: ReleaseVersion
+    let minimumMacOS: String?
 }
 
 extension ReleaseComponents: Decodable {
@@ -200,6 +201,7 @@ extension ReleaseComponents: Decodable {
         case appBuild = "app_build"
         case premiere
         case daVinci = "davinci"
+        case minimumMacOS = "minimum_macos"
     }
 
     init(from decoder: any Decoder) throws {
@@ -208,6 +210,7 @@ extension ReleaseComponents: Decodable {
         let appBuild = try values.decodeIfPresent(Int.self, forKey: .appBuild)
         let premiereText = try values.decode(String.self, forKey: .premiere)
         let daVinciText = try values.decode(String.self, forKey: .daVinci)
+        let minimumMacOS = try values.decodeIfPresent(String.self, forKey: .minimumMacOS)
         guard
             let app = ReleaseVersion(tag: appText),
             let premiere = ReleaseVersion(tag: premiereText),
@@ -224,7 +227,13 @@ extension ReleaseComponents: Decodable {
                 debugDescription: "App 构建号无效"
             )
         }
-        self.init(app: app, appBuild: appBuild, premiere: premiere, daVinci: daVinci)
+        self.init(
+            app: app,
+            appBuild: appBuild,
+            premiere: premiere,
+            daVinci: daVinci,
+            minimumMacOS: minimumMacOS
+        )
     }
 }
 
@@ -261,6 +270,7 @@ enum UpdateManagerError: LocalizedError {
     case daVinciScriptsNotInstalled
     case currentAppNotWritable(String)
     case commandFailed(String)
+    case unsupportedOperatingSystem(String)
 
     var errorDescription: String? {
         switch self {
@@ -296,6 +306,8 @@ enum UpdateManagerError: LocalizedError {
             "当前 App 所在目录不可写：\(path)。请将 App 移至当前用户可写的“应用程序”目录后重试。"
         case let .commandFailed(message):
             "安装命令失败：\(message)"
+        case let .unsupportedOperatingSystem(minimum):
+            "该版本需要 macOS \(minimum) 或更新系统"
         }
     }
 }
@@ -306,6 +318,23 @@ enum AppUpdateResult: Sendable {
 }
 
 actor UpdateManager {
+    nonisolated static func macOS(
+        _ host: OperatingSystemVersion,
+        satisfies minimum: String
+    ) -> Bool {
+        let components = minimum.split(separator: ".", omittingEmptySubsequences: false)
+        guard (1...3).contains(components.count),
+              components.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy { (48...57).contains($0) } })
+        else { return false }
+        let parts = components.compactMap { Int($0) }
+        guard parts.count == components.count, let major = parts.first else { return false }
+        let minor = parts.count > 1 ? parts[1] : 0
+        let patch = parts.count > 2 ? parts[2] : 0
+        if host.majorVersion != major { return host.majorVersion > major }
+        if host.minorVersion != minor { return host.minorVersion > minor }
+        return host.patchVersion >= patch
+    }
+
     nonisolated static let latestReleaseURL = URL(
         string: "https://api.github.com/repos/double2tea/WeClawSend/releases/latest"
     )!
@@ -318,7 +347,7 @@ actor UpdateManager {
     nonisolated static let cdnDownloadsBaseURL = URL(
         string: "https://weclaw-send.pages.dev/downloads/"
     )!
-    nonisolated static let appArchiveName = "WeClaw-Send.zip"
+    nonisolated static let appArchiveName = "WeClaw-Send-macOS26.zip"
     nonisolated static let premiereArchiveName = "WeClaw-Send-Premiere-CEP12.zip"
     nonisolated static let daVinciArchiveName = "WeClaw-Send-DaVinci-Resolve.zip"
     nonisolated static let componentsName = "WeClaw-Send-Components.json"
@@ -363,6 +392,7 @@ actor UpdateManager {
     private let cdnDownloadsBaseURL: URL
     private let homeDirectory: URL
     private let defaultsExecutablePath: String
+    private let hostMacOSVersion: OperatingSystemVersion
     private var cachedReleases: [AppUpdateChannel: (release: GitHubRelease, date: Date)] = [:]
     private var releaseCacheGeneration = 0
     private var ignoresCacheForNextMetadataRequest = false
@@ -379,7 +409,8 @@ actor UpdateManager {
         stableReleaseFallbackURL: URL = UpdateManager.stableReleaseFallbackURL,
         cdnDownloadsBaseURL: URL = UpdateManager.cdnDownloadsBaseURL,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        defaultsExecutablePath: String = "/usr/bin/defaults"
+        defaultsExecutablePath: String = "/usr/bin/defaults",
+        hostMacOSVersion: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion
     ) {
         self.session = session
         self.fileManager = fileManager
@@ -389,6 +420,7 @@ actor UpdateManager {
         self.cdnDownloadsBaseURL = cdnDownloadsBaseURL
         self.homeDirectory = homeDirectory
         self.defaultsExecutablePath = defaultsExecutablePath
+        self.hostMacOSVersion = hostMacOSVersion
     }
 
     func invalidateReleaseCache() {
@@ -412,6 +444,11 @@ actor UpdateManager {
         }
         guard currentVersion < releaseVersion else {
             return .alreadyCurrent
+        }
+        let components = try await releaseComponents(in: release)
+        if let minimum = components.minimumMacOS,
+           !Self.macOS(hostMacOSVersion, satisfies: minimum) {
+            throw UpdateManagerError.unsupportedOperatingSystem(minimum)
         }
 
         let currentAppURL = try writableAppURL(appURL)
@@ -458,7 +495,15 @@ actor UpdateManager {
         guard let latestVersion = release.appVersion else {
             throw UpdateManagerError.invalidVersion(release.tagName)
         }
-        return currentVersion < latestVersion ? .updateAvailable(latestVersion) : .current(currentVersion)
+        guard currentVersion < latestVersion else {
+            return .current(currentVersion)
+        }
+        let components = try await releaseComponents(in: release)
+        if let minimum = components.minimumMacOS,
+           !Self.macOS(hostMacOSVersion, satisfies: minimum) {
+            return .current(currentVersion)
+        }
+        return .updateAvailable(latestVersion)
     }
 
     func premierePluginUpdateState(
@@ -893,7 +938,8 @@ actor UpdateManager {
                 app: appVersion,
                 appBuild: nil,
                 premiere: appVersion,
-                daVinci: appVersion
+                daVinci: appVersion,
+                minimumMacOS: nil
             )
             cachedComponents[release.tagName] = legacy
             return legacy
@@ -1143,6 +1189,10 @@ actor UpdateManager {
             else {
                 throw UpdateManagerError.invalidArchive(Self.appArchiveName)
             }
+        }
+        if let minimum = bundle.object(forInfoDictionaryKey: "LSMinimumSystemVersion") as? String,
+           !Self.macOS(hostMacOSVersion, satisfies: minimum) {
+            throw UpdateManagerError.unsupportedOperatingSystem(minimum)
         }
     }
 

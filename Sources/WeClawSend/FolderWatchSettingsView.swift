@@ -221,7 +221,7 @@ struct FolderWatchSettingsView: View {
     private func recordStatusTitle(_ status: FolderWatchRecordStatus) -> String {
         switch status {
         case .discovered: "已发现"
-        case .waiting: "等待完成"
+        case .waiting: "等待微信"
         case .processing: "处理中"
         case .sent: "已发送"
         case .addedToBasket: "已入文件篮"

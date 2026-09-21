@@ -73,7 +73,7 @@ struct ContentView: View {
             }
         }
         .frame(width: Brand.panelWidth, height: Brand.panelHeight)
-        .background(.thinMaterial)
+        .background(Color.clear)
         .overlay(alignment: .top) {
             if let notice = model.transientNotice {
                 Label(notice, systemImage: "bell.fill")
@@ -82,12 +82,11 @@ struct ContentView: View {
                     .lineLimit(2)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .glassChrome(in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .stroke(Brand.hairline, lineWidth: 1)
                     }
-                    .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
                     .padding(.horizontal, 18)
                     .padding(.top, 10)
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -167,11 +166,11 @@ struct ContentView: View {
             .frame(width: 352)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: Brand.radiusWindow, style: .continuous)
                     .fill(Color(nsColor: .windowBackgroundColor))
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: Brand.radiusWindow, style: .continuous)
                     .stroke(Brand.hairline, lineWidth: 1)
             }
             .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
@@ -292,22 +291,24 @@ struct ContentView: View {
                         )
                     )
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: fileBaskets.baskets.isEmpty ? "rectangle.stack.badge.plus" : "rectangle.stack.fill")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Brand.accent)
-                            .frame(width: 24, height: 28)
-
-                        if !fileBaskets.baskets.isEmpty {
-                            Text(fileBaskets.baskets.count > 9 ? "9+" : String(fileBaskets.baskets.count))
-                                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                .monospacedDigit()
-                                .foregroundStyle(Brand.accent)
-                                .frame(minWidth: 10)
+                    Image(systemName: fileBaskets.baskets.isEmpty ? "rectangle.stack.badge.plus" : "rectangle.stack")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .glassChrome(in: Circle(), interactive: true)
+                        .contentShape(Circle())
+                        .overlay(alignment: .topTrailing) {
+                            if !fileBaskets.baskets.isEmpty {
+                                Text(fileBaskets.baskets.count > 9 ? "9+" : String(fileBaskets.baskets.count))
+                                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.primary)
+                                    .padding(.horizontal, fileBaskets.baskets.count > 9 ? 3 : 0)
+                                    .frame(minWidth: 14, minHeight: 14)
+                                    .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
+                                    .offset(x: 3, y: -1)
+                            }
                         }
-                    }
-                    .frame(height: 28)
-                    .contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -323,7 +324,8 @@ struct ContentView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
+                    .glassChrome(in: Circle(), interactive: true)
+                    .contentShape(Circle())
                     .overlay(alignment: .topTrailing) {
                         if model.hasAppUpdate {
                             Circle()
@@ -1047,12 +1049,11 @@ private struct AppUpdateNoticeCard: View {
             }
         }
         .padding(14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .glassChrome(in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .stroke(Brand.hairline, lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.16), radius: 18, y: 7)
     }
 }
 

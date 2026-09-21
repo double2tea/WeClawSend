@@ -20,3 +20,6 @@ jobs:
 
       - name: Run tests
         run: ./scripts/test.sh
+
+      - name: Validate release packaging
+        run: ./scripts/release.sh

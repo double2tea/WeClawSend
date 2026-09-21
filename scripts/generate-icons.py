@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import shutil
@@ -14,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFilter
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 RESOURCES = os.path.join(ROOT, "Resources")
 ICONSET = os.path.join(RESOURCES, "AppIcon.iconset")
+ICON_COMPOSER = os.path.join(RESOURCES, "AppIcon.icon")
 
 BG_TOP = (48, 48, 52)
 BG_BOTTOM = (18, 18, 20)
@@ -36,8 +38,8 @@ def transform(x, y, size, cx, cy, scale, ang):
     return (cx + (x * cos_a - y * sin_a) * s, cy + (x * sin_a + y * cos_a) * s)
 
 
-def plane_polygon(size, cx, cy, scale):
-    ang = math.radians(-14)
+def plane_polygon(size, cx, cy, scale, ang_deg=-14.0):
+    ang = math.radians(ang_deg)
     rel = [
         (-0.50, 0.14),
         (-0.22, 0.02),
@@ -50,9 +52,9 @@ def plane_polygon(size, cx, cy, scale):
     return [transform(x, y, size, cx, cy, scale, ang) for x, y in rel]
 
 
-def draw_plane(draw, size, color, scale=0.58):
-    cx, cy = size * 0.50, size * 0.52
-    draw.polygon(plane_polygon(size, cx, cy, scale), fill=color)
+def draw_plane(draw, size, color, scale=0.58, cy_ratio=0.52, ang_deg=-14.0):
+    cx, cy = size * 0.50, size * cy_ratio
+    draw.polygon(plane_polygon(size, cx, cy, scale, ang_deg), fill=color)
 
 
 def make_app_icon(size: int) -> Image.Image:
@@ -83,8 +85,75 @@ def make_app_icon(size: int) -> Image.Image:
 def make_menu_icon(size: int) -> Image.Image:
     render = size * 4
     img = Image.new("RGBA", (render, render), (0, 0, 0, 0))
-    draw_plane(ImageDraw.Draw(img), render, (0, 0, 0, 255), scale=0.70)
+    draw_plane(
+        ImageDraw.Draw(img),
+        render,
+        (0, 0, 0, 255),
+        scale=0.88,
+        cy_ratio=0.50,
+        ang_deg=-12.0,
+    )
     return img.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def make_plane_layer(size: int) -> Image.Image:
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw_plane(ImageDraw.Draw(img), size, FG, scale=0.60)
+    return img
+
+
+def srgb(color: tuple[int, int, int]) -> str:
+    return "srgb:{:.5f},{:.5f},{:.5f},1.00000".format(*(channel / 255 for channel in color))
+
+
+def write_icon_composer_package() -> None:
+    shutil.rmtree(ICON_COMPOSER, ignore_errors=True)
+    os.makedirs(ICON_COMPOSER, exist_ok=True)
+    make_plane_layer(1024).save(os.path.join(ICON_COMPOSER, "plane.png"), "PNG")
+    fill = {"linear-gradient": [srgb(BG_TOP), srgb(BG_BOTTOM)]}
+    document = {
+        "fill-specializations": [
+            {"value": fill},
+            {"appearance": "dark", "value": fill},
+        ],
+        "groups": [
+            {
+                "blur-material": 0.5,
+                "layers": [
+                    {
+                        "fill-specializations": [
+                            {"value": {"solid": "extended-gray:1.00000,1.00000"}},
+                            {
+                                "appearance": "dark",
+                                "value": {"solid": "extended-gray:1.00000,1.00000"},
+                            },
+                            {
+                                "appearance": "tinted",
+                                "value": {"solid": "extended-gray:1.00000,1.00000"},
+                            },
+                        ],
+                        "glass": True,
+                        "hidden": False,
+                        "image-name": "plane.png",
+                        "name": "Plane",
+                        "opacity": 1,
+                        "position": {
+                            "scale": 1,
+                            "translation-in-points": [0, 0],
+                        },
+                    }
+                ],
+                "lighting": "combined",
+                "shadow": {"kind": "neutral", "opacity": 0.35},
+                "specular": True,
+                "translucency": {"enabled": True, "value": 0.45},
+            }
+        ],
+        "supported-platforms": {"squares": "shared"},
+    }
+    with open(os.path.join(ICON_COMPOSER, "icon.json"), "w", encoding="utf-8") as handle:
+        json.dump(document, handle, indent=2)
+        handle.write("\n")
 
 
 def icon_name(size: int, scale: int = 1) -> str:
@@ -111,9 +180,11 @@ def main() -> int:
         make_app_icon(px).save(os.path.join(ICONSET, name), "PNG")
     make_menu_icon(32).save(os.path.join(RESOURCES, "MenuBarIcon.png"), "PNG")
     make_menu_icon(64).save(os.path.join(RESOURCES, "MenuBarIcon@2x.png"), "PNG")
+    write_icon_composer_package()
     icns = os.path.join(RESOURCES, "AppIcon.icns")
     subprocess.check_call(["iconutil", "-c", "icns", ICONSET, "-o", icns])
     print(icns)
+    print(ICON_COMPOSER)
     return 0
 
 

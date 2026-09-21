@@ -113,30 +113,50 @@ final class FolderWatchService: @unchecked Sendable {
     }
 
     private func configureOnQueue(rules: [FolderWatchRule], markRunning: Bool) {
-        stopOnQueue(emitStatus: false)
+        let previousEnabledPaths = Set(
+            rulesByID.values.filter(\.enabled).compactMap { rootsByRuleID[$0.id]?.path }
+        )
         isRunning = markRunning
         rulesByID = Dictionary(uniqueKeysWithValues: rules.map { ($0.id, $0) })
         rootsByRuleID = Dictionary(uniqueKeysWithValues: rules.map {
             ($0.id, URL(fileURLWithPath: $0.folderPath).standardizedFileURL)
         })
-        handledFiles.removeAll(keepingCapacity: true)
-        handledFileOrder.removeAll(keepingCapacity: true)
-        unavailableRuleIDs.removeAll(keepingCapacity: true)
-        burstWindows.removeAll(keepingCapacity: true)
+        prunePendingOnQueue()
+
+        let enabledIDs = Set(rules.filter(\.enabled).map(\.id))
+        unavailableRuleIDs = unavailableRuleIDs.intersection(enabledIDs)
+        burstWindows = burstWindows.filter { enabledIDs.contains($0.key) }
         reportRootAvailabilityOnQueue()
 
         let enabledRules = rules.filter(\.enabled)
-        guard !enabledRules.isEmpty else {
+        let paths = Set(enabledRules.compactMap { rootsByRuleID[$0.id]?.path })
+        guard markRunning, !enabledRules.isEmpty, !paths.isEmpty else {
+            stopStreamOnQueue()
             if markRunning { status(.monitoring) }
             return
         }
 
-        let paths = Array(Set(enabledRules.compactMap { rootsByRuleID[$0.id]?.path }))
-        guard !paths.isEmpty else {
-            if markRunning { status(.monitoring) }
+        if stream == nil || paths != previousEnabledPaths {
+            stopStreamOnQueue()
+            startStreamOnQueue(paths: Array(paths))
             return
         }
+        status(.monitoring)
+    }
 
+    private func prunePendingOnQueue() {
+        for (key, candidate) in Array(pending) {
+            guard let rule = rulesByID[key.ruleID], rule.enabled,
+                  let root = rootsByRuleID[key.ruleID],
+                  isCandidate(candidate.url, in: root, rule: rule) else {
+                candidate.workItem.cancel()
+                pending.removeValue(forKey: key)
+                continue
+            }
+        }
+    }
+
+    private func startStreamOnQueue(paths: [String]) {
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(self).toOpaque(),
@@ -175,19 +195,21 @@ final class FolderWatchService: @unchecked Sendable {
         status(.monitoring)
     }
 
+    private func stopStreamOnQueue() {
+        guard let currentStream = stream else { return }
+        FSEventStreamStop(currentStream)
+        FSEventStreamSetDispatchQueue(currentStream, nil)
+        FSEventStreamInvalidate(currentStream)
+        FSEventStreamRelease(currentStream)
+        stream = nil
+    }
+
     private func stopOnQueue(emitStatus: Bool) {
         for candidate in pending.values {
             candidate.workItem.cancel()
         }
         pending.removeAll(keepingCapacity: true)
-
-        if let currentStream = stream {
-            FSEventStreamStop(currentStream)
-            FSEventStreamSetDispatchQueue(currentStream, nil)
-            FSEventStreamInvalidate(currentStream)
-            FSEventStreamRelease(currentStream)
-            stream = nil
-        }
+        stopStreamOnQueue()
         rulesByID.removeAll(keepingCapacity: true)
         rootsByRuleID.removeAll(keepingCapacity: true)
         handledFiles.removeAll(keepingCapacity: true)
