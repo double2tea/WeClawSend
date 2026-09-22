@@ -32,3 +32,13 @@ test("rejects unknown download names", async () => {
 
   assert.equal(response.status, 404);
 });
+
+test("ZIP downloads use the macOS 26 archive instead of the legacy updater name", async () => {
+  const response = await onRequestGet({
+    params: { file: "zip" },
+    request: { url: "https://example.test/dl/zip", cf: {} },
+    env: {},
+  });
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get("Location"), "https://example.test/downloads/WeClaw-Send-macOS26.zip?download=latest");
+});
