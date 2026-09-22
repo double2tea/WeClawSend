@@ -3649,3 +3649,28 @@ Task {
 }
 precondition(apiFinished.wait(timeout: .now() + 8) == .success)
 if let error = apiResult.error { throw error }
+
+// The status item must open on the initial press, even without a delivered mouseUp.
+MainActor.assumeIsolated {
+    let view = StatusItemDropView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+    var clicks = 0
+    var rightClicks = 0
+    view.onClick = { clicks += 1 }
+    view.onRightClick = { _ in rightClicks += 1 }
+    func mouseEvent(_ type: NSEvent.EventType, flags: NSEvent.ModifierFlags = []) -> NSEvent {
+        NSEvent.mouseEvent(
+            with: type, location: NSPoint(x: 12, y: 12), modifierFlags: flags,
+            timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0,
+            clickCount: 1, pressure: 1
+        )!
+    }
+    precondition(view.acceptsFirstMouse(for: mouseEvent(.leftMouseDown)))
+    view.mouseDown(with: mouseEvent(.leftMouseDown))
+    precondition(clicks == 1)
+    view.mouseDown(with: mouseEvent(.leftMouseDown))
+    precondition(clicks == 2, "A missing mouseUp must not block the next press")
+    view.mouseDown(with: mouseEvent(.leftMouseDown, flags: .command))
+    precondition(clicks == 2, "Command-drag must not open the popover")
+    view.rightMouseDown(with: mouseEvent(.rightMouseDown))
+    precondition(rightClicks == 1 && clicks == 2)
+}

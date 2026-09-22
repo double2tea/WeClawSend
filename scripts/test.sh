@@ -41,6 +41,7 @@ swiftc \
     -I "$ROOT/Sources/CCommonCrypto" \
     -Xcc -fmodule-map-file="$ROOT/Sources/CCommonCrypto/module.modulemap" \
     "$ROOT/Sources/WeClawSend/PasteboardURLs.swift" \
+    "$ROOT/Sources/WeClawSend/StatusItemDropView.swift" \
     "$ROOT/Sources/WeClawSend/FinderServiceProvider.swift" \
     "$ROOT/Sources/WeClawSend/FinderSelectionReader.swift" \
     "$ROOT/Sources/WeClawSend/FinderShortcutController.swift" \
