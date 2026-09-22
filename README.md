@@ -15,7 +15,7 @@
   <a href="docs/INTEGRATION.md">本地接口</a>
 </p>
 
-> **版本撤回（2026-09-21）：** 2.6.0 收到菜单栏左键无法打开面板的反馈，已停止分发，当前稳定版恢复为 [2.5.3](https://github.com/double2tea/WeClawSend/releases/tag/v2.5.3)。已安装 2.6.0 的用户请退出应用后手动安装 2.5.3；仓库保留 2.6.0 代码用于排查。
+> **2.6.1 / build 55：** 修复菜单栏左键响应，需 macOS 26+。2.6.0 继续保持撤回；macOS 14/15 用户请使用 [2.5.3](https://github.com/double2tea/WeClawSend/releases/tag/v2.5.3)。
 
 ## 界面
 
