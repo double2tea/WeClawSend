@@ -1674,7 +1674,12 @@ let oversizedResult = ResultBox()
 let oversizedFinished = DispatchSemaphore(value: 0)
 Task {
     do {
-        let service = WeChatService(credentials: mockCredentials, session: mockSession)
+        let service = WeChatService(
+            credentials: mockCredentials,
+            session: mockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { false }
+        )
         let coordinator = SendCoordinator(weChat: service)
         _ = try await coordinator.send(
             SendRequest(filePath: oversizedFile.path, fileName: oversizedFile.lastPathComponent)
@@ -1754,7 +1759,12 @@ MockURLProtocol.handler = { request in
 let integrationFinished = DispatchSemaphore(value: 0)
 Task {
     do {
-        let integrationService = WeChatService(credentials: mockCredentials, session: mockSession)
+        let integrationService = WeChatService(
+            credentials: mockCredentials,
+            session: mockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { false }
+        )
         let integrationCoordinator = SendCoordinator(weChat: integrationService)
         let disconnectedSnapshot = await integrationCoordinator.snapshot()
         precondition(disconnectedSnapshot.weChatConnected == false)
@@ -1765,7 +1775,12 @@ Task {
             integrationResult.progress.append(progress)
         }
 
-        let coordinatorService = WeChatService(credentials: mockCredentials, session: mockSession)
+        let coordinatorService = WeChatService(
+            credentials: mockCredentials,
+            session: mockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { false }
+        )
         let coordinator = SendCoordinator(weChat: coordinatorService)
         let startedAt = Date()
         let sendResult = try await coordinator.send(
@@ -1830,7 +1845,12 @@ MockURLProtocol.handler = { request in
 let retryFinished = DispatchSemaphore(value: 0)
 Task {
     do {
-        let service = WeChatService(credentials: mockCredentials, session: mockSession)
+        let service = WeChatService(
+            credentials: mockCredentials,
+            session: mockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { false }
+        )
         try await service.sendFile(at: mockFile, fileName: mockFileName)
     } catch {
         retryResult.error = error
@@ -1849,9 +1869,11 @@ let cancellationFinished = DispatchSemaphore(value: 0)
 Task {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [CancellableURLProtocol.self]
+    let cancellableSession = URLSession(configuration: configuration)
     let service = WeChatService(
         credentials: mockCredentials,
-        session: URLSession(configuration: configuration)
+        session: cancellableSession,
+        directUploadSession: cancellableSession
     )
     let coordinator = SendCoordinator(weChat: service)
     let eventTask = Task {
@@ -1921,6 +1943,8 @@ Task {
         let service = WeChatService(
             credentials: mockCredentials,
             session: mockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { false },
             submissionIntervalMilliseconds: 50
         )
         let coordinator = SendCoordinator(weChat: service)
@@ -2083,7 +2107,9 @@ Task {
             openClawStore: openClawStore,
             credentialSource: .openClaw,
             openClawAccountID: openClawAccountID,
-            session: mockSession
+            session: mockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { false }
         )
         await service.setCredentialSource(
             .openClaw,
@@ -2173,6 +2199,8 @@ Task {
         let service = WeChatService(
             credentials: staleCredentials,
             session: mockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { false },
             store: contextStore
         )
         try await service.sendFile(at: mockFile, fileName: mockFileName) { progress in
@@ -2222,6 +2250,8 @@ Task {
         let service = WeChatService(
             credentials: pendingLoginCredentials,
             session: mockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { false },
             store: loginBindingStore
         )
         try await service.waitForLoginBinding(credentials: pendingLoginCredentials)
@@ -2270,6 +2300,8 @@ Task {
         let service = WeChatService(
             credentials: staleCredentials,
             session: mockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { false },
             store: timeoutStore,
             contextRefreshTimeout: .milliseconds(20)
         )
@@ -2969,6 +3001,164 @@ MainActor.assumeIsolated {
 }
 pasteboard.clearContents()
 
+// 系统代理导致的大文件上传失败：默认直连、失败后换路径、错误提示。
+_ = SystemProxyDetector.isEnabled()
+let directUploadProxyConfiguration = WeChatService.makeDirectUploadSession().configuration.connectionProxyDictionary
+precondition(directUploadProxyConfiguration != nil)
+precondition(directUploadProxyConfiguration?.isEmpty == true)
+
+UserDefaults.standard.removeObject(forKey: AppSettings.cdnUploadUsesSystemProxyKey)
+defer { UserDefaults.standard.removeObject(forKey: AppSettings.cdnUploadUsesSystemProxyKey) }
+precondition(AppSettings.cdnUploadUsesSystemProxy == false)
+
+let proxyMockConfiguration = URLSessionConfiguration.ephemeral
+proxyMockConfiguration.protocolClasses = [ProxyMockURLProtocol.self]
+let proxyMockSession = URLSession(configuration: proxyMockConfiguration)
+
+// 默认直连：直连失败后改走代理路径，两条路径都失败时给出代理提示。
+ProxyMockURLProtocol.resetUploadAttempts()
+let directFirstCounter = UploadAttemptCounter()
+MockURLProtocol.handler = { request in
+    switch request.url!.path {
+    case "/ilink/bot/getuploadurl":
+        return MockURLProtocol.response(
+            request,
+            body: #"{"ret":0,"upload_full_url":"https://mock.local/upload"}"#
+        )
+    case "/upload":
+        _ = directFirstCounter.increment()
+        return MockURLProtocol.response(request, statusCode: 500, body: "direct upload failed")
+    case "/ilink/bot/sendmessage":
+        preconditionFailure("A failed upload must not submit a message")
+    default:
+        preconditionFailure("Unexpected direct first request: \(request.url!.absoluteString)")
+    }
+}
+
+let directFirstResult = ResultBox()
+let directFirstFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let service = WeChatService(
+            credentials: mockCredentials,
+            session: proxyMockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { true }
+        )
+        let coordinator = SendCoordinator(weChat: service)
+        _ = try await coordinator.send(
+            SendRequest(filePath: mockFile.path, fileName: mockFileName)
+        )
+    } catch {
+        directFirstResult.error = error
+    }
+    directFirstFinished.signal()
+}
+precondition(directFirstFinished.wait(timeout: .now() + 10) == .success)
+guard let directFirstError = directFirstResult.error else {
+    preconditionFailure("Both upload paths must fail")
+}
+precondition(directFirstError.localizedDescription.contains("系统代理"))
+precondition(directFirstCounter.value == 1)
+precondition(ProxyMockURLProtocol.uploadAttempts == 1)
+
+// 开启开关后以代理路径为主，代理失败后回退直连。
+UserDefaults.standard.set(true, forKey: AppSettings.cdnUploadUsesSystemProxyKey)
+ProxyMockURLProtocol.resetUploadAttempts()
+let proxyFirstCounter = UploadAttemptCounter()
+MockURLProtocol.handler = { request in
+    switch request.url!.path {
+    case "/ilink/bot/getuploadurl":
+        return MockURLProtocol.response(
+            request,
+            body: #"{"ret":0,"upload_full_url":"https://mock.local/upload"}"#
+        )
+    case "/upload":
+        _ = proxyFirstCounter.increment()
+        return MockURLProtocol.response(
+            request,
+            headers: ["x-encrypted-param": "direct-upload-reference"],
+            body: ""
+        )
+    case "/ilink/bot/sendmessage":
+        return MockURLProtocol.response(request, body: #"{"ret":0}"#)
+    default:
+        preconditionFailure("Unexpected proxy first request: \(request.url!.absoluteString)")
+    }
+}
+
+let proxyFirstResult = ResultBox()
+let proxyFirstFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let service = WeChatService(
+            credentials: mockCredentials,
+            session: proxyMockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { true }
+        )
+        let coordinator = SendCoordinator(weChat: service)
+        _ = try await coordinator.send(
+            SendRequest(filePath: mockFile.path, fileName: mockFileName)
+        )
+    } catch {
+        proxyFirstResult.error = error
+    }
+    proxyFirstFinished.signal()
+}
+precondition(proxyFirstFinished.wait(timeout: .now() + 10) == .success)
+if let error = proxyFirstResult.error { throw error }
+precondition(ProxyMockURLProtocol.uploadAttempts == 1)
+precondition(proxyFirstCounter.value == 1)
+UserDefaults.standard.set(false, forKey: AppSettings.cdnUploadUsesSystemProxyKey)
+
+// 未检测到系统代理时不切换路径，保持原有重试次数与错误信息。
+ProxyMockURLProtocol.resetUploadAttempts()
+let noProxyCounter = UploadAttemptCounter()
+MockURLProtocol.handler = { request in
+    switch request.url!.path {
+    case "/ilink/bot/getuploadurl":
+        return MockURLProtocol.response(
+            request,
+            body: #"{"ret":0,"upload_full_url":"https://mock.local/upload"}"#
+        )
+    case "/upload":
+        _ = noProxyCounter.increment()
+        return MockURLProtocol.response(request, statusCode: 500, body: "server error")
+    case "/ilink/bot/sendmessage":
+        preconditionFailure("A failed upload must not submit a message")
+    default:
+        preconditionFailure("Unexpected no proxy request: \(request.url!.absoluteString)")
+    }
+}
+
+let noProxyResult = ResultBox()
+let noProxyFinished = DispatchSemaphore(value: 0)
+Task {
+    do {
+        let service = WeChatService(
+            credentials: mockCredentials,
+            session: proxyMockSession,
+            directUploadSession: mockSession,
+            systemProxyIsEnabled: { false }
+        )
+        let coordinator = SendCoordinator(weChat: service)
+        _ = try await coordinator.send(
+            SendRequest(filePath: mockFile.path, fileName: mockFileName)
+        )
+    } catch {
+        noProxyResult.error = error
+    }
+    noProxyFinished.signal()
+}
+precondition(noProxyFinished.wait(timeout: .now() + 10) == .success)
+guard let noProxyError = noProxyResult.error else {
+    preconditionFailure("An upload without a system proxy must still fail")
+}
+precondition(!noProxyError.localizedDescription.contains("系统代理"))
+precondition(noProxyCounter.value == WeChatRetryPolicy.maxAttempts)
+precondition(ProxyMockURLProtocol.uploadAttempts == 0)
+
 print("Component checks passed")
 
 func formatBytes(_ byteCount: Int64) -> String {
@@ -3047,6 +3237,24 @@ final class ResultBox: @unchecked Sendable {
     var progress: [WeChatSendProgress] = []
     var maxActiveTransfers = 0
     var maxQueuedTransfers = 0
+}
+
+final class UploadAttemptCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        return count
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
 }
 
 final class CancellationResultBox: @unchecked Sendable {
@@ -3232,6 +3440,55 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
             data
         )
     }
+}
+
+/// 模拟系统代理路径：上传请求固定返回 500，其余请求交回 MockURLProtocol。
+final class ProxyMockURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var attempts = 0
+
+    static var uploadAttempts: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return attempts
+    }
+
+    static func resetUploadAttempts() {
+        lock.lock()
+        defer { lock.unlock() }
+        attempts = 0
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        if request.url?.path == "/upload" {
+            Self.lock.lock()
+            Self.attempts += 1
+            Self.lock.unlock()
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 500,
+                httpVersion: "HTTP/1.1",
+                headerFields: [:]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data("proxy rejected upload".utf8))
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+        do {
+            let (response, data) = try MockURLProtocol.handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
 
 final class CancellableURLProtocol: URLProtocol, @unchecked Sendable {

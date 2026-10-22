@@ -130,6 +130,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var selectedOpenClawAccountID = AppSettings.openClawAccountID ?? ""
     @Published private(set) var isLoadingOpenClawAccounts = false
     @Published var autoRenameMP4ToM4V = UserDefaults.standard.bool(forKey: AppSettings.autoRenameMP4Key)
+    @Published var cdnUploadUsesSystemProxy = AppSettings.cdnUploadUsesSystemProxy
     @Published var sendSizeLimit = AppSettings.sendSizeLimit
     @Published var sendDefaultBehavior = AppSettings.sendDefaultBehavior
     @Published var sendDefaultDelaySeconds = AppSettings.sendDefaultDelaySeconds
@@ -552,6 +553,11 @@ final class AppModel: ObservableObject {
     func setAutoRenameMP4ToM4V(_ enabled: Bool) {
         autoRenameMP4ToM4V = enabled
         UserDefaults.standard.set(enabled, forKey: AppSettings.autoRenameMP4Key)
+    }
+
+    func setCDNUsesSystemProxy(_ enabled: Bool) {
+        cdnUploadUsesSystemProxy = enabled
+        UserDefaults.standard.set(enabled, forKey: AppSettings.cdnUploadUsesSystemProxyKey)
     }
 
     func setSendSizeLimit(_ limit: SendSizeLimit) {

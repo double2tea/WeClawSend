@@ -1,5 +1,27 @@
+import CFNetwork
 import Foundation
 import OSLog
+
+/// 读取 macOS 系统代理（HTTP / HTTPS / SOCKS）状态。
+/// 部分本地代理软件在大体积上传时返回 HTTP 500，需要据此提示用户或改走直连。
+enum SystemProxyDetector {
+    static func isEnabled() -> Bool {
+        let settings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any] ?? [:]
+        let enableKeys = [
+            kCFNetworkProxiesHTTPEnable as String,
+            kCFNetworkProxiesHTTPSEnable as String,
+            kCFNetworkProxiesSOCKSEnable as String
+        ]
+        for enableKey in enableKeys {
+            guard let enabled = settings[enableKey] as? Bool, enabled else { continue }
+            let proxyKey = enableKey.replacingOccurrences(of: "Enable", with: "Proxy")
+            if let proxies = settings[proxyKey] as? [String: Any], !proxies.isEmpty {
+                return true
+            }
+        }
+        return false
+    }
+}
 
 struct WeChatAccountPresenceIdentity: Equatable, Sendable {
     let userID: String
@@ -11,6 +33,7 @@ enum WeChatError: LocalizedError {
     case invalidResponse
     case http(Int, String)
     case transfer(stage: WeChatTransferStage, reason: String)
+    case systemProxyUploadBlocked(String)
     case api(String)
     case login(String)
     case contextBindingRequired
@@ -28,6 +51,8 @@ enum WeChatError: LocalizedError {
             "微信服务 HTTP \(status)：\(message)"
         case let .transfer(stage, reason):
             "\(stage.rawValue)失败：\(reason)"
+        case let .systemProxyUploadBlocked(message):
+            message
         case let .api(message), let .login(message):
             message
         case .contextBindingRequired:
@@ -131,6 +156,8 @@ actor WeChatService {
     private let store: WeChatCredentialStore
     private let openClawStore: OpenClawCredentialStore
     private let session: URLSession
+    private let directUploadSession: URLSession
+    private let systemProxyIsEnabled: @Sendable () -> Bool
     private let contextRefreshTimeout: Duration
     private let submissionIntervalMilliseconds: Int64
     private var credentialSource: WeChatCredentialSource
@@ -151,6 +178,8 @@ actor WeChatService {
         credentialSource: WeChatCredentialSource = AppSettings.weChatCredentialSource,
         openClawAccountID: String? = AppSettings.openClawAccountID,
         session: URLSession = .shared,
+        directUploadSession: URLSession = WeChatService.makeDirectUploadSession(),
+        systemProxyIsEnabled: @escaping @Sendable () -> Bool = { SystemProxyDetector.isEnabled() },
         contextRefreshTimeout: Duration = .seconds(300),
         submissionIntervalMilliseconds: Int64 = WeChatService.submissionIntervalMilliseconds
     ) {
@@ -159,6 +188,8 @@ actor WeChatService {
         self.credentialSource = credentialSource
         self.openClawAccountID = openClawAccountID
         self.session = session
+        self.directUploadSession = directUploadSession
+        self.systemProxyIsEnabled = systemProxyIsEnabled
         self.contextRefreshTimeout = contextRefreshTimeout
         self.submissionIntervalMilliseconds = submissionIntervalMilliseconds
     }
@@ -166,6 +197,8 @@ actor WeChatService {
     init(
         credentials: WeChatCredentials,
         session: URLSession,
+        directUploadSession: URLSession = WeChatService.makeDirectUploadSession(),
+        systemProxyIsEnabled: @escaping @Sendable () -> Bool = { SystemProxyDetector.isEnabled() },
         store: WeChatCredentialStore = WeChatCredentialStore(),
         contextRefreshTimeout: Duration = .seconds(300),
         submissionIntervalMilliseconds: Int64 = WeChatService.submissionIntervalMilliseconds
@@ -175,9 +208,18 @@ actor WeChatService {
         self.credentialSource = .weClawSend
         self.openClawAccountID = nil
         self.session = session
+        self.directUploadSession = directUploadSession
+        self.systemProxyIsEnabled = systemProxyIsEnabled
         self.contextRefreshTimeout = contextRefreshTimeout
         self.submissionIntervalMilliseconds = submissionIntervalMilliseconds
         self.credentials = credentials
+    }
+
+    /// CDN 上传直连会话：空代理字典表示不使用任何代理。
+    static func makeDirectUploadSession() -> URLSession {
+        let configuration = URLSessionConfiguration.default
+        configuration.connectionProxyDictionary = [:]
+        return URLSession(configuration: configuration)
     }
 
     /// OpenClaw 模式每次从它的只读状态文件刷新，独立登录模式只在尚未加载时读取。
@@ -642,48 +684,92 @@ actor WeChatService {
             request.httpMethod = "POST"
             request.timeoutInterval = 300
             request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-            let progressPair = AsyncStream<Int64>.makeStream(bufferingPolicy: .bufferingNewest(1))
-            let delegate = UploadProgressDelegate { sentBytes in
-                progressPair.continuation.yield(sentBytes)
-            }
-            let progressTask = Task {
-                for await sentBytes in progressPair.stream {
-                    let ratio = min(Double(sentBytes) / Double(max(ciphertextSize, 1)), 1)
-                    await progress(
-                        WeChatSendProgress(
-                            stage: .uploading,
-                            fraction: 0.1 + ratio * 0.8,
-                            sentBytes: min(Int64(Double(plaintextSize) * ratio), plaintextSize),
-                            totalBytes: plaintextSize
-                        )
+            let usesSystemProxy = AppSettings.cdnUploadUsesSystemProxy
+            let primarySession = usesSystemProxy ? session : directUploadSession
+            do {
+                return try await uploadParameter(
+                    request: request,
+                    ciphertextURL: ciphertextURL,
+                    ciphertextSize: ciphertextSize,
+                    plaintextSize: plaintextSize,
+                    progress: progress,
+                    session: primarySession
+                )
+            } catch let error as WeChatError {
+                guard case let .http(status, _) = error,
+                      status >= 500,
+                      systemProxyIsEnabled() else {
+                    throw error
+                }
+                // 本机开启了系统代理：换另一条网络路径再试一次。
+                let fallbackSession = usesSystemProxy ? directUploadSession : session
+                do {
+                    return try await uploadParameter(
+                        request: request,
+                        ciphertextURL: ciphertextURL,
+                        ciphertextSize: ciphertextSize,
+                        plaintextSize: plaintextSize,
+                        progress: progress,
+                        session: fallbackSession
+                    )
+                } catch {
+                    throw WeChatError.systemProxyUploadBlocked(
+                        "检测到系统代理已开启，直连与代理两条路径都未能完成上传。本地代理可能导致大文件上传失败，可关闭系统代理后重试。底层错误：\(error.localizedDescription)"
                     )
                 }
             }
-
-            let data: Data
-            let response: URLResponse
-            do {
-                (data, response) = try await self.session.upload(
-                    for: request,
-                    fromFile: ciphertextURL,
-                    delegate: delegate
-                )
-                progressPair.continuation.finish()
-                await progressTask.value
-            } catch {
-                progressPair.continuation.finish()
-                await progressTask.value
-                throw error
-            }
-            let http = try Self.validatedHTTPResponse(response, data: data)
-            guard http.statusCode == 200 else {
-                throw WeChatError.http(http.statusCode, String(decoding: data, as: UTF8.self))
-            }
-            guard let parameter = http.value(forHTTPHeaderField: "x-encrypted-param"), !parameter.isEmpty else {
-                throw WeChatError.missingUploadResult
-            }
-            return parameter
         }
+    }
+
+    private func uploadParameter(
+        request: URLRequest,
+        ciphertextURL: URL,
+        ciphertextSize: Int,
+        plaintextSize: Int64,
+        progress: @escaping @Sendable (WeChatSendProgress) async -> Void,
+        session: URLSession
+    ) async throws -> String {
+        let progressPair = AsyncStream<Int64>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let delegate = UploadProgressDelegate { sentBytes in
+            progressPair.continuation.yield(sentBytes)
+        }
+        let progressTask = Task {
+            for await sentBytes in progressPair.stream {
+                let ratio = min(Double(sentBytes) / Double(max(ciphertextSize, 1)), 1)
+                await progress(
+                    WeChatSendProgress(
+                        stage: .uploading,
+                        fraction: 0.1 + ratio * 0.8,
+                        sentBytes: min(Int64(Double(plaintextSize) * ratio), plaintextSize),
+                        totalBytes: plaintextSize
+                    )
+                )
+            }
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.upload(
+                for: request,
+                fromFile: ciphertextURL,
+                delegate: delegate
+            )
+            progressPair.continuation.finish()
+            await progressTask.value
+        } catch {
+            progressPair.continuation.finish()
+            await progressTask.value
+            throw error
+        }
+        let http = try Self.validatedHTTPResponse(response, data: data)
+        guard http.statusCode == 200 else {
+            throw WeChatError.http(http.statusCode, String(decoding: data, as: UTF8.self))
+        }
+        guard let parameter = http.value(forHTTPHeaderField: "x-encrypted-param"), !parameter.isEmpty else {
+            throw WeChatError.missingUploadResult
+        }
+        return parameter
     }
 
     private func withTransientRetry<Value: Sendable>(

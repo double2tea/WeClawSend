@@ -465,6 +465,18 @@ struct ServicesView: View {
                 Divider().opacity(0.35).padding(.vertical, 6)
 
                 settingRow(
+                    icon: "network",
+                    title: "上传时使用系统代理",
+                    subtitle: "默认直连上传；仅在必须经代理访问时开启",
+                    isOn: Binding(
+                        get: { model.cdnUploadUsesSystemProxy },
+                        set: { model.setCDNUsesSystemProxy($0) }
+                    )
+                )
+
+                Divider().opacity(0.35).padding(.vertical, 6)
+
+                settingRow(
                     icon: "bell",
                     title: "发送结果通知",
                     subtitle: "系统横幅；多文件合并为一条，不逐条刷屏",
