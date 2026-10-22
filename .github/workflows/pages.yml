@@ -42,7 +42,16 @@ jobs:
           cp -R website/. _site/
           mv _site/functions functions
 
-          latest_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName')"
+          # 按版本号取最新稳定版，而不是按发布时间：2.5.x 回移植版本可能在主版本之后发布。
+          latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '
+            [ .[]
+              | select(.draft == false and .prerelease == false)
+              | .tag_name
+              | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
+            ]
+            | max_by(ltrimstr("v") | split(".") | map(tonumber))
+            // error("no stable release found")
+          ')"
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$latest_tag" > _site/downloads/release.json
           app_archive="$(jq -er '[.assets[].name | select(. == "WeClaw-Send-macOS26.zip" or . == "WeClaw-Send.zip")] | if length == 1 then .[0] else error("Expected one app ZIP") end' _site/downloads/release.json)"
           production_tag="$(curl -fsSL https://weclaw-send.pages.dev/downloads/release.json \
