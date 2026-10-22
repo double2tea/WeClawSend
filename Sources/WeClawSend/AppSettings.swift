@@ -139,6 +139,7 @@ enum ScheduledSendDelay {
 
 enum AppSettings {
     static let autoRenameMP4Key = "AutoRenameMP4ToM4V"
+    static let cdnUploadUsesSystemProxyKey = "CDNUsesSystemProxy"
     static let localAPIEnabledKey = "LocalAPIEnabled"
     static let localAPISendBehaviorKey = "LocalAPISendBehavior"
     static let sendResultNotificationsEnabledKey = "SendResultNotificationsEnabled"
@@ -397,6 +398,11 @@ enum AppSettings {
 
     static var openClawAccountID: String? {
         UserDefaults.standard.string(forKey: openClawAccountIDKey)
+    }
+
+    /// 默认关闭：CDN 上传默认直连，不经过 macOS 系统代理。
+    static var cdnUploadUsesSystemProxy: Bool {
+        bool(forKey: cdnUploadUsesSystemProxyKey, default: false)
     }
 
     static func outgoingFileName(_ fileName: String) -> String {

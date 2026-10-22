@@ -32,6 +32,7 @@ node --test \
 swiftc \
     -framework AppKit \
     -framework Carbon \
+    -framework CFNetwork \
     -framework CoreServices \
     -framework Network \
     -framework Security \
