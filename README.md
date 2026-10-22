@@ -15,7 +15,7 @@
   <a href="docs/INTEGRATION.md">本地接口</a>
 </p>
 
-> **2.6.1 / build 55：** 修复菜单栏左键响应，需 macOS 26+。2.6.0 继续保持撤回；macOS 14/15 用户请使用 [2.5.3](https://github.com/double2tea/WeClawSend/releases/tag/v2.5.3)。
+> **2.6.2 / build 56：** 修复系统代理导致的大文件上传失败，CDN 上传默认直连；需 macOS 26+。2.6.0 继续保持撤回；macOS 14/15 用户请使用 [2.5.3](https://github.com/double2tea/WeClawSend/releases/tag/v2.5.3)。
 
 ## 界面
 
