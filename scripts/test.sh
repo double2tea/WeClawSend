@@ -5,6 +5,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp/}weclaw-send-tests.XXXXXX")"
 trap 'rm -rf "$TEST_DIR"' EXIT
 
+swift build --package-path "$ROOT" --product weclaw
+python3 -m unittest discover -s "$ROOT/Tests/CLIChecks" -p 'test_*.py'
+swiftc -parse-as-library \
+    "$ROOT/Sources/WeClawSend/CLIInstaller.swift" \
+    "$ROOT/Tests/CLIInstallerChecks/main.swift" \
+    -o "$TEST_DIR/cli-installer-checks"
+"$TEST_DIR/cli-installer-checks"
+
 python3 -m unittest discover \
     -s "$ROOT/Tests/DaVinciPluginChecks" \
     -p 'test_*.py'

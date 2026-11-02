@@ -340,3 +340,26 @@ curl -sf http://127.0.0.1:18790/health \
 
 iLink 实现参考 [Tencent/openclaw-weixin](https://github.com/Tencent/openclaw-weixin)（MIT）。
 完整声明见仓库根目录 `THIRD_PARTY_NOTICES.md`。
+
+## CLI：供 agent 和脚本调用
+
+CLI 随 App 打包在 `WeClaw Send.app/Contents/MacOS/weclaw`。将 App 安装到 `/Applications` 或 `~/Applications` 并启动后，App 会尝试在 `/usr/local/bin/weclaw` 创建指向自身的链接；更新 App 后链接会继续使用同一路径。设置 → 本地接口显示安装结果。已有同名文件或链接时，点击「安装 / 重试」会要求确认覆盖；取消会保留原命令，目录不会被替换。App 不修改 shell 配置。自动安装权限不足时，可在设置中点击「安装 / 重试」，按 macOS 提示授权；该操作需要管理员权限。终端需包含 `/usr/local/bin`，且 App 必须运行并启用「本地接口」。
+
+如果自动安装因目录权限或冲突失败，可直接运行 App 内的命令，或自行选择 PATH 中可写目录创建链接：
+
+```sh
+# 如果自动安装失败，按实际 App 位置运行：
+"$HOME/Applications/WeClaw Send.app/Contents/MacOS/weclaw" help
+# 以下命令假设 weclaw 已在 PATH 中
+weclaw help
+weclaw status
+weclaw send "./成片.mov"
+weclaw schedule 600 "./成片.mov" "./参考.pdf"
+weclaw schedules
+weclaw show <计划ID>
+weclaw reschedule <计划ID> 300
+weclaw cancel <计划ID>
+weclaw send-now <计划ID>
+```
+
+源码运行可先执行 `swift build --product weclaw`，然后使用 `.build/debug/weclaw`。路径支持相对路径和空格；每个路径作为独立参数传入。成功的接口响应原样作为 JSON 写入 stdout；请求或参数错误写入 stderr，退出码为非零。`help` 输出文本。`status` 成功只表示接口可访问，应检查 `wechat_connected`；`send` 的响应 `status` 为 `sent` 才表示已发送，`added_to_basket` 或 `already_in_basket` 表示入篮。定时计划独立于入篮设置，到时可能实际发送。直接发送会等待完成，请勿因等待而重复提交；CLI 超时或中断后结果可能未知，应先在 App 中检查。计划的 `send-now` 接受请求不等于发送完成，需再查询计划状态。接口及安全边界见上文。

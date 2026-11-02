@@ -651,6 +651,23 @@ struct ServicesView: View {
                 .disabled(!model.shelfEnabled)
                 .opacity(model.shelfEnabled ? 1 : 0.55)
 
+                Divider().opacity(0.35).padding(.vertical, 6)
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("终端命令 weclaw")
+                            .font(.system(size: 11, weight: .medium))
+                        Text(model.isInstallingCLI ? "正在安装…" : model.cliInstallStatus.description)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(model.cliInstallStatus == .installed ? "重新检查" : "安装 / 重试") {
+                        model.installCLI()
+                    }
+                    .disabled(model.isInstallingCLI || model.cliInstallStatus == .unavailable)
+                    .controlSize(.small)
+                }
+
                 Text("菜单栏发送不依赖此接口。")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)

@@ -134,6 +134,8 @@ final class AppModel: ObservableObject {
     @Published var sendSizeLimit = AppSettings.sendSizeLimit
     @Published var sendDefaultBehavior = AppSettings.sendDefaultBehavior
     @Published var sendDefaultDelaySeconds = AppSettings.sendDefaultDelaySeconds
+    @Published private(set) var cliInstallStatus: CLIInstallStatus = .unavailable
+    @Published private(set) var isInstallingCLI = false
     @Published var localAPIEnabled = AppSettings.localAPIEnabled
     @Published var localAPISendBehavior = AppSettings.localAPISendBehavior
     @Published var folderWatchEnabled = AppSettings.folderWatchEnabled
@@ -218,6 +220,7 @@ final class AppModel: ObservableObject {
     )
 
     init() {
+        cliInstallStatus = CLIInstaller.installFromApplication()
         var shouldPersistLegacyTransfers = false
         if let data = UserDefaults.standard.data(forKey: recentTransfersKey) {
             recentTransfers = ((try? JSONDecoder().decode([TransferRecord].self, from: data)) ?? [])
@@ -1034,6 +1037,29 @@ final class AppModel: ObservableObject {
             updateMessage = "无法检查更新：\(error.localizedDescription)"
         }
         isCheckingAppUpdate = false
+    }
+
+    func installCLI(replaceExisting: Bool = false) {
+        guard !isInstallingCLI, let app = CLIInstaller.applicationURL() else { return }
+        if cliInstallStatus == .conflict, !replaceExisting {
+            let alert = NSAlert()
+            alert.messageText = "覆盖现有 weclaw 命令？"
+            alert.informativeText = "将替换 /usr/local/bin/weclaw，原命令将无法通过此路径使用。"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "取消")
+            alert.addButton(withTitle: "覆盖并安装")
+            guard alert.runModal() == .alertSecondButtonReturn else { return }
+            installCLI(replaceExisting: true)
+            return
+        }
+        isInstallingCLI = true
+        Task { [weak self] in
+            let status = await Task.detached {
+                CLIInstaller.installWithAuthorization(appURL: app, binDirectory: CLIInstaller.binDirectory, replaceExisting: replaceExisting)
+            }.value
+            self?.cliInstallStatus = status
+            self?.isInstallingCLI = false
+        }
     }
 
     func installPremierePlugin() {

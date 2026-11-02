@@ -60,6 +60,8 @@ trap cleanup EXIT
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 lipo -create "$ARM_BINARY" "$X86_BINARY" -output "$APP/Contents/MacOS/WeClawSend"
 lipo "$APP/Contents/MacOS/WeClawSend" -verify_arch arm64 x86_64
+lipo -create "$ARM_BUILD/arm64-apple-macosx/release/weclaw" "$X86_BUILD/x86_64-apple-macosx/release/weclaw" -output "$APP/Contents/MacOS/weclaw"
+lipo "$APP/Contents/MacOS/weclaw" -verify_arch arm64 x86_64
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 if [[ -n "${WECLAW_UPDATE_COUNT_ENDPOINT:-}" ]]; then
     [[ "$WECLAW_UPDATE_COUNT_ENDPOINT" == https://* ]]
