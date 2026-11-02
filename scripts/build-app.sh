@@ -92,7 +92,9 @@ chmod +x "$APP/Contents/MacOS/WeClawSend"
 
 find "$APP" \( -type f -o -type d \) -exec xattr -c {} \; 2>/dev/null || true
 
-codesign --force --deep --sign - \
+codesign --force --sign - --identifier com.chacha.WeClawSend.CLI \
+    "$APP/Contents/MacOS/weclaw"
+codesign --force --sign - \
     --requirements '=designated => identifier "com.chacha.WeClawSend"' \
     "$APP"
 codesign --verify --deep --strict "$APP"
@@ -104,7 +106,7 @@ find "$SIGNED_APP" \( -type f -o -type d \) -exec xattr -c {} +
 
 # Documents/FileProvider 会给 .app 重新附加 FinderInfo；签名实体放在用户缓存，
 # 工程内保留稳定的标准路径供 open/install 脚本使用。
-codesign --force --deep --sign - \
+codesign --force --sign - \
     --requirements '=designated => identifier "com.chacha.WeClawSend"' \
     "$SIGNED_APP"
 find "$SIGNED_APP" \( -type f -o -type d \) -exec xattr -c {} +

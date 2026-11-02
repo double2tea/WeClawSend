@@ -38,6 +38,7 @@ enum CLIInstaller {
             if !replaceExisting || isDirectory.boolValue { return .conflict }
         }
         do {
+            try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
             if replaceExisting,
                fileManager.fileExists(atPath: link.path)
                 || (try? fileManager.destinationOfSymbolicLink(atPath: link.path)) != nil {
@@ -73,17 +74,18 @@ enum CLIInstaller {
         on run argv
             set sourcePath to item 1 of argv
             set linkPath to item 2 of argv
+            set binPath to item 4 of argv
             if item 3 of argv is "replace" then
                 set preparation to "/bin/rm -f " & quoted form of linkPath
             else
                 set preparation to "test ! -e " & quoted form of linkPath & " && test ! -L " & quoted form of linkPath
             end if
-            do shell script preparation & " && /bin/ln -s " & quoted form of sourcePath & " " & quoted form of linkPath with administrator privileges
+            do shell script "/bin/mkdir -p " & quoted form of binPath & " && " & preparation & " && /bin/ln -s " & quoted form of sourcePath & " " & quoted form of linkPath with administrator privileges
         end run
         """
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", script, "--", binary, link, replaceExisting ? "replace" : "create"]
+        process.arguments = ["-e", script, "--", binary, link, replaceExisting ? "replace" : "create", binDirectory.path]
         let errors = Pipe()
         process.standardError = errors
         do {

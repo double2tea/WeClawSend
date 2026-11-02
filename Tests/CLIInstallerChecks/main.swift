@@ -10,7 +10,6 @@ struct Checks {
         let binary = app.appendingPathComponent("Contents/MacOS/weclaw")
         let bin = root.appendingPathComponent("bin")
         try fm.createDirectory(at: binary.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try fm.createDirectory(at: bin, withIntermediateDirectories: true)
         try Data("test".utf8).write(to: binary)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
         let link = bin.appendingPathComponent("weclaw")
@@ -31,6 +30,10 @@ struct Checks {
         try fm.removeItem(at: link)
         try fm.createDirectory(at: link, withIntermediateDirectories: false)
         precondition(CLIInstaller.install(appURL: app, binDirectory: bin, replaceExisting: true) == .conflict)
+        let missingBin = root.appendingPathComponent("missing/local/bin")
+        precondition(CLIInstaller.install(appURL: app, binDirectory: missingBin) == .installed)
+        let missingDestination = try fm.destinationOfSymbolicLink(atPath: missingBin.appendingPathComponent("weclaw").path)
+        precondition(missingDestination == binary.path)
         print("CLI installer checks passed")
     }
 }
