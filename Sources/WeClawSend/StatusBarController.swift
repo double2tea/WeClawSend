@@ -40,9 +40,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     private var lastFolderWatchBasketReveal: (id: UUID, date: Date)?
     private var statusDropView: StatusItemDropView?
     private var statusItemCancellables = Set<AnyCancellable>()
+    private var fileExportCleanupTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        fileExportCleanupTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.cleanupFileExports() }
+        }
         UNUserNotificationCenter.current().delegate = self
         dismissContextRefreshNotification()
 
@@ -250,9 +254,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        fileExportCleanupTimer?.invalidate()
         finderShortcutController.stop()
         model.stopFolderWatching()
         model.fileBaskets.flushPendingPersistence()
+    }
+
+    private func cleanupFileExports() {
+        guard model.hasLoadedScheduledSends else { return }
+        let clipboardURLs = (NSPasteboard.general.readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]
+        ) ?? []).compactMap { ($0 as? NSURL) as URL? }
+        var preservedURLs = clipboardURLs + FileExportURLs.activeDragURLs
+        preservedURLs.append(contentsOf: model.fileBaskets.baskets.flatMap(\.urls))
+        preservedURLs.append(contentsOf: model.recentTransfers.map(\.fileURL))
+        for plan in model.scheduledSends
+            where plan.status == .scheduled || plan.status == .sending || plan.status == .needsAttention {
+            preservedURLs.append(contentsOf: plan.items.map(\.fileURL))
+        }
+        do {
+            try FileExportURLs.cleanupExpired(preserving: preservedURLs)
+        } catch {
+            Self.notificationLogger.error("无法清理临时导出文件：\(error.localizedDescription, privacy: .public)")
+        }
     }
 
     nonisolated func userNotificationCenter(

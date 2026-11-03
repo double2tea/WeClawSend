@@ -923,7 +923,14 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             }
             return
         }
-        guard pasteboard.writeObjects(availableItems.map { $0.url as NSURL }) else {
+        let exportURLs: [URL]
+        do {
+            exportURLs = try FileExportURLs.prepare(availableItems.map(\.url))
+        } catch {
+            session.flash("无法复制来源文件：\(error.localizedDescription)", duration: 4)
+            return
+        }
+        guard pasteboard.writeObjects(exportURLs.map { $0 as NSURL }) else {
             session.flash("复制失败")
             return
         }

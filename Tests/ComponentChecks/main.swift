@@ -1188,6 +1188,78 @@ MainActor.assumeIsolated {
     precondition(!ShelfKeyModifiers.significant(.option).isEmpty)
 }
 
+do {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("weclaw-export-checks-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let home = root.appendingPathComponent("home", isDirectory: true)
+    let temporary = root.appendingPathComponent("temporary", isDirectory: true)
+    let source = home.appendingPathComponent("Library/Containers/chat/Data/同名文件.txt")
+    let secondSource = home.appendingPathComponent("Library/Group Containers/chat/同名文件.txt")
+    let ordinary = home.appendingPathComponent("Library/Containers-other/普通文件.txt")
+    for url in [source, secondSource, ordinary] {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data(url.path.utf8).write(to: url)
+    }
+    let exported = try FileExportURLs.prepare(
+        [source, secondSource, ordinary], homeDirectory: home, temporaryDirectory: temporary
+    )
+    precondition(exported[0] != source && exported[1] != secondSource)
+    precondition(exported[0] != exported[1])
+    precondition(exported[0].lastPathComponent == source.lastPathComponent)
+    precondition(exported[2] == ordinary)
+    for (original, copy) in zip([source, secondSource], exported) {
+        let originalData = try Data(contentsOf: original)
+        let copiedData = try Data(contentsOf: copy)
+        precondition(originalData == copiedData)
+    }
+    let exportRoot = temporary.appendingPathComponent("WeClawSend-Exports")
+    let entriesBeforeFailure = try FileManager.default.contentsOfDirectory(atPath: exportRoot.path)
+    do {
+        _ = try FileExportURLs.prepare(
+            [source, source.deletingLastPathComponent().appendingPathComponent("missing.txt")],
+            homeDirectory: home,
+            temporaryDirectory: temporary
+        )
+        preconditionFailure("Unreadable container files must report failure")
+    } catch {
+        let entriesAfterFailure = try FileManager.default.contentsOfDirectory(atPath: exportRoot.path)
+        precondition(Set(entriesBeforeFailure) == Set(entriesAfterFailure))
+    }
+    try FileManager.default.removeItem(at: source)
+    precondition(FileManager.default.fileExists(atPath: exported[0].path))
+
+    try Data("updated source".utf8).write(to: secondSource)
+    let refreshed = try FileExportURLs.prepare(
+        [secondSource], homeDirectory: home, temporaryDirectory: temporary
+    )
+    let refreshedData = try Data(contentsOf: refreshed[0])
+    precondition(refreshedData == Data("updated source".utf8))
+    precondition(refreshed[0] != exported[1])
+    let originalSnapshot = try Data(contentsOf: exported[1])
+    precondition(originalSnapshot != refreshedData)
+
+    try FileExportURLs.cleanupExpired(preserving: [], temporaryDirectory: temporary)
+    precondition(FileManager.default.fileExists(atPath: exported[0].path))
+    let expiredTime = Date().addingTimeInterval(FileExportURLs.retentionInterval + 60)
+    try FileExportURLs.cleanupExpired(
+        preserving: [refreshed[0]], now: expiredTime, temporaryDirectory: temporary
+    )
+    precondition(!FileManager.default.fileExists(atPath: exported[0].path))
+    precondition(FileManager.default.fileExists(atPath: refreshed[0].path))
+    precondition(FileManager.default.fileExists(atPath: ordinary.path))
+    try FileExportURLs.removeCopies(for: refreshed + [ordinary], temporaryDirectory: temporary)
+    precondition(!FileManager.default.fileExists(atPath: refreshed[0].path))
+    precondition(FileManager.default.fileExists(atPath: ordinary.path))
+    try FileExportURLs.cleanupExpired(
+        preserving: [], now: expiredTime, temporaryDirectory: temporary
+    )
+    let remainingExports = try FileManager.default.contentsOfDirectory(atPath: exportRoot.path)
+    precondition(remainingExports.isEmpty)
+}
+
 let shelfFile = FileManager.default.temporaryDirectory
     .appending(path: "weclaw-send-shelf-\(UUID()).txt")
 let shelfDirectory = FileManager.default.temporaryDirectory

@@ -112,6 +112,7 @@ final class AppModel: ObservableObject {
     @Published var weChatStatus: ServiceStatus = .checking
     @Published var recentTransfers: [TransferRecord] = []
     @Published private(set) var scheduledSends: [ScheduledSendPlan] = []
+    private(set) var hasLoadedScheduledSends = false
     @Published var queueSelection: QueueSelection?
     var queueHoverSelection: QueueSelection?
     @Published private(set) var pendingSendSelection: PendingSendSelection?
@@ -2239,6 +2240,7 @@ final class AppModel: ObservableObject {
             let plans = await coordinator.scheduledPlans()
             guard let self else { return }
             scheduledSends = plans
+            hasLoadedScheduledSends = true
             pruneQueueSelection()
             let preservedArchives = recentTransfers
                 .filter { $0.status == .failed }

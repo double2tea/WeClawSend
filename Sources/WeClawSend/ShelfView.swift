@@ -2113,6 +2113,7 @@ private struct ShelfItemRow: View {
 private final class ShelfItemDragSource: NSObject, ObservableObject, NSDraggingSource {
     weak var sourceView: NSView?
     private weak var draggingSession: NSDraggingSession?
+    private var temporaryCopies: [URL] = []
 
     func beginDragging(items: [ShelfItem]) {
         guard draggingSession == nil,
@@ -2122,9 +2123,23 @@ private final class ShelfItemDragSource: NSObject, ObservableObject, NSDraggingS
               event.type == .leftMouseDragged
         else { return }
 
+        let exportURLs: [URL]
+        do {
+            exportURLs = try FileExportURLs.prepare(items.map(\.url))
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.messageText = "无法准备拖出的文件"
+            alert.informativeText = "无法读取或复制来源文件。请先从原应用将文件保存到普通文件夹，再加入文件篮。\n\n\(error.localizedDescription)"
+            if let window = sourceView.window {
+                alert.beginSheetModal(for: window)
+            } else {
+                alert.runModal()
+            }
+            return
+        }
         let cursor = sourceView.convert(event.locationInWindow, from: nil)
         let draggingItems = items.enumerated().map { index, item in
-            let draggingItem = NSDraggingItem(pasteboardWriter: item.url as NSURL)
+            let draggingItem = NSDraggingItem(pasteboardWriter: exportURLs[index] as NSURL)
             let image = NSWorkspace.shared.icon(forFile: item.path)
             image.size = NSSize(width: 32, height: 32)
             let offset = CGFloat(min(index, 4)) * 3
@@ -2134,6 +2149,10 @@ private final class ShelfItemDragSource: NSObject, ObservableObject, NSDraggingS
             )
             return draggingItem
         }
+        temporaryCopies = zip(items, exportURLs).compactMap { item, url in
+            item.url == url ? nil : url
+        }
+        FileExportURLs.activeDragURLs = exportURLs
         draggingSession = sourceView.beginDraggingSession(
             with: draggingItems,
             event: event,
@@ -2151,9 +2170,19 @@ private final class ShelfItemDragSource: NSObject, ObservableObject, NSDraggingS
     func draggingSession(
         _: NSDraggingSession,
         endedAt _: NSPoint,
-        operation _: NSDragOperation
+        operation: NSDragOperation
     ) {
         draggingSession = nil
+        let urls = temporaryCopies
+        temporaryCopies = []
+        FileExportURLs.activeDragURLs = []
+        if operation.isEmpty {
+            do {
+                try FileExportURLs.removeCopies(for: urls)
+            } catch {
+                NSApp.presentError(error)
+            }
+        }
     }
 }
 
