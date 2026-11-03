@@ -80,7 +80,7 @@ final class FileBasketWindowCoordinator {
         }
         guard !ids.isEmpty else { return }
         for id in ids {
-            controllers.removeValue(forKey: id)?.hide()
+            discardController(id: id)
         }
         model.removeFileBaskets(ids: ids)
     }
@@ -162,6 +162,7 @@ final class FileBasketWindowCoordinator {
         id: UUID,
         dismissal: ShelfWindowDismissal
     ) {
+        controllers[id]?.cancelConversion()
         guard let controller = controllers[id], controller.isVisible else {
             deleteImmediately(id: id)
             return
@@ -173,9 +174,15 @@ final class FileBasketWindowCoordinator {
     }
 
     private func deleteImmediately(id: UUID) {
-        controllers.removeValue(forKey: id)?.hide()
+        discardController(id: id)
         model.removeFileBasket(id: id)
         Self.logger.info("文件篮已删除，剩余：\(self.model.fileBaskets.baskets.count, privacy: .public)")
+    }
+
+    private func discardController(id: UUID) {
+        let controller = controllers.removeValue(forKey: id)
+        controller?.cancelConversion()
+        controller?.hide()
     }
 
     func toggleRecent() {

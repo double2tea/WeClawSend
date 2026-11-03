@@ -1147,6 +1147,14 @@ MainActor.assumeIsolated {
     session.select(first.id, in: items, extending: true, toggling: false)
     precondition(session.selectedItems(in: items).map(\.id) == items.map(\.id))
 
+    session.select(first.id)
+    precondition(session.selectURLs([second.url, third.url, URL(fileURLWithPath: "/tmp/missing-shelf-item")], in: items))
+    precondition(session.selectedItems(in: items).map(\.id) == [second.id, third.id])
+    precondition(!session.selectURLs([URL(fileURLWithPath: "/tmp/missing-shelf-item")], in: items))
+    precondition(session.selectedItems(in: items).map(\.id) == [second.id, third.id])
+
+    session.select(first.id)
+    session.selectAll(in: items)
     session.ensureSelection(in: [first, second])
     precondition(session.selectedItemIDs == [first.id, second.id])
     precondition(session.selectedItemID == first.id)
@@ -1542,6 +1550,20 @@ precondition(
         for: ShelfWindowSizingMode.audio,
         visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
     ) == ReaderWindowSizing.audioPreferredSize
+)
+precondition(
+    ReaderWindowSizing.collectionSize(conversionPanelHeight: 0)
+        == ReaderWindowSizing.collectionSize
+)
+precondition(
+    ReaderWindowSizing.collectionSize(conversionPanelHeight: 240)
+        == CGSize(width: 340, height: 580)
+)
+precondition(
+    ReaderWindowSizing.collectionSize(
+        conversionPanelHeight: 400,
+        visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 500)
+    ) == CGSize(width: 340, height: 476)
 )
 let deletedTextClip = try textClipStore.deleteIfManaged(textClipURL)
 precondition(deletedTextClip)

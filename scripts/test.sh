@@ -62,6 +62,8 @@ swiftc \
     "$ROOT/Sources/WeClawSend/FolderWatchService.swift" \
     "$ROOT/Sources/WeClawSend/ShelfActivationController.swift" \
     "$ROOT/Sources/WeClawSend/ShelfModel.swift" \
+    "$ROOT/Sources/WeClawSend/BasketConversion.swift" \
+    "$ROOT/Sources/WeClawSend/FFmpegSupport.swift" \
     "$ROOT/Sources/WeClawSend/BasketTextClipStore.swift" \
     "$ROOT/Sources/WeClawSend/BasketImageClipStore.swift" \
     "$ROOT/Sources/WeClawSend/BasketTextFormatting.swift" \
@@ -89,4 +91,11 @@ swiftc \
     "$ROOT/Tests/ComponentChecks/main.swift" \
     -o "$TEST_DIR/component-checks"
 "$TEST_DIR/component-checks"
+swiftc -parse-as-library \
+    "$ROOT/Sources/WeClawSend/ShelfModel.swift" \
+    "$ROOT/Sources/WeClawSend/BasketConversion.swift" \
+    "$ROOT/Sources/WeClawSend/FFmpegSupport.swift" \
+    "$ROOT/Tests/ConversionChecks/main.swift" \
+    -o "$TEST_DIR/conversion-checks"
+"$TEST_DIR/conversion-checks"
 swift build --package-path "$ROOT" --scratch-path "$TEST_DIR/swift-build" -c release

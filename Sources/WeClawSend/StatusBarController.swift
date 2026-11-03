@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
         fileExportCleanupTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.cleanupFileExports() }
         }
+        FFmpegSupport.shared.detect()
         UNUserNotificationCenter.current().delegate = self
         dismissContextRefreshNotification()
 

@@ -44,6 +44,7 @@ struct ShelfView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var shelf: ShelfModel
     @ObservedObject var session: ShelfSessionState
+    @ObservedObject var conversion: BasketConversionController
 
     let chooseFiles: () -> Void
     let sendAll: () -> Void
@@ -86,6 +87,10 @@ struct ShelfView: View {
     @State private var pendingUndo: ShelfUndoAction?
     @State private var pendingNewTextClipItemID: UUID?
     @State private var hoveredReaderAction: String?
+    @AppStorage(BasketConversionSettings.enabledKey) private var conversionEnabled = true
+    @State private var showsConversion = false
+    @State private var isConversionDropTargeted = false
+    @State private var conversionDraggedURLs: [URL] = []
 
     private let cornerRadius: CGFloat = Brand.radiusWindow
     private let itemListCoordinateSpace = "ShelfItemList"
@@ -111,13 +116,30 @@ struct ShelfView: View {
             .onChange(of: session.removalRequestGeneration) { _, _ in
                 removeSelectedItems()
             }
+            .onChange(of: showsConversion) { _, shown in
+                session.setConversionPanelHeight(
+                    shown ? ReaderWindowSizing.collectionConversionPanelHeight : 0
+                )
+            }
             .onDisappear {
+                isConversionDropTargeted = false
+                showsConversion = false
+                session.setConversionPanelHeight(0)
                 if discardPendingNewTextClip() {
                     session.returnToCollection(in: shelf.items)
                 }
                 finalizePendingUndo()
                 pendingUndo = nil
                 undoAvailabilityChanged(false)
+            }
+            .task(id: shouldActivateShakeConversion) {
+                guard shouldActivateShakeConversion else { return }
+                do {
+                    try await Task.sleep(for: .milliseconds(500))
+                } catch {
+                    return
+                }
+                showsConversion = true
             }
             .task(id: pendingUndo?.id) {
                 guard pendingUndo != nil else { return }
@@ -207,9 +229,13 @@ struct ShelfView: View {
 
     private var fixedWindowSize: CGSize? {
         guard session.presentationMode == .collection else { return nil }
-        return session.isCollapsed
-            ? ReaderWindowSizing.collapsedSize
-            : ReaderWindowSizing.collectionSize
+        if session.isCollapsed {
+            return ReaderWindowSizing.collapsedSize
+        }
+        return CGSize(
+            width: ReaderWindowSizing.collectionSize.width,
+            height: ReaderWindowSizing.collectionSize.height + session.conversionPanelHeight
+        )
     }
 
     private var shelfBackground: some View {
@@ -317,9 +343,45 @@ struct ShelfView: View {
             header
             Divider().opacity(0.22)
             bodyContent
+            if showsConversion && (conversionEnabled || conversion.isRunning) {
+                Divider().opacity(0.22)
+                BasketConversionBar(
+                    controller: conversion,
+                    selectedURLs: session.selectedItemIDs.isEmpty
+                        ? shelf.urls : session.selectedItems(in: shelf.items).map(\.url),
+                    draggedURLs: isDropTargeted || isConversionDropTargeted ? conversionDraggedURLs : [],
+                    shelf: shelf,
+                    pointerPresenceChanged: pointerPresenceChanged,
+                    close: {
+                        withAnimation(reduceMotion ? nil : .smooth(duration: 0.24)) {
+                            showsConversion = false
+                        }
+                    },
+                    selectResults: { urls in
+                        let paths = Set(urls.map(\.path))
+                        session.setSelection(
+                            Set(shelf.items.filter { paths.contains($0.path) }.map(\.id)),
+                            in: shelf.items
+                        )
+                        conversion.dismissStatus()
+                        withAnimation(reduceMotion ? nil : .smooth(duration: 0.24)) {
+                            showsConversion = false
+                        }
+                    }
+                )
+                .background(Color.primary.opacity(0.018))
+                .fixedSize(horizontal: false, vertical: true)
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .bottom)),
+                        removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .bottom))
+                    )
+                )
+            }
             Divider().opacity(0.22)
             footer
         }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.24), value: showsConversion)
     }
 
     @ViewBuilder
@@ -871,6 +933,9 @@ struct ShelfView: View {
                 onOpenReader: { openItemInReader(item) },
                 onCopy: { copy(item) },
                 onShare: { destination in share(item, via: destination) },
+                conversionItems: conversionEnabled ? conversionItems(for: item) : [],
+                conversionIsRunning: conversion.isRunning,
+                onConvert: { action in convert(item, action: action) },
                 onRemove: { remove(item) },
                 onReveal: { revealInFinder(item) }
             )
@@ -887,6 +952,9 @@ struct ShelfView: View {
                 onOpenReader: { openItemInReader(item) },
                 onCopy: { copy(item) },
                 onShare: { destination in share(item, via: destination) },
+                conversionItems: conversionEnabled ? conversionItems(for: item) : [],
+                conversionIsRunning: conversion.isRunning,
+                onConvert: { action in convert(item, action: action) },
                 onRemove: { remove(item) },
                 onReveal: { revealInFinder(item) }
             )
@@ -895,6 +963,18 @@ struct ShelfView: View {
 
     private func updateHoveredItem(_ id: UUID, hovering: Bool) {
         hoveredItemID = hovering ? id : (hoveredItemID == id ? nil : hoveredItemID)
+    }
+
+    private func conversionItems(for item: ShelfItem) -> [ShelfItem] {
+        session.selectedItemIDs.contains(item.id)
+            ? session.selectedItems(in: shelf.items) : [item]
+    }
+
+    private func convert(_ item: ShelfItem, action: BasketConversionPreset) {
+        let items = conversionItems(for: item)
+        session.setSelection(Set(items.map(\.id)), in: shelf.items)
+        showsConversion = true
+        conversion.start(urls: items.map(\.url), preset: action, shelf: shelf)
     }
 
     private func select(_ item: ShelfItem, extending: Bool, toggling: Bool) {
@@ -1123,6 +1203,8 @@ struct ShelfView: View {
                         .accessibilityHidden(true)
                 }
 
+            conversionButton
+
             Button(action: sendCurrentItems) {
                 HStack(spacing: 4) {
                     Image(systemName: sendButtonSymbol)
@@ -1191,6 +1273,8 @@ struct ShelfView: View {
                         .accessibilityHidden(true)
                 }
 
+            conversionButton
+
             Menu {
                 selectionShareButton(.airDrop)
                 selectionShareButton(.mail)
@@ -1229,6 +1313,62 @@ struct ShelfView: View {
             .buttonStyle(.plain)
             .help("取消选择")
             .accessibilityLabel("取消多选")
+        }
+    }
+
+    private var shouldActivateShakeConversion: Bool {
+        session.isShakeConversionAvailable
+            && isConversionDropTargeted
+            && conversionEnabled
+            && !session.isCollapsed
+            && session.presentationMode == .collection
+            && !showsConversion
+    }
+
+    @ViewBuilder
+    private var conversionButton: some View {
+        if conversionEnabled || conversion.isRunning {
+            Button {
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.24)) {
+                    showsConversion.toggle()
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    if conversion.isRunning {
+                        ProgressView().controlSize(.mini)
+                        Text(conversion.progress == nil && !conversion.isCancelling ? "转换中" : conversion.progressLabel)
+                            .monospacedDigit()
+                    } else {
+                        Label("转换", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(showsConversion || isConversionDropTargeted ? Brand.accent : .secondary)
+                    .padding(.horizontal, 8)
+                    .frame(height: 28)
+                    .background(
+                        Color.primary.opacity(showsConversion || isConversionDropTargeted ? 0.09 : 0.045),
+                        in: Capsule()
+                    )
+            }
+            .buttonStyle(ShelfPressButtonStyle())
+            .help(conversion.isRunning ? "\(conversion.status)；点击查看进度或取消" :
+                (session.isShakeConversionAvailable
+                    ? "拖着文件在此停留半秒展开转换；松开只加入文件篮"
+                    : "转换所选文件；无选择时处理全篮"))
+            .accessibilityLabel(conversion.isRunning ? "查看转换进度" : "快捷转换")
+            .dropDestination(for: URL.self) { urls, location in
+                showsConversion = true
+                pointerPresenceChanged(true)
+                let handled = handleDrop(urls, location)
+                let selected = session.selectURLs(urls, in: shelf.items)
+                return handled || selected
+            } isTargeted: { targeted in
+                isConversionDropTargeted = targeted
+                if targeted {
+                    conversionDraggedURLs = fileURLs(from: NSPasteboard(name: .drag))
+                }
+            }
         }
     }
 
@@ -1603,6 +1743,9 @@ struct ShelfView: View {
     }
 
     private func setDropTargeted(_ targeted: Bool) {
+        if targeted {
+            conversionDraggedURLs = fileURLs(from: NSPasteboard(name: .drag))
+        }
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.18, extraBounce: 0)) {
             isDropTargeted = targeted
         }
@@ -1769,6 +1912,9 @@ private struct ShelfItemTile: View {
     let onOpenReader: () -> Void
     let onCopy: () -> Void
     let onShare: (ShelfShareDestination) -> Void
+    let conversionItems: [ShelfItem]
+    let conversionIsRunning: Bool
+    let onConvert: (BasketConversionPreset) -> Void
     let onRemove: () -> Void
     let onReveal: () -> Void
 
@@ -1805,6 +1951,7 @@ private struct ShelfItemTile: View {
                 Button(previewMenuTitle, action: onPreview)
                 Button("展开阅读", action: onOpenReader)
                 Button("在 Finder 中显示", action: onReveal)
+                BasketConversionMenu(items: conversionItems, isRunning: conversionIsRunning, start: onConvert)
                 Divider()
                 shareButtons
                 Divider()
@@ -1939,6 +2086,9 @@ private struct ShelfItemRow: View {
     let onOpenReader: () -> Void
     let onCopy: () -> Void
     let onShare: (ShelfShareDestination) -> Void
+    let conversionItems: [ShelfItem]
+    let conversionIsRunning: Bool
+    let onConvert: (BasketConversionPreset) -> Void
     let onRemove: () -> Void
     let onReveal: () -> Void
 
@@ -1999,6 +2149,7 @@ private struct ShelfItemRow: View {
             Button(previewMenuTitle, action: onPreview)
             Button("展开阅读", action: onOpenReader)
             Button("在 Finder 中显示", action: onReveal)
+            BasketConversionMenu(items: conversionItems, isRunning: conversionIsRunning, start: onConvert)
             Divider()
             shareButtons
             Divider()
@@ -2244,6 +2395,9 @@ private struct ShelfTextDocumentPreview: View {
     let cornerRadius: CGFloat
     var compact = false
 
+    @State private var textGeneration = 0
+    @State private var previewText = "文本"
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -2262,14 +2416,21 @@ private struct ShelfTextDocumentPreview: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(Color.primary.opacity(0.075), lineWidth: 0.7)
         }
+        .task(id: textGeneration) {
+            let text = await ShelfItemPresentationCache.text(
+                for: url,
+                maxCharacters: compact ? 80 : 220
+            )
+            guard !Task.isCancelled else { return }
+            previewText = text
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ShelfItemPresentationCache.textInvalidationNotification)) { notification in
+            guard let path = notification.object as? String,
+                  path == url.standardizedFileURL.path
+            else { return }
+            textGeneration += 1
+        }
         .accessibilityHidden(true)
-    }
-
-    private var previewText: String {
-        ShelfItemPresentationCache.textPreview(
-            for: url,
-            maxCharacters: compact ? 80 : 220
-        ) ?? "文本"
     }
 }
 
@@ -2385,17 +2546,25 @@ private struct FilePreviewIcon: View {
 
 @MainActor
 private enum ShelfItemPresentationCache {
+    static let textInvalidationNotification = Notification.Name("WeClawSend.shelfTextInvalidated")
+
+    private final class TextInvalidationToken {}
+
     private static let fileSizes = NSCache<NSString, NSNumber>()
     private static let icons = NSCache<NSString, NSImage>()
     private static let thumbnails = NSCache<NSString, NSImage>()
     private static let texts = NSCache<NSString, NSString>()
+    private static let textInvalidationTokens = NSCache<NSString, TextInvalidationToken>()
 
     static func fileSize(for url: URL) -> Int64 {
         let key = url.path as NSString
         if let cached = fileSizes.object(forKey: key) {
             return cached.int64Value
         }
-        let value = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        let value = Int64(
+            (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?
+                .int64Value ?? 0
+        )
         fileSizes.setObject(NSNumber(value: value), forKey: key)
         return value
     }
@@ -2427,24 +2596,34 @@ private enum ShelfItemPresentationCache {
         thumbnails.setObject(image, forKey: key as NSString)
     }
 
-    static func textPreview(for url: URL, maxCharacters: Int) -> String? {
-        guard maxCharacters > 0 else { return nil }
+    static func text(for url: URL, maxCharacters: Int) async -> String {
+        guard maxCharacters > 0 else { return "文本" }
         let key = url.standardizedFileURL.path as NSString
-        let text: String
         if let cached = texts.object(forKey: key) {
-            text = cached as String
-        } else {
+            return String((cached as String).prefix(maxCharacters))
+        }
+        let token = textInvalidationTokens.object(forKey: key) ?? {
+            let token = TextInvalidationToken()
+            textInvalidationTokens.setObject(token, forKey: key)
+            return token
+        }()
+        let text = await Task.detached(priority: .utility) {
             guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]),
                   data.count <= BasketTextClipStore.maximumTextBytes,
-                  let decoded = String(data: data, encoding: .utf8)
-            else { return nil }
-            text = decoded
-            texts.setObject(decoded as NSString, forKey: key)
-        }
+                  let text = String(data: data, encoding: .utf8)
+            else { return nil as String? }
+            return text
+        }.value
+        guard !Task.isCancelled, let text else { return "文本" }
+        guard textInvalidationTokens.object(forKey: key) === token else { return "文本" }
+        texts.setObject(text as NSString, forKey: key)
         return String(text.prefix(maxCharacters))
     }
 
     static func invalidateText(for url: URL) {
-        texts.removeObject(forKey: url.standardizedFileURL.path as NSString)
+        let path = url.standardizedFileURL.path
+        texts.removeObject(forKey: path as NSString)
+        textInvalidationTokens.removeObject(forKey: path as NSString)
+        NotificationCenter.default.post(name: textInvalidationNotification, object: path)
     }
 }

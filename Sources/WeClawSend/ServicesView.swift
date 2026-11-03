@@ -5,6 +5,7 @@ import SwiftUI
 private enum ServicesPage: String, CaseIterable, Identifiable {
     case general
     case baskets
+    case conversion
     case monitoring
     case integrations
 
@@ -14,6 +15,7 @@ private enum ServicesPage: String, CaseIterable, Identifiable {
         switch self {
         case .general: "常用"
         case .baskets: "文件篮"
+        case .conversion: "转换"
         case .monitoring: "监控"
         case .integrations: "集成"
         }
@@ -23,6 +25,7 @@ private enum ServicesPage: String, CaseIterable, Identifiable {
         switch self {
         case .general: "slider.horizontal.3"
         case .baskets: "rectangle.stack"
+        case .conversion: "arrow.triangle.2.circlepath"
         case .monitoring: "folder.badge.gearshape"
         case .integrations: "puzzlepiece.extension"
         }
@@ -139,29 +142,36 @@ struct ServicesView: View {
         }
     }
 
+    @ViewBuilder
     private var settingsContent: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: 8) {
-                switch page {
-                case .general:
-                    weChatSection
-                    settingsSection
-                case .baskets:
-                    shelfSettingsSection
-                case .monitoring:
-                    folderWatchSettingsSection
-                case .integrations:
-                    localAPISection
-                    updatesAndIntegrationsSection
-                    feedbackSection
+        if page == .conversion {
+            BasketConversionSettingsView()
+        } else {
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 8) {
+                    switch page {
+                    case .general:
+                        weChatSection
+                        settingsSection
+                    case .baskets:
+                        shelfSettingsSection
+                    case .conversion:
+                        EmptyView()
+                    case .monitoring:
+                        folderWatchSettingsSection
+                    case .integrations:
+                        localAPISection
+                        updatesAndIntegrationsSection
+                        feedbackSection
+                    }
                 }
+                .padding(.leading, 12)
+                .padding(.trailing, 7)
+                .padding(.vertical, 10)
             }
-            .padding(.leading, 12)
-            .padding(.trailing, 7)
-            .padding(.vertical, 10)
+            .id(page)
+            .background(CompactScrollViewConfigurator())
         }
-        .id(page)
-        .background(CompactScrollViewConfigurator())
     }
 
     private var header: some View {

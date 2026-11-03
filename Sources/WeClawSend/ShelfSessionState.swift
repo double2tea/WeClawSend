@@ -43,14 +43,18 @@ final class ShelfSessionState: ObservableObject {
     @Published var isCollapsed: Bool
     @Published var isAlwaysOnTop: Bool
     @Published var displayMode: ShelfDisplayMode
+    @Published var isShakeConversionAvailable = false
     @Published var presentationMode: ShelfPresentationMode = .collection
     @Published private(set) var isPresentationReady = true
     @Published private(set) var selectedItemID: UUID?
     @Published private(set) var selectedItemIDs: Set<UUID> = []
+    @Published private(set) var conversionPanelHeight: CGFloat = 0
     @Published private(set) var focusedItemID: UUID?
     @Published private(set) var requestedTextEditorItemID: UUID?
     @Published private(set) var statusMessage: String?
     @Published private(set) var removalRequestGeneration = 0
+
+    let conversion = BasketConversionController()
 
     private var statusClearTask: Task<Void, Never>?
     private var selectionAnchorID: UUID?
@@ -95,6 +99,12 @@ final class ShelfSessionState: ObservableObject {
         selectedItemID = id
         selectedItemIDs = id.map { [$0] } ?? []
         selectionAnchorID = id
+    }
+
+    func setConversionPanelHeight(_ height: CGFloat) {
+        let resolved = height.isFinite ? max(0, height) : 0
+        guard abs(conversionPanelHeight - resolved) >= 0.5 else { return }
+        conversionPanelHeight = resolved
     }
 
     func select(
@@ -301,5 +311,14 @@ final class ShelfSessionState: ObservableObject {
         }
         select(id)
         return items.filter { $0.id == id }
+    }
+
+    @discardableResult
+    func selectURLs(_ urls: [URL], in items: [ShelfItem]) -> Bool {
+        let paths = Set(urls.map { $0.standardizedFileURL.path })
+        let ids = Set(items.filter { paths.contains($0.path) }.map(\.id))
+        guard !ids.isEmpty else { return false }
+        setSelection(ids, in: items)
+        return true
     }
 }

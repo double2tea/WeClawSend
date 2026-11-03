@@ -20,7 +20,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     private enum Layout {
         static let expandedSize = NSSize(width: 340, height: 340)
         static let collapsedSize = NSSize(width: 248, height: 52)
-        static let animationDuration: TimeInterval = 0.22
+        static let animationDuration: TimeInterval = 0.24
         static let standardDismissalDuration: TimeInterval = 0.18
         static let shakeDismissalDuration: TimeInterval = 0.26
         static let pointerGap: CGFloat = 12
@@ -145,6 +145,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         guard model.shelfEnabled else { return }
         let wasVisible = panel.isVisible
         let wasDismissing = isDismissing
+        session.isShakeConversionAvailable = appearance == .shake && basket.items.isEmpty
         isDismissing = false
         if expanded, session.isCollapsed {
             setCollapsed(false)
@@ -183,6 +184,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     func hide() {
+        session.isShakeConversionAvailable = false
         isPresenting = false
         isDismissing = false
         motionCompletionTask?.cancel()
@@ -263,6 +265,10 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         if !model.shelfEnabled {
             hide()
         }
+    }
+
+    func cancelConversion() {
+        session.conversion.cancel()
     }
 
 #if DEBUG
@@ -373,6 +379,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             model: model,
             shelf: basket,
             session: session,
+            conversion: session.conversion,
             chooseFiles: chooseFiles,
             sendAll: { [weak self] in self?.sendBasketItems() },
             scheduleAll: { [weak self] delaySeconds in
@@ -433,6 +440,14 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             }
             .store(in: &cancellables)
 
+        session.$conversionPanelHeight
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] height in
+                self?.refreshCollectionSize(conversionPanelHeight: height)
+            }
+            .store(in: &cancellables)
+
         session.$focusedItemID
             .dropFirst()
             .removeDuplicates()
@@ -463,6 +478,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
                     claimKeyFocus()
                 }
                 if !items.isEmpty {
+                    session.isShakeConversionAvailable = false
                     dismissWhenPointerLeaves = false
                 }
                 session.ensureSelection(in: items)
@@ -628,7 +644,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
 
     private func targetSize(for mode: ShelfPresentationMode) -> NSSize {
         if mode == .collection {
-            return session.isCollapsed ? Layout.collapsedSize : Layout.expandedSize
+            return collectionTargetSize
         }
         if mode == .reader, isAudioReaderItem {
             return ReaderWindowSizing.resolvedSize(
@@ -642,6 +658,27 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             storedSize: storedSize,
             visibleFrame: panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
         )
+    }
+
+    private var collectionTargetSize: NSSize {
+        guard !session.isCollapsed else { return Layout.collapsedSize }
+        let visibleFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        let size = ReaderWindowSizing.collectionSize(
+            conversionPanelHeight: session.conversionPanelHeight,
+            visibleFrame: visibleFrame
+        )
+        return NSSize(width: size.width, height: size.height)
+    }
+
+    private func refreshCollectionSize(conversionPanelHeight: CGFloat) {
+        guard session.presentationMode == .collection, !session.isCollapsed else { return }
+        let size = ReaderWindowSizing.collectionSize(
+            conversionPanelHeight: conversionPanelHeight,
+            visibleFrame: panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        )
+        relaxResizableLimits(toFit: size)
+        resize(to: size, animated: panel.isVisible)
+        applyPresentationSizeLimits(for: .collection, size: size)
     }
 
     private func resetPresentationSize() {

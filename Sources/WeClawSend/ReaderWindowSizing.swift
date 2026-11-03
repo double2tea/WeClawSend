@@ -14,6 +14,8 @@ enum ShelfWindowSizingMode: Equatable, Sendable {
 /// free.
 enum ReaderWindowSizing {
     static let collectionSize = CGSize(width: 340, height: 340)
+    static let collectionConversionPanelHeight: CGFloat = 260
+    static let collectionConversionPanelMaximumHeight: CGFloat = 320
     static let collapsedSize = CGSize(width: 248, height: 52)
     static let readerPreferredSize = CGSize(width: 640, height: 720)
     static let readerMinimumSize = CGSize(width: 480, height: 420)
@@ -38,6 +40,21 @@ enum ReaderWindowSizing {
         case .reminder:
             reminderPreferredSize
         }
+    }
+
+    static func collectionSize(
+        conversionPanelHeight: CGFloat,
+        visibleFrame: CGRect? = nil
+    ) -> CGSize {
+        let panelHeight = conversionPanelHeight.isFinite
+            ? min(max(0, conversionPanelHeight), collectionConversionPanelMaximumHeight)
+            : 0
+        let availableHeight = availableSize(in: visibleFrame)?.height
+            ?? .greatestFiniteMagnitude
+        return CGSize(
+            width: collectionSize.width,
+            height: min(collectionSize.height + panelHeight, max(collectionSize.height, availableHeight))
+        )
     }
 
     static func preferredSize(for mode: ShelfPresentationMode) -> CGSize {

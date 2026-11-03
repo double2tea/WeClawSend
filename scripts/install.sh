@@ -14,6 +14,26 @@ LEGACY_LABELS=(
 "$ROOT/scripts/build-app.sh"
 SOURCE_APP="$(realpath "$ROOT/.build/WeClaw Send.app")"
 
+mkdir -p "$INSTALL_DIR"
+STAGE="$(mktemp -d "$INSTALL_DIR/.weclaw-send-install.XXXXXX")"
+STAGED_APP="$STAGE/WeClaw Send.app"
+PREVIOUS_APP="$STAGE/previous.app"
+cleanup() {
+    local result=$?
+    if (( result != 0 )) && [[ -e "$PREVIOUS_APP" ]]; then
+        rm -rf "$APP"
+        mv "$PREVIOUS_APP" "$APP" || return
+    fi
+    rm -rf "$STAGE"
+}
+trap cleanup EXIT
+
+COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$SOURCE_APP" "$STAGED_APP"
+codesign --force --sign - \
+    --requirements '=designated => identifier "com.chacha.WeClawSend"' \
+    "$STAGED_APP"
+codesign --verify --deep --strict "$STAGED_APP"
+
 # 停掉旧版 LaunchAgent 启动的本应用（现已改用 SMAppService）
 if launchctl print "gui/$(id -u)/$APP_LABEL" >/dev/null 2>&1; then
     launchctl bootout "gui/$(id -u)/$APP_LABEL" || true
@@ -33,13 +53,10 @@ done
 
 killall WeClawSend >/dev/null 2>&1 || true
 
-mkdir -p "$INSTALL_DIR"
-rm -rf "$APP"
-COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$SOURCE_APP" "$APP"
-codesign --force --deep --sign - \
-    --requirements '=designated => identifier "com.chacha.WeClawSend"' \
-    "$APP" 2>/dev/null || true
-codesign --verify --strict "$APP" 2>/dev/null || true
+if [[ -e "$APP" ]]; then
+    mv "$APP" "$PREVIOUS_APP"
+fi
+mv "$STAGED_APP" "$APP"
 rm -f "$APP_PLIST"
 
 open "$APP"

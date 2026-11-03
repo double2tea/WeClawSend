@@ -10,12 +10,22 @@ PREF_DOMAIN="com.chacha.WeClawSend"
 PREF_KEY="LocalAPIEnabled"
 HAD_LOCAL_API_SETTING=false
 PREVIOUS_LOCAL_API_SETTING=""
+INSTALL_STAGE=""
+PREVIOUS_APP=""
 
 if PREVIOUS_LOCAL_API_SETTING="$(defaults read "$PREF_DOMAIN" "$PREF_KEY" 2>/dev/null)"; then
     HAD_LOCAL_API_SETTING=true
 fi
 
 cleanup() {
+    local result=$?
+    if (( result != 0 )) && [[ -n "$PREVIOUS_APP" && -e "$PREVIOUS_APP" ]]; then
+        rm -rf "$INSTALLED_APP"
+        mv "$PREVIOUS_APP" "$INSTALLED_APP" || return
+    fi
+    if [[ -n "$INSTALL_STAGE" ]]; then
+        rm -rf "$INSTALL_STAGE"
+    fi
     rm -rf "$TMP"
     if [[ "$HAD_LOCAL_API_SETTING" == true ]]; then
         if [[ "$PREVIOUS_LOCAL_API_SETTING" == "1" ]]; then
@@ -89,15 +99,21 @@ else
 fi
 
 print "== 3) reinstall & launch =="
+mkdir -p "$INSTALL_DIR"
+INSTALL_STAGE="$(mktemp -d "$INSTALL_DIR/.weclaw-send-functional.XXXXXX")"
+STAGED_APP="$INSTALL_STAGE/WeClaw Send.app"
+PREVIOUS_APP="$INSTALL_STAGE/previous.app"
+COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$BUNDLE" "$STAGED_APP"
+codesign --force --sign - \
+    --requirements '=designated => identifier "com.chacha.WeClawSend"' \
+    "$STAGED_APP"
+codesign --verify --deep --strict "$STAGED_APP"
 killall WeClawSend >/dev/null 2>&1 || true
 sleep 1
-mkdir -p "$INSTALL_DIR"
-rm -rf "$INSTALLED_APP"
-COPYFILE_DISABLE=1 ditto --norsrc --noextattr "$BUNDLE" "$INSTALLED_APP"
-# Documents 路径拷贝后可能附带 xattr；安装目录再签一次保证可运行。
-codesign --force --deep --sign - \
-    --requirements '=designated => identifier "com.chacha.WeClawSend"' \
-    "$INSTALLED_APP" 2>/dev/null || true
+if [[ -e "$INSTALLED_APP" ]]; then
+    mv "$INSTALLED_APP" "$PREVIOUS_APP"
+fi
+mv "$STAGED_APP" "$INSTALLED_APP"
 open "$INSTALLED_APP"
 
 READY=false
