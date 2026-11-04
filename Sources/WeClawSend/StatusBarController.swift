@@ -378,6 +378,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, UNU
     }
 
     private func observeMenuBarActivity() {
+        model.$hasLoadedScheduledSends
+            .filter { $0 }
+            .prefix(1)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.cleanupFileExports() }
+            .store(in: &statusItemCancellables)
         model.$recentTransfers
             .combineLatest(model.$scheduledSends)
             .receive(on: RunLoop.main)

@@ -1266,6 +1266,49 @@ do {
     )
     let remainingExports = try FileManager.default.contentsOfDirectory(atPath: exportRoot.path)
     precondition(remainingExports.isEmpty)
+
+    let lockedExport = try FileExportURLs.prepare(
+        [secondSource], homeDirectory: home, temporaryDirectory: temporary
+    )[0]
+    let removableExport = try FileExportURLs.prepare(
+        [secondSource], homeDirectory: home, temporaryDirectory: temporary
+    )[0]
+    let lockedDirectory = lockedExport.deletingLastPathComponent().deletingLastPathComponent()
+    try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: lockedDirectory.path)
+    defer {
+        try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: lockedDirectory.path)
+    }
+    do {
+        try FileExportURLs.cleanupExpired(
+            preserving: [], now: expiredTime, temporaryDirectory: temporary
+        )
+        preconditionFailure("Locked export must report a cleanup error")
+    } catch {
+        precondition(FileManager.default.fileExists(atPath: lockedDirectory.path))
+        precondition(!FileManager.default.fileExists(atPath: removableExport.path))
+    }
+    try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: lockedDirectory.path)
+    try FileExportURLs.cleanupExpired(preserving: [], now: expiredTime, temporaryDirectory: temporary)
+    let exportsAfterRetry = try FileManager.default.contentsOfDirectory(atPath: exportRoot.path)
+    precondition(exportsAfterRetry.isEmpty)
+
+    let cancellationFinished = DispatchSemaphore(value: 0)
+    Task.detached {
+        withUnsafeCurrentTask { $0?.cancel() }
+        defer { cancellationFinished.signal() }
+        do {
+            _ = try FileExportURLs.prepare(
+                [secondSource], homeDirectory: home, temporaryDirectory: temporary
+            )
+            preconditionFailure("Cancelled preparation must not export files")
+        } catch is CancellationError {
+        } catch {
+            preconditionFailure("Expected cancellation, got \(error)")
+        }
+    }
+    precondition(cancellationFinished.wait(timeout: .now() + 5) == .success)
+    let exportsAfterCancellation = try FileManager.default.contentsOfDirectory(atPath: exportRoot.path)
+    precondition(exportsAfterCancellation.isEmpty)
 }
 
 let shelfFile = FileManager.default.temporaryDirectory

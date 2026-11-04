@@ -54,6 +54,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     private var isUserLiveResizing = false
     private var hadItems: Bool
     private var lastObservedItemCount: Int
+    private var fileCopyGeneration = UUID()
 
     init(
         model: AppModel,
@@ -942,17 +943,19 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
     }
 
     private func copyFiles(_ items: [ShelfItem]) {
+        let generation = UUID()
+        fileCopyGeneration = generation
         let availableItems = items.filter { ShelfModel.isSupportedItem($0.url) }
         guard !availableItems.isEmpty else {
             session.flash(items.isEmpty ? "文件篮为空" : "项目已失效")
             return
         }
         let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
         if availableItems.count == 1,
            let item = availableItems.first,
            BasketTextClipStore.isManaged(item.url),
            let text = try? BasketTextClipStore.readText(at: item.url) {
+            pasteboard.clearContents()
             if pasteboard.setString(text, forType: .string) {
                 session.flash("已复制文本")
             } else {
@@ -960,18 +963,37 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
             }
             return
         }
-        let exportURLs: [URL]
-        do {
-            exportURLs = try FileExportURLs.prepare(availableItems.map(\.url))
-        } catch {
-            session.flash("无法复制来源文件：\(error.localizedDescription)", duration: 4)
-            return
+        let changeCount = pasteboard.changeCount
+        let urls = availableItems.map(\.url)
+        session.flash("正在准备复制…")
+        Task {
+            do {
+                let exportURLs = try await Task.detached(priority: .userInitiated) {
+                    try FileExportURLs.prepare(urls)
+                }.value
+                let temporaryCopies = zip(urls, exportURLs).compactMap { original, exported in
+                    original == exported ? nil : exported
+                }
+                guard fileCopyGeneration == generation, pasteboard.changeCount == changeCount else {
+                    try await Task.detached(priority: .utility) {
+                        try FileExportURLs.removeCopies(for: temporaryCopies)
+                    }.value
+                    return
+                }
+                pasteboard.clearContents()
+                guard pasteboard.writeObjects(exportURLs.map { $0 as NSURL }) else {
+                    try await Task.detached(priority: .utility) {
+                        try FileExportURLs.removeCopies(for: temporaryCopies)
+                    }.value
+                    session.flash("复制失败")
+                    return
+                }
+                session.flash(availableItems.count == 1 ? "已复制项目" : "已复制 \(availableItems.count) 个项目")
+            } catch {
+                guard fileCopyGeneration == generation else { return }
+                session.flash("无法复制来源文件：\(error.localizedDescription)", duration: 4)
+            }
         }
-        guard pasteboard.writeObjects(exportURLs.map { $0 as NSURL }) else {
-            session.flash("复制失败")
-            return
-        }
-        session.flash(availableItems.count == 1 ? "已复制项目" : "已复制 \(availableItems.count) 个项目")
     }
 
     private func pasteIntoBasket() {

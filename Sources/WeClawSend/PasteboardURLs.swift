@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 
 let filenamesPasteboardType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
 
@@ -20,6 +21,7 @@ func fileURLs(from pasteboard: NSPasteboard, includingDirectories: Bool = false)
 enum FileExportURLs {
     static let retentionInterval: TimeInterval = 60 * 60
     @MainActor static var activeDragURLs: [URL] = []
+    private static let logger = Logger(subsystem: "com.chacha.WeClawSend", category: "FileExport")
 
     static func prepare(
         _ urls: [URL],
@@ -35,6 +37,7 @@ enum FileExportURLs {
         var createdExportDirectory = false
         do {
             return try urls.enumerated().map { index, url in
+                try Task.checkCancellation()
                 let source = url.resolvingSymlinksInPath()
                 guard containerRoots.contains(where: { source.path.hasPrefix($0) }) else {
                     return url
@@ -48,6 +51,7 @@ enum FileExportURLs {
                     if accessed { url.stopAccessingSecurityScopedResource() }
                 }
                 try FileManager.default.copyItem(at: url, to: destination)
+                try Task.checkCancellation()
                 try FileManager.default.setAttributes(
                     [.modificationDate: Date()], ofItemAtPath: exportDirectory.path
                 )
@@ -55,7 +59,11 @@ enum FileExportURLs {
             }
         } catch {
             if createdExportDirectory {
-                try FileManager.default.removeItem(at: exportDirectory)
+                do {
+                    try FileManager.default.removeItem(at: exportDirectory)
+                } catch {
+                    logger.error("无法回滚临时导出：\(error.localizedDescription, privacy: .public)")
+                }
             }
             throw error
         }
@@ -92,15 +100,21 @@ enum FileExportURLs {
         let directories = try FileManager.default.contentsOfDirectory(
             at: root, includingPropertiesForKeys: [.contentModificationDateKey, .isSymbolicLinkKey]
         )
+        var firstError: (any Error)?
         for directory in directories {
             guard UUID(uuidString: directory.lastPathComponent) != nil else { continue }
-            let values = try directory.resourceValues(forKeys: [.contentModificationDateKey, .isSymbolicLinkKey])
-            guard values.isSymbolicLink != true,
-                  let modifiedAt = values.contentModificationDate,
-                  now.timeIntervalSince(modifiedAt) >= retentionInterval else { continue }
-            let prefix = directory.standardizedFileURL.resolvingSymlinksInPath().path + "/"
-            guard !retainedPaths.contains(where: { $0.hasPrefix(prefix) }) else { continue }
-            try FileManager.default.removeItem(at: directory)
+            do {
+                let values = try directory.resourceValues(forKeys: [.contentModificationDateKey, .isSymbolicLinkKey])
+                guard values.isSymbolicLink != true,
+                      let modifiedAt = values.contentModificationDate,
+                      now.timeIntervalSince(modifiedAt) >= retentionInterval else { continue }
+                let prefix = directory.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+                guard !retainedPaths.contains(where: { $0.hasPrefix(prefix) }) else { continue }
+                try FileManager.default.removeItem(at: directory)
+            } catch {
+                if firstError == nil { firstError = error }
+            }
         }
+        if let firstError { throw firstError }
     }
 }

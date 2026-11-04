@@ -2035,9 +2035,9 @@ private struct ShelfItemTile: View {
     }
 
     private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 4).onChanged { _ in
-            dragSource.beginDragging(items: dragItems())
-        }
+        DragGesture(minimumDistance: 4)
+            .onChanged { _ in dragSource.beginDragging(items: dragItems()) }
+            .onEnded { _ in dragSource.endGesture() }
     }
 
     private var copyMenuTitle: String {
@@ -2214,9 +2214,9 @@ private struct ShelfItemRow: View {
             TapGesture(count: 2).onEnded(onPreview)
         )
         .simultaneousGesture(
-            DragGesture(minimumDistance: 4).onChanged { _ in
-                dragSource.beginDragging(items: dragItems())
-            }
+            DragGesture(minimumDistance: 4)
+                .onChanged { _ in dragSource.beginDragging(items: dragItems()) }
+                .onEnded { _ in dragSource.endGesture() }
         )
     }
 
@@ -2265,29 +2265,68 @@ private final class ShelfItemDragSource: NSObject, ObservableObject, NSDraggingS
     weak var sourceView: NSView?
     private weak var draggingSession: NSDraggingSession?
     private var temporaryCopies: [URL] = []
+    private var preparationTask: Task<Void, Never>?
+    private var didAttemptPreparation = false
+    private var latestDragEvent: NSEvent?
 
     func beginDragging(items: [ShelfItem]) {
-        guard draggingSession == nil,
-              !items.isEmpty,
-              let sourceView,
-              let event = NSApp.currentEvent,
-              event.type == .leftMouseDragged
+        guard let event = NSApp.currentEvent, event.type == .leftMouseDragged else { return }
+        latestDragEvent = event
+        guard draggingSession == nil, preparationTask == nil, !didAttemptPreparation,
+              !items.isEmpty, let sourceView
         else { return }
-
-        let exportURLs: [URL]
-        do {
-            exportURLs = try FileExportURLs.prepare(items.map(\.url))
-        } catch {
-            let alert = NSAlert(error: error)
-            alert.messageText = "无法准备拖出的文件"
-            alert.informativeText = "无法读取或复制来源文件。请先从原应用将文件保存到普通文件夹，再加入文件篮。\n\n\(error.localizedDescription)"
-            if let window = sourceView.window {
-                alert.beginSheetModal(for: window)
-            } else {
-                alert.runModal()
+        didAttemptPreparation = true
+        let urls = items.map(\.url)
+        preparationTask = Task {
+            defer { preparationTask = nil }
+            do {
+                let worker = Task.detached(priority: .userInitiated) {
+                    try FileExportURLs.prepare(urls)
+                }
+                let exportURLs = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                temporaryCopies = zip(urls, exportURLs).compactMap { original, exported in
+                    original == exported ? nil : exported
+                }
+                guard !Task.isCancelled, didAttemptPreparation,
+                      NSEvent.pressedMouseButtons & 1 != 0,
+                      sourceView.window != nil, let event = latestDragEvent else {
+                    let copies = temporaryCopies
+                    temporaryCopies = []
+                    do {
+                        try await Task.detached(priority: .utility) {
+                            try FileExportURLs.removeCopies(for: copies)
+                        }.value
+                    } catch {
+                        NSApp.presentError(error)
+                    }
+                    return
+                }
+                startDragging(items: items, exportURLs: exportURLs, sourceView: sourceView, event: event)
+            } catch {
+                guard !Task.isCancelled else { return }
+                let alert = NSAlert(error: error)
+                alert.messageText = "无法准备拖出的文件"
+                alert.informativeText = "无法读取或复制来源文件。请先从原应用将文件保存到普通文件夹，再加入文件篮。\n\n\(error.localizedDescription)"
+                if let window = sourceView.window {
+                    alert.beginSheetModal(for: window, completionHandler: nil)
+                } else {
+                    alert.runModal()
+                }
             }
-            return
         }
+    }
+
+    func endGesture() {
+        didAttemptPreparation = false
+        latestDragEvent = nil
+        preparationTask?.cancel()
+    }
+
+    private func startDragging(items: [ShelfItem], exportURLs: [URL], sourceView: NSView, event: NSEvent) {
         let cursor = sourceView.convert(event.locationInWindow, from: nil)
         let draggingItems = items.enumerated().map { index, item in
             let draggingItem = NSDraggingItem(pasteboardWriter: exportURLs[index] as NSURL)
@@ -2299,9 +2338,6 @@ private final class ShelfItemDragSource: NSObject, ObservableObject, NSDraggingS
                 contents: image
             )
             return draggingItem
-        }
-        temporaryCopies = zip(items, exportURLs).compactMap { item, url in
-            item.url == url ? nil : url
         }
         FileExportURLs.activeDragURLs = exportURLs
         draggingSession = sourceView.beginDraggingSession(
@@ -2324,14 +2360,19 @@ private final class ShelfItemDragSource: NSObject, ObservableObject, NSDraggingS
         operation: NSDragOperation
     ) {
         draggingSession = nil
+        endGesture()
         let urls = temporaryCopies
         temporaryCopies = []
         FileExportURLs.activeDragURLs = []
         if operation.isEmpty {
-            do {
-                try FileExportURLs.removeCopies(for: urls)
-            } catch {
-                NSApp.presentError(error)
+            Task {
+                do {
+                    try await Task.detached(priority: .utility) {
+                        try FileExportURLs.removeCopies(for: urls)
+                    }.value
+                } catch {
+                    NSApp.presentError(error)
+                }
             }
         }
     }

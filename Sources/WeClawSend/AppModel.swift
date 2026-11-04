@@ -112,7 +112,7 @@ final class AppModel: ObservableObject {
     @Published var weChatStatus: ServiceStatus = .checking
     @Published var recentTransfers: [TransferRecord] = []
     @Published private(set) var scheduledSends: [ScheduledSendPlan] = []
-    private(set) var hasLoadedScheduledSends = false
+    @Published private(set) var hasLoadedScheduledSends = false
     @Published var queueSelection: QueueSelection?
     var queueHoverSelection: QueueSelection?
     @Published private(set) var pendingSendSelection: PendingSendSelection?
