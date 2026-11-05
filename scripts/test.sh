@@ -98,4 +98,11 @@ swiftc -parse-as-library \
     "$ROOT/Tests/ConversionChecks/main.swift" \
     -o "$TEST_DIR/conversion-checks"
 "$TEST_DIR/conversion-checks"
+swiftc -parse-as-library \
+    "$ROOT/Sources/WeClawSend/ShelfModel.swift" \
+    "$ROOT/Sources/WeClawSend/BasketConversion.swift" \
+    "$ROOT/Sources/WeClawSend/FFmpegSupport.swift" \
+    "$ROOT/Tests/FolderConversionChecks/main.swift" \
+    -o "$TEST_DIR/folder-conversion-checks"
+"$TEST_DIR/folder-conversion-checks"
 swift build --package-path "$ROOT" --scratch-path "$TEST_DIR/swift-build" -c release

@@ -38,9 +38,9 @@
 	<key>CFBundleShortVersionString</key>
 	<string>2.7.0</string>
 	<key>CFBundleVersion</key>
-	<string>57</string>
+	<string>58</string>
 	<key>WeClawReleaseChannel</key>
-	<string>stable</string>
+	<string>beta</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
 	<key>LSUIElement</key>

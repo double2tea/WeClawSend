@@ -338,6 +338,11 @@ struct ShelfView: View {
 
     // MARK: - Expanded
 
+    private var selectedConversionURLs: [URL] {
+        let selected = session.selectedItems(in: shelf.items).map(\.url)
+        return selected.isEmpty ? shelf.urls : selected
+    }
+
     private var expandedChrome: some View {
         VStack(spacing: 0) {
             header
@@ -347,8 +352,7 @@ struct ShelfView: View {
                 Divider().opacity(0.22)
                 BasketConversionBar(
                     controller: conversion,
-                    selectedURLs: session.selectedItemIDs.isEmpty
-                        ? shelf.urls : session.selectedItems(in: shelf.items).map(\.url),
+                    selectedURLs: selectedConversionURLs,
                     draggedURLs: isDropTargeted || isConversionDropTargeted ? conversionDraggedURLs : [],
                     shelf: shelf,
                     pointerPresenceChanged: pointerPresenceChanged,
@@ -935,7 +939,7 @@ struct ShelfView: View {
                 onShare: { destination in share(item, via: destination) },
                 conversionItems: conversionEnabled ? conversionItems(for: item) : [],
                 conversionIsRunning: conversion.isRunning,
-                onConvert: { action in convert(item, action: action) },
+                onConvert: { action, includeSubfolders in convert(item, action: action, includeSubfolders: includeSubfolders) },
                 onRemove: { remove(item) },
                 onReveal: { revealInFinder(item) }
             )
@@ -954,7 +958,7 @@ struct ShelfView: View {
                 onShare: { destination in share(item, via: destination) },
                 conversionItems: conversionEnabled ? conversionItems(for: item) : [],
                 conversionIsRunning: conversion.isRunning,
-                onConvert: { action in convert(item, action: action) },
+                onConvert: { action, includeSubfolders in convert(item, action: action, includeSubfolders: includeSubfolders) },
                 onRemove: { remove(item) },
                 onReveal: { revealInFinder(item) }
             )
@@ -970,11 +974,13 @@ struct ShelfView: View {
             ? session.selectedItems(in: shelf.items) : [item]
     }
 
-    private func convert(_ item: ShelfItem, action: BasketConversionPreset) {
+    private func convert(_ item: ShelfItem, action: BasketConversionPreset, includeSubfolders: Bool) {
         let items = conversionItems(for: item)
         session.setSelection(Set(items.map(\.id)), in: shelf.items)
         showsConversion = true
-        conversion.start(urls: items.map(\.url), preset: action, shelf: shelf)
+        conversion.start(
+            urls: items.map(\.url), preset: action, shelf: shelf, includeSubfolders: includeSubfolders
+        )
     }
 
     private func select(_ item: ShelfItem, extending: Bool, toggling: Bool) {
@@ -1336,7 +1342,8 @@ struct ShelfView: View {
                 HStack(spacing: 5) {
                     if conversion.isRunning {
                         ProgressView().controlSize(.mini)
-                        Text(conversion.progress == nil && !conversion.isCancelling ? "转换中" : conversion.progressLabel)
+                        Text(conversion.isScanning || conversion.progress != nil || conversion.isCancelling
+                             ? conversion.progressLabel : "转换中")
                             .monospacedDigit()
                     } else {
                         Label("转换", systemImage: "arrow.triangle.2.circlepath")
@@ -1914,7 +1921,7 @@ private struct ShelfItemTile: View {
     let onShare: (ShelfShareDestination) -> Void
     let conversionItems: [ShelfItem]
     let conversionIsRunning: Bool
-    let onConvert: (BasketConversionPreset) -> Void
+    let onConvert: (BasketConversionPreset, Bool) -> Void
     let onRemove: () -> Void
     let onReveal: () -> Void
 
@@ -2088,7 +2095,7 @@ private struct ShelfItemRow: View {
     let onShare: (ShelfShareDestination) -> Void
     let conversionItems: [ShelfItem]
     let conversionIsRunning: Bool
-    let onConvert: (BasketConversionPreset) -> Void
+    let onConvert: (BasketConversionPreset, Bool) -> Void
     let onRemove: () -> Void
     let onReveal: () -> Void
 

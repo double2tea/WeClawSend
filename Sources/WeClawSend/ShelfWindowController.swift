@@ -404,7 +404,11 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
                 self?.pointerPresenceChanged(isInside)
             },
             quickLook: { [weak self] item in self?.showQuickLook(item) },
-            revealInFinder: { item in
+            revealInFinder: { [weak self] item in
+                guard FileManager.default.fileExists(atPath: item.path) else {
+                    self?.session.flash("文件已移动或删除，无法在 Finder 中显示")
+                    return
+                }
                 NSWorkspace.shared.activateFileViewerSelecting([item.url])
             },
             undoAvailabilityChanged: { [weak self] available in

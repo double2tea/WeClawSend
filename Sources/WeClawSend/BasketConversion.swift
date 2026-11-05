@@ -255,6 +255,7 @@ struct BasketConversionSettings: Sendable, Codable {
     var frameRate = 0
     var encoderSpeed = "medium"
     var ffmpegPath = "/opt/homebrew/bin/ffmpeg"
+    var audioVideoOnly: Bool?
 
     init(defaults: UserDefaults = .standard) {
         videoSize = BasketVideoSize(rawValue: defaults.string(forKey: Self.videoSizeKey) ?? "") ?? .hd1080
@@ -374,7 +375,7 @@ final class BasketConversionPresetStore: ObservableObject {
                 errorMessage = "无法读取转换预设：\(error.localizedDescription)"
                 return
             }
-            if defaults.integer(forKey: Self.defaultPresetVersionKey) < 1 {
+            if defaults.integer(forKey: Self.defaultPresetVersionKey) < 2 {
                 let removedIDs = Set(defaults.stringArray(forKey: Self.removedPresetIDsKey) ?? [])
                 let additions = Self.defaultPresets(defaults: defaults).filter { candidate in
                     !presets.contains { $0.id == candidate.id }
@@ -385,7 +386,7 @@ final class BasketConversionPresetStore: ObservableObject {
                     return preset
                 }
                 if persist(presets + additions) {
-                    defaults.set(1, forKey: Self.defaultPresetVersionKey)
+                    defaults.set(2, forKey: Self.defaultPresetVersionKey)
                 }
             }
         } else {
@@ -409,7 +410,7 @@ final class BasketConversionPresetStore: ObservableObject {
                 initial = legacy + initial
             }
             if persist(initial) {
-                defaults.set(1, forKey: Self.defaultPresetVersionKey)
+                defaults.set(2, forKey: Self.defaultPresetVersionKey)
             }
         }
     }
@@ -492,6 +493,38 @@ final class BasketConversionPresetStore: ObservableObject {
             preset(18, "PDF 压缩 · 屏幕阅读", .compressPDF, enabled: true) {
                 $0.pdfJPEG = true
                 $0.pdfScreen = true
+            },
+            preset(19, "视频转码 · MKV", .mkv),
+            preset(20, "视频压缩 · 25 MiB", .mp4) {
+                $0.useFFmpeg = true
+                $0.categoryLimits[.video] = BasketConversionSizeLimit(maximum: 25, percent: 0)
+            },
+            preset(21, "高效视频 · HEVC 原尺寸", .mp4) {
+                $0.videoHEVC = true
+                $0.videoSize = .original
+            },
+            preset(22, "音乐分享 · MP3 320 kbps", .mp3) {
+                $0.audioBitrate = 320
+            },
+            preset(23, "高效语音 · Opus", .opus) {
+                $0.audioBitrate = 64
+            },
+            preset(24, "剪辑音频 · AIFF 48 kHz", .aiff) {
+                $0.audioSampleRate = 48_000
+            },
+            preset(25, "轻量分享图 · JPG 1280px", .jpeg) {
+                $0.imageMaxPixel = 1280
+                $0.jpegQuality = 0.8
+            },
+            preset(26, "轻量透明图 · PNG 1280px", .png) {
+                $0.imageMaxPixel = 1280
+            },
+            preset(27, "横版文稿 · PDF A4", .pdf) {
+                $0.pdfLandscape = true
+            },
+            preset(28, "紧凑文稿 · PDF 9 pt", .pdf) {
+                $0.documentFontSize = 9
+                $0.pdfMargin = 28
             }
         ]
     }
@@ -559,7 +592,7 @@ enum BasketConversionError: LocalizedError {
         case .invalidSettings:
             "转换参数无效，请在设置中重新选择。"
         case let .unsupported(name):
-            "不支持「\(name)」。请选择对应类型的普通文件；文件夹不会递归转换。"
+            "此预设不支持「\(name)」。请选择匹配的文件类型或普通文件夹。"
         case let .incompatibleMedia(name):
             "系统无法按此预设导出「\(name)」。MOV 换封装要求原编码可装入 MOV；MP4 转码需要系统支持解码。"
         case let .imageDecode(name):
@@ -582,16 +615,27 @@ enum BasketConversionError: LocalizedError {
 }
 
 actor BasketConversionWorker {
+    func plan(
+        urls: [URL], action: BasketConversionAction, includeSubfolders: Bool,
+        settings: BasketConversionSettings
+    ) throws -> BasketConversionBatch {
+        try BasketConversionPlanner.plan(
+            urls: urls, action: action, includeSubfolders: includeSubfolders, settings: settings
+        )
+    }
+
     func convert(
         _ input: URL,
         action: BasketConversionAction,
         settings: BasketConversionSettings,
+        outputFolder: URL? = nil,
         progress: @escaping @Sendable (Double) async -> Void = { _ in }
     ) async throws -> URL {
         try Task.checkCancellation()
         let inputBytes = Int64(try input.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
         let byteLimit = settings.byteLimit(inputBytes: inputBytes, category: action.category)
-        let outputFolder = settings.besideOriginal ? input.deletingLastPathComponent() : settings.outputFolder
+        let outputFolder = outputFolder
+            ?? (settings.besideOriginal ? input.deletingLastPathComponent() : settings.outputFolder)
         let directory = outputFolder.appendingPathComponent(".weclaw-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let output = directory
@@ -721,7 +765,12 @@ actor BasketConversionWorker {
             guard action.videoCodecs.contains(settings.videoCodec) else {
                 throw BasketConversionError.engine("所选容器不支持此预设编码。")
             }
-            arguments += ["-map", "0", "-c", "copy"]
+            if settings.audioVideoOnly == true {
+                arguments += ["-map", "0:V", "-map", "0:a?", "-c", "copy"]
+                if [.mp4, .mov].contains(action) { arguments += ["-write_tmcd", "0"] }
+            } else {
+                arguments += ["-map", "0", "-c", "copy"]
+            }
             let encoders = ["h264": "libx264", "hevc": "libx265", "vp9": "libvpx-vp9", "av1": "libsvtav1", "prores": "prores_ks", "copy": "copy"]
             arguments += ["-c:v", encoders[settings.videoCodec]!]
             if settings.videoCodec == "copy" {
@@ -803,7 +852,10 @@ actor BasketConversionWorker {
                 duration: duration.isFinite && duration > 0 ? duration : nil, progress: progress
             )
         } catch BasketConversionError.engine(let message) where action.category == .video {
-            throw BasketConversionError.engine("转换失败。视频会保留全部轨道；所选容器或编码可能不支持源文件中的轨道，请更换格式。\n\(message)")
+            let guidance = settings.audioVideoOnly == true
+                ? "转换失败。所选容器或编码可能不支持源文件中的音视频轨道。"
+                : "转换失败。当前保留全部轨道，目标容器可能不支持其中的字幕或数据轨道。可在设置 → 转换中编辑此预设，将「轨道」改为「仅音视频」后重试；此选项会移除字幕、封面及数据轨道。"
+            throw BasketConversionError.engine("\(guidance)\n\(message)")
         }
         try Task.checkCancellation()
     }
@@ -1109,10 +1161,126 @@ enum BasketConversionQueueState: String, Sendable {
 struct BasketConversionQueueItem: Identifiable, Sendable {
     let id = UUID()
     let input: URL
+    let displayName: String
     var state: BasketConversionQueueState = .waiting
     var progress: Double?
     var output: URL?
     var message: String?
+
+    init(input: URL, displayName: String? = nil) {
+        self.input = input
+        self.displayName = displayName ?? input.lastPathComponent
+    }
+}
+
+struct BasketConversionBatch: Sendable {
+    struct Entry: Sendable {
+        let input: URL
+        let outputFolder: URL
+        let relativePath: String
+        let resultFolder: URL?
+    }
+
+    let entries: [Entry]
+    let skippedCount: Int
+}
+
+enum BasketConversionPlanner {
+    static func plan(
+        urls: [URL],
+        action: BasketConversionAction,
+        includeSubfolders: Bool,
+        settings: BasketConversionSettings
+    ) throws -> BasketConversionBatch {
+        var entries: [BasketConversionBatch.Entry] = []
+        var seenInputs = Set<String>()
+        var reservedFolders = Set<String>()
+        var skipped = 0
+        var seenRoots = Set<String>()
+        for input in urls.map(\.standardizedFileURL) where seenRoots.insert(input.path).inserted {
+            try Task.checkCancellation()
+            switch ShelfItem.kind(for: input) {
+            case .file:
+                guard action.accepts(input) else {
+                    throw BasketConversionError.unsupported(input.lastPathComponent)
+                }
+                if seenInputs.insert(input.path).inserted {
+                    entries.append(.init(
+                        input: input,
+                        outputFolder: settings.besideOriginal
+                            ? input.deletingLastPathComponent() : settings.outputFolder,
+                        relativePath: input.lastPathComponent,
+                        resultFolder: nil
+                    ))
+                }
+            case .folder:
+                let folder = input.resolvingSymlinksInPath()
+                let parent = settings.besideOriginal
+                    ? input.deletingLastPathComponent()
+                    : settings.outputFolder
+                let base = "\(input.lastPathComponent)-转换结果"
+                var resultFolder = parent.appendingPathComponent(base, isDirectory: true)
+                var counter = 2
+                while FileManager.default.fileExists(atPath: resultFolder.path)
+                    || reservedFolders.contains(resultFolder.path) {
+                    resultFolder = parent.appendingPathComponent("\(base) (\(counter))", isDirectory: true)
+                    counter += 1
+                }
+                reservedFolders.insert(resultFolder.path)
+                var scanError: Error?
+                var options: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles, .skipsPackageDescendants]
+                if !includeSubfolders { options.insert(.skipsSubdirectoryDescendants) }
+                guard let enumerator = FileManager.default.enumerator(
+                    at: folder,
+                    includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .isPackageKey],
+                    options: options,
+                    errorHandler: { _, error in
+                        scanError = error
+                        return false
+                    }
+                ) else {
+                    throw CocoaError(.fileReadNoPermission)
+                }
+                let prefix = folder.path.hasSuffix("/") ? folder.path : folder.path + "/"
+                var folderEntries: [BasketConversionBatch.Entry] = []
+                for case let file as URL in enumerator {
+                    try Task.checkCancellation()
+                    let values = try file.resourceValues(
+                        forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]
+                    )
+                    if values.isSymbolicLink == true {
+                        skipped += 1
+                    } else if values.isPackage == true {
+                        enumerator.skipDescendants()
+                        skipped += 1
+                    } else if values.isRegularFile == true,
+                              seenInputs.insert(file.resolvingSymlinksInPath().path).inserted {
+                        if action.accepts(file) {
+                            let relative = String(file.resolvingSymlinksInPath().path.dropFirst(prefix.count))
+                            let relativeParent = (relative as NSString).deletingLastPathComponent
+                            folderEntries.append(.init(
+                                input: file,
+                                outputFolder: relativeParent.isEmpty ? resultFolder
+                                    : resultFolder.appendingPathComponent(relativeParent, isDirectory: true),
+                                relativePath: "\(input.lastPathComponent)/\(relative)",
+                                resultFolder: resultFolder
+                            ))
+                        } else {
+                            skipped += 1
+                        }
+                    }
+                }
+                if let scanError { throw scanError }
+                entries.append(contentsOf: folderEntries.sorted { $0.relativePath < $1.relativePath })
+            default:
+                throw BasketConversionError.unsupported(input.lastPathComponent)
+            }
+        }
+        return BasketConversionBatch(
+            entries: entries,
+            skippedCount: skipped
+        )
+    }
 }
 
 @MainActor
@@ -1126,11 +1294,15 @@ final class BasketConversionController: ObservableObject {
     @Published private(set) var completedCount = 0
     @Published private(set) var totalCount = 0
     @Published private(set) var currentFileName = ""
+    @Published private(set) var skippedCount = 0
+    @Published private(set) var resultURLs: [URL] = []
+    @Published private(set) var isScanning = false
     @Published private(set) var isCancelling = false
     @Published private(set) var queue: [BasketConversionQueueItem] = []
 
     var progressLabel: String {
         if isCancelling { return "正在取消" }
+        if isScanning { return "正在扫描" }
         if let progress { return progress.formatted(.percent.precision(.fractionLength(0))) }
         return "\(completedCount)/\(totalCount)"
     }
@@ -1139,7 +1311,10 @@ final class BasketConversionController: ObservableObject {
     private let worker = BasketConversionWorker()
 
     @discardableResult
-    func start(urls: [URL], preset: BasketConversionPreset, shelf: ShelfModel) -> Bool {
+    func start(
+        urls: [URL], preset: BasketConversionPreset, shelf: ShelfModel,
+        includeSubfolders: Bool = false
+    ) -> Bool {
         var settings = preset.settings
         let output = BasketConversionSettings()
         settings.outputFolder = output.outputFolder
@@ -1154,7 +1329,10 @@ final class BasketConversionController: ObservableObject {
             }
             settings.ffmpegPath = FFmpegSupport.shared.path
         }
-        return start(urls: urls, action: preset.action, shelf: shelf, settings: settings)
+        return start(
+            urls: urls, action: preset.action, shelf: shelf,
+            includeSubfolders: includeSubfolders, settings: settings
+        )
     }
 
     @discardableResult
@@ -1162,6 +1340,7 @@ final class BasketConversionController: ObservableObject {
         urls: [URL],
         action: BasketConversionAction,
         shelf: ShelfModel,
+        includeSubfolders: Bool = false,
         settings: BasketConversionSettings = BasketConversionSettings()
     ) -> Bool {
         guard !isRunning else { return false }
@@ -1173,49 +1352,82 @@ final class BasketConversionController: ObservableObject {
             errorMessage = BasketConversionError.invalidSettings.localizedDescription
             return false
         }
-        var seenPaths: Set<String> = []
-        let inputs = urls.map(\.standardizedFileURL).filter { seenPaths.insert($0.path).inserted }
-        if let unsupported = inputs.first(where: { !action.accepts($0) }) {
-            errorMessage = BasketConversionError.unsupported(unsupported.lastPathComponent).localizedDescription
+        let containsFolders = urls.contains { ShelfItem.kind(for: $0) == .folder }
+        let initialBatch: BasketConversionBatch?
+        do {
+            initialBatch = containsFolders ? nil : try BasketConversionPlanner.plan(
+                urls: urls,
+                action: action,
+                includeSubfolders: includeSubfolders,
+                settings: settings
+            )
+        } catch {
+            errorMessage = error.localizedDescription
             return false
         }
-        shelf.add(urls: inputs)
+        shelf.add(urls: urls)
         outputs = []
+        resultURLs = []
         errorMessage = nil
         sizeSummary = ""
         progress = nil
         completedCount = 0
-        totalCount = inputs.count
+        totalCount = initialBatch?.entries.count ?? 0
+        skippedCount = 0
         currentFileName = ""
         isCancelling = false
         isRunning = true
-        queue = inputs.map { BasketConversionQueueItem(input: $0) }
-        status = "\(action.title) · 0/\(inputs.count)"
+        isScanning = containsFolders
+        queue = []
+        status = containsFolders ? "正在扫描文件夹…" : "\(action.title) · 0/\(totalCount)"
         task = Task {
             defer {
                 isRunning = false
+                isScanning = false
                 isCancelling = false
                 task = nil
             }
             do {
+                let batch: BasketConversionBatch
+                if let initialBatch {
+                    batch = initialBatch
+                } else {
+                    batch = try await worker.plan(
+                        urls: urls, action: action, includeSubfolders: includeSubfolders, settings: settings
+                    )
+                }
+                try Task.checkCancellation()
+                isScanning = false
+                skippedCount = batch.skippedCount
+                totalCount = batch.entries.count
+                guard !batch.entries.isEmpty else {
+                    throw BasketConversionError.engine("没有匹配此预设的文件。可尝试开启「包含子文件夹」或选择其他预设。")
+                }
+                queue = batch.entries.map { BasketConversionQueueItem(input: $0.input, displayName: $0.relativePath) }
                 var originalBytes: Int64 = 0
                 var resultBytes: Int64 = 0
-                for (index, input) in inputs.enumerated() {
+                for (index, entry) in batch.entries.enumerated() {
+                    let input = entry.input
                     try Task.checkCancellation()
-                    currentFileName = input.lastPathComponent
+                    currentFileName = entry.relativePath
                     queue[index].state = .running
-                    progress = index == 0 ? nil : Double(index) / Double(inputs.count)
-                    status = "\(action.title) · \(index + 1)/\(inputs.count) · \(input.lastPathComponent)"
-                    let output = try await worker.convert(input, action: action, settings: settings) { fraction in
-                        await self.updateProgress(fraction, index: index, count: inputs.count)
+                    progress = index == 0 ? nil : Double(index) / Double(totalCount)
+                    status = "\(action.title) · \(index + 1)/\(totalCount)"
+                    let output = try await worker.convert(
+                        input, action: action, settings: settings, outputFolder: entry.outputFolder
+                    ) { fraction in
+                        await self.updateProgress(fraction, index: index, count: batch.entries.count)
                     }
-                    try Task.checkCancellation()
                     outputs.append(output)
                     queue[index].state = .completed
                     queue[index].progress = 1
                     queue[index].output = output
                     completedCount = outputs.count
-                    shelf.add(urls: [output])
+                    let result = entry.resultFolder ?? output
+                    if !resultURLs.contains(result) {
+                        resultURLs.append(result)
+                        shelf.add(urls: [result])
+                    }
                     originalBytes += Int64(try input.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
                     resultBytes += Int64(try output.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
                     sizeSummary = "\(ByteCountFormatter.string(fromByteCount: originalBytes, countStyle: .file)) → \(ByteCountFormatter.string(fromByteCount: resultBytes, countStyle: .file))"
@@ -1227,7 +1439,7 @@ final class BasketConversionController: ObservableObject {
                     for index in queue.indices where queue[index].state == .running || queue[index].state == .waiting {
                         queue[index].state = .cancelled
                     }
-                    status = "已取消 · 完成 \(outputs.count)/\(inputs.count)"
+                    status = "已取消 · 完成 \(outputs.count)/\(totalCount)"
                 } else {
                     for index in queue.indices {
                         if queue[index].state == .running {
@@ -1237,7 +1449,7 @@ final class BasketConversionController: ObservableObject {
                             queue[index].state = .skipped
                         }
                     }
-                    status = "转换失败 · 完成 \(outputs.count)/\(inputs.count)"
+                    status = "转换失败 · 完成 \(outputs.count)/\(totalCount)"
                     errorMessage = error.localizedDescription
                 }
             }

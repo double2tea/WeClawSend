@@ -5,15 +5,25 @@ struct BasketConversionMenu: View {
     @ObservedObject private var store = BasketConversionPresetStore.shared
     let items: [ShelfItem]
     let isRunning: Bool
-    let start: (BasketConversionPreset) -> Void
+    let start: (BasketConversionPreset, Bool) -> Void
 
     var body: some View {
         let presets = store.presets.filter { preset in
-            preset.isEnabled && !items.isEmpty && items.allSatisfy { preset.action.accepts($0.url) }
+            preset.isEnabled && !items.isEmpty
+                && items.allSatisfy { $0.kind == .folder || preset.action.accepts($0.url) }
         }
         if !presets.isEmpty {
             Menu("转换") {
-                ForEach(presets) { preset in Button(preset.name) { start(preset) } }
+                ForEach(presets) { preset in
+                    if items.contains(where: { $0.kind == .folder }) {
+                        Menu(preset.name) {
+                            Button("仅文件夹内文件") { start(preset, false) }
+                            Button("包含子文件夹") { start(preset, true) }
+                        }
+                    } else {
+                        Button(preset.name) { start(preset, false) }
+                    }
+                }
             }
             .disabled(isRunning)
         }
@@ -350,13 +360,20 @@ struct BasketConversionBar: View {
     var close: () -> Void = {}
     var selectResults: ([URL]) -> Void = { _ in }
     @State private var targetedPreset: UUID?
-    @State private var showsQueue = true
+    @State private var showsQueue = false
     @State private var showsDetails = false
+    @State private var includeSubfolders = false
+
+    private var inputURLs: [URL] {
+        draggedURLs.isEmpty ? selectedURLs : draggedURLs
+    }
 
     private var presets: [BasketConversionPreset] {
-        let urls = draggedURLs.isEmpty ? selectedURLs : draggedURLs
+        let urls = inputURLs
         guard !urls.isEmpty else { return [] }
-        return store.presets.filter { preset in preset.isEnabled && urls.allSatisfy { preset.action.accepts($0) } }
+        return store.presets.filter { preset in
+            preset.isEnabled && urls.allSatisfy { ShelfItem.kind(for: $0) == .folder || preset.action.accepts($0) }
+        }
     }
 
     var body: some View {
@@ -373,9 +390,25 @@ struct BasketConversionBar: View {
                     .fontWeight(.semibold)
                     .lineLimit(1)
                 Spacer()
-                if !controller.isRunning && !controller.queue.isEmpty {
-                    Button(showsQueue ? "再次转换" : "上次结果") { showsQueue.toggle() }
-                        .foregroundStyle(.secondary)
+                if !controller.isRunning && !showsQueue && !controller.queue.isEmpty {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            showsQueue = true
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "list.bullet")
+                                .font(.system(size: 9.5))
+                            Text("上次结果")
+                                .font(.system(size: 10.5, weight: .medium))
+                        }
+                        .foregroundStyle(Color.primary.opacity(0.85))
+                        .padding(.horizontal, 6)
+                        .frame(height: 20)
+                        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("查看上次转换结果")
                 }
                 Button(action: close) { Image(systemName: "xmark").frame(width: 22, height: 22) }
                     .buttonStyle(.plain).accessibilityLabel("收起转换面板")
@@ -392,7 +425,7 @@ struct BasketConversionBar: View {
                             .accessibilityLabel("正在处理文件")
                     }
                     HStack {
-                        Text("已完成 \(controller.completedCount)/\(controller.totalCount) 个")
+                        Text(controller.isScanning ? "正在扫描文件夹…" : "已完成 \(controller.completedCount)/\(controller.totalCount) 个")
                             .foregroundStyle(.secondary)
                         if controller.progress != nil || controller.isCancelling {
                             Text(controller.progressLabel)
@@ -404,25 +437,52 @@ struct BasketConversionBar: View {
                             .disabled(controller.isCancelling)
                     }
                 }
+                if controller.skippedCount > 0 {
+                    Text("已跳过 \(controller.skippedCount) 个不匹配项目")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 queueList
             } else if showsQueue && !controller.queue.isEmpty {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(controller.status.isEmpty
                              ? "已完成 \(controller.completedCount)/\(controller.totalCount) 个"
                              : controller.status)
+                            .fontWeight(.medium)
                         if !controller.outputs.isEmpty {
                             Text(controller.sizeSummary)
+                                .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.85)
                         }
+                        if controller.skippedCount > 0 {
+                            Text("已跳过 \(controller.skippedCount) 个不匹配项目")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    Spacer(minLength: 0)
-                    if !controller.outputs.isEmpty {
-                        Button("查看结果") { selectResults(controller.outputs) }
-                            .buttonStyle(.bordered)
-                            .help("在文件篮中选中本次转换生成的 \(controller.outputs.count) 个文件")
+                    Spacer(minLength: 4)
+                    HStack(spacing: 6) {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.16)) {
+                                showsQueue = false
+                            }
+                        } label: {
+                            Text("选择预设")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .help("选择转换格式，继续处理选中的文件")
+
+                        if !controller.outputs.isEmpty {
+                            Button("查看结果") { selectResults(controller.resultURLs) }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .help("在文件篮中选中本次转换的结果文件或文件夹")
+                        }
                     }
                 }
                 if controller.queue.count > 1 || controller.outputs.count != controller.queue.count {
@@ -435,11 +495,19 @@ struct BasketConversionBar: View {
                 Text("没有适用预设，请在设置 → 转换中新建或启用。")
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             } else {
+                if inputURLs.contains(where: { ShelfItem.kind(for: $0) == .folder }) {
+                    Toggle("包含子文件夹", isOn: $includeSubfolders)
+                        .toggleStyle(.checkbox)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 5) {
                         ForEach(presets) { preset in
                             Button {
-                                controller.start(urls: selectedURLs, preset: preset, shelf: shelf)
+                                controller.start(
+                                    urls: selectedURLs, preset: preset, shelf: shelf,
+                                    includeSubfolders: includeSubfolders
+                                )
                             } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Label(preset.name, systemImage: preset.action.systemImage).fontWeight(.medium).lineLimit(1)
@@ -451,7 +519,10 @@ struct BasketConversionBar: View {
                             }
                             .buttonStyle(.plain).disabled(controller.isRunning).help(preset.summary)
                             .dropDestination(for: URL.self) { urls, _ in
-                                controller.start(urls: urls, preset: preset, shelf: shelf)
+                                controller.start(
+                                    urls: urls, preset: preset, shelf: shelf,
+                                    includeSubfolders: includeSubfolders
+                                )
                             } isTargeted: { targeted in
                                 targetedPreset = targeted ? preset.id : nil
                                 if targeted { pointerPresenceChanged(true) }
@@ -467,6 +538,11 @@ struct BasketConversionBar: View {
             if running {
                 showsQueue = true
                 showsDetails = false
+            }
+        }
+        .onChange(of: inputURLs) { previous, current in
+            if !controller.isRunning && previous != current {
+                showsQueue = false
             }
         }
         .alert("转换未完成", isPresented: Binding(
@@ -486,7 +562,7 @@ struct BasketConversionBar: View {
                             .foregroundStyle(item.state == .failed ? Brand.danger : Color.secondary)
                             .frame(width: 14)
                             .accessibilityHidden(true)
-                        Text(item.input.lastPathComponent)
+                        Text(item.displayName)
                             .lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 4)
                         if item.state == .running, let progress = item.progress {
@@ -497,7 +573,7 @@ struct BasketConversionBar: View {
                         }
                     }
                     .frame(height: 30)
-                    .help(item.message ?? "\(item.input.lastPathComponent) · \(item.state.rawValue)")
+                    .help(item.message ?? "\(item.displayName) · \(item.state.rawValue)")
                 }
             }
             .padding(.trailing, 14)

@@ -1,3 +1,10 @@
+# 2.7.0 / build 58 测试版准备
+
+- 发布通道为 `beta`，标签为 `v2.7.0-beta.58`，由现有 Release 工作流创建 GitHub prerelease；稳定版继续保持 2.6.2。
+- 本批包含文件夹批量转换、28 套默认预设、队列与结果入口调整、显式音视频轨道筛选以及 Finder 缺失文件提示。
+- 无 FFmpeg 环境跳过依赖它的新增预设实测，保留系统引擎及预设迁移检查；有本机 FFmpeg 时执行真实转换与未知数据轨道回归。
+- 本机只有 Command Line Tools，发布图标仍须由完整 Xcode 编译，不使用预编译 `Assets.car` 回退。先推送代码并等待 CI 的完整测试及通用包签名、ZIP/DMG 校验通过，再推送测试标签。
+
 # 2.5.4 / build 54 发布（macOS 14/15 分支）
 
 把 2.6.2 的系统代理修复回移植到 `release/2.5.x` 分支，覆盖仍停留在 macOS 14/15 的用户。分支从 `v2.5.3` 切出，保留旧的 `WeClaw-Send.zip` 资产名与 `LSMinimumSystemVersion` 14.0。

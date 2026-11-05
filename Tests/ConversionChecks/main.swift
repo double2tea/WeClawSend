@@ -20,6 +20,12 @@ struct ConversionChecks {
         }
         defaults.set(root.appendingPathComponent("output").path, forKey: BasketConversionSettings.outputFolderKey)
         let settings = BasketConversionSettings(defaults: defaults)
+        var legacySettingsJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as! [String: Any]
+        legacySettingsJSON.removeValue(forKey: "audioVideoOnly")
+        let restoredTrackSettings = try JSONDecoder().decode(
+            BasketConversionSettings.self, from: JSONSerialization.data(withJSONObject: legacySettingsJSON)
+        )
+        precondition(restoredTrackSettings.audioVideoOnly == nil)
         precondition(settings.videoSize == .hd1080 && !settings.videoHEVC && settings.jpegQuality == 0.85)
         precondition(settings.imageMaxPixel == 0)
         let support = FFmpegSupport(defaults: defaults, installFolder: root.appendingPathComponent("tools"))
@@ -57,7 +63,7 @@ struct ConversionChecks {
         }
         let presetStore = BasketConversionPresetStore(defaults: defaults)
         let initialCount = presetStore.presets.count
-        precondition(initialCount == 18)
+        precondition(initialCount == 28)
         precondition(Set(presetStore.presets.map(\.id)).count == initialCount)
         precondition(presetStore.presets.allSatisfy { $0.settings.isValid })
         precondition(presetStore.presets.filter(\.isEnabled).count == 5)
@@ -66,6 +72,21 @@ struct ConversionChecks {
         precondition(videoCompression.settings.byteLimit(inputBytes: 100_000_000, category: .video) == 20 * 1_048_576)
         let pdfCompression = presetStore.presets.first { $0.action == .compressPDF }!
         precondition(pdfCompression.settings.pdfJPEG && pdfCompression.settings.pdfScreen)
+        precondition(Set(presetStore.presets.map(\.action)) == Set(BasketConversionAction.allCases))
+        let versionOnePresets = Array(presetStore.presets.prefix(18))
+        defaults.set(try JSONEncoder().encode(versionOnePresets), forKey: BasketConversionPresetStore.storageKey)
+        defaults.set(1, forKey: BasketConversionPresetStore.defaultPresetVersionKey)
+        let versionTwoStore = BasketConversionPresetStore(defaults: defaults)
+        precondition(versionTwoStore.presets.count == 28)
+        precondition(versionTwoStore.presets.prefix(18).map(\.id) == versionOnePresets.map(\.id))
+        precondition(versionTwoStore.presets.dropFirst(18).allSatisfy { !$0.isEnabled })
+        precondition(BasketConversionPresetStore(defaults: defaults).presets.count == 28)
+        precondition(defaults.integer(forKey: BasketConversionPresetStore.defaultPresetVersionKey) == 2)
+        let compression25 = versionTwoStore.presets.first { $0.name == "视频压缩 · 25 MiB" }!
+        precondition(compression25.settings.useFFmpeg)
+        precondition(compression25.settings.byteLimit(inputBytes: 100_000_000, category: .video) == 25 * 1_048_576)
+        let opusPreset = versionTwoStore.presets.first { $0.action == .opus }!
+        precondition(opusPreset.settings.audioBitrate == 64)
         var firstPreset = BasketConversionPreset(name: "分享 20 MiB", action: .mp4, settings: settings)
         firstPreset.settings.categoryLimits[.video] = BasketConversionSizeLimit(maximum: 20, percent: 0)
         precondition(presetStore.save(firstPreset))
@@ -179,7 +200,7 @@ struct ConversionChecks {
 
         let invalid = root.appendingPathComponent("损坏.png")
         try Data("invalid".utf8).write(to: invalid)
-        precondition(!controller.start(urls: [input, root], action: .png, shelf: shelf, settings: settings))
+        precondition(!controller.start(urls: [input, link], action: .png, shelf: shelf, settings: settings))
         precondition(controller.errorMessage != nil && !controller.isRunning)
         precondition(controller.start(urls: [input, invalid, pngURL], action: .png, shelf: shelf, settings: settings))
         try await wait(controller)
@@ -375,6 +396,45 @@ struct ConversionChecks {
                     precondition(streams.split(separator: "\n").filter { $0 == "audio" }.count == 2)
                     precondition(streams.split(separator: "\n").contains("subtitle"))
                 }
+                regression.audioVideoOnly = true
+                let audioVideoOutput = try await worker.convert(multiSource, action: .mp4, settings: regression)
+                let audioVideoStreams = try await FFmpegProcess.run(URL(fileURLWithPath: probePath), arguments: [
+                    "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", audioVideoOutput.path,
+                ])
+                precondition(audioVideoStreams.split(separator: "\n").filter { $0 == "audio" }.count == 2)
+                precondition(!audioVideoStreams.contains("subtitle") && !audioVideoStreams.contains("data"))
+                regression.audioVideoOnly = nil
+                let payload = root.appendingPathComponent("track-data.bin")
+                try Data(repeating: 42, count: 640).write(to: payload)
+                let dataSource = root.appendingPathComponent("data-track.mov")
+                _ = try await FFmpegProcess.run(executable, arguments: [
+                    "-v", "error", "-nostdin", "-n", "-i", videoURL.path, "-f", "data", "-i", payload.path,
+                    "-map", "0:v", "-map", "1:0", "-c", "copy", "-tag:d", "gpmd", dataSource.path,
+                ])
+                let sourceData = try Data(contentsOf: dataSource)
+                var unknownData = sourceData
+                let tag = Data("gpmd".utf8)
+                while let range = unknownData.range(of: tag) {
+                    unknownData.replaceSubrange(range, with: Data("zzzz".utf8))
+                }
+                let unknownSource = root.appendingPathComponent("unknown-track.mov")
+                try unknownData.write(to: unknownSource)
+                do {
+                    _ = try await worker.convert(unknownSource, action: .mp4, settings: regression)
+                    preconditionFailure("Unknown data track must fail in preserve-all mode")
+                } catch BasketConversionError.engine(let message) {
+                    precondition(message.contains("codec none") && message.contains("仅音视频"))
+                }
+                regression.audioVideoOnly = true
+                let compatibleOutput = try await worker.convert(unknownSource, action: .mp4, settings: regression)
+                let compatibleStreams = try await FFmpegProcess.run(URL(fileURLWithPath: probePath), arguments: [
+                    "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", compatibleOutput.path,
+                ])
+                precondition(compatibleStreams.trimmingCharacters(in: .whitespacesAndNewlines) == "video")
+                let originalTrackData = try Data(contentsOf: unknownSource)
+                precondition(originalTrackData == unknownData)
+                regression.audioVideoOnly = nil
+                print("Unknown data-track failure reproduced; explicit audio/video mode succeeds and retains all audio tracks")
             } else {
                 print("SKIP subtitle stream probe: ffprobe unavailable")
             }
@@ -646,6 +706,57 @@ struct ConversionChecks {
         ))
         try await wait(controller)
         precondition(controller.outputs.isEmpty && controller.errorMessage?.contains("加密") == true)
+        for template in versionTwoStore.presets.dropFirst(18) {
+            var presetSettings = template.settings
+            presetSettings.outputFolder = root.appendingPathComponent("new-preset-outputs")
+            presetSettings.besideOriginal = false
+            presetSettings.nameSuffix = "-\(template.action.rawValue)"
+            presetSettings.ffmpegPath = support.path
+            let presetInput: URL
+            switch template.action.category {
+            case .video: presetInput = videoURL
+            case .audio: presetInput = audioURL
+            case .image: presetInput = input
+            case .document: presetInput = documentURL
+            }
+            if (presetSettings.useFFmpeg || template.action.requiresFFmpeg) && !support.isAvailable {
+                print("SKIP new preset \(template.name): verified FFmpeg unavailable")
+                continue
+            }
+            let output = try await worker.convert(presetInput, action: template.action, settings: presetSettings)
+            let outputSize = try output.resourceValues(forKeys: [.fileSizeKey]).fileSize!
+            precondition(outputSize > 0)
+            if template.action.isImage {
+                let source = CGImageSourceCreateWithURL(output as CFURL, nil)!
+                let result = CGImageSourceCreateImageAtIndex(source, 0, nil)!
+                precondition(result.width == 1280 && result.height == 640)
+                if template.action == .png {
+                    precondition(result.alphaInfo != .none && result.alphaInfo != .noneSkipLast && result.alphaInfo != .noneSkipFirst)
+                }
+            } else if template.action == .pdf {
+                let document = PDFDocument(url: output)!
+                precondition(document.string?.contains("最终结尾-END") == true)
+                let bounds = document.page(at: 0)!.bounds(for: .mediaBox)
+                precondition((bounds.width > bounds.height) == presetSettings.pdfLandscape)
+            } else if template.action.category == .audio, let probePath {
+                let probe = try await FFmpegProcess.run(URL(fileURLWithPath: probePath), arguments: [
+                    "-v", "error", "-show_entries", "stream=codec_name,sample_rate,bit_rate", "-of", "csv=p=0", output.path,
+                ])
+                switch template.action {
+                case .mp3: precondition(probe.contains("mp3") && probe.contains("320000"))
+                case .opus: precondition(probe.contains("opus"))
+                case .aiff: precondition(probe.contains("pcm_s16be") && probe.contains("48000"))
+                default: preconditionFailure("Unexpected new audio preset")
+                }
+            } else if template.name == "高效视频 · HEVC 原尺寸" {
+                let tracks = try await AVURLAsset(url: output).loadTracks(withMediaType: .video)
+                let size = try await tracks[0].load(.naturalSize)
+                let descriptions = try await tracks[0].load(.formatDescriptions)
+                precondition(size == CGSize(width: 320, height: 180))
+                precondition(CMFormatDescriptionGetMediaSubType(descriptions[0]) == kCMVideoCodecType_HEVC)
+            }
+            print("New preset output verified: \(template.name)")
+        }
         let outputEntries = try manager.contentsOfDirectory(at: settings.outputFolder, includingPropertiesForKeys: nil)
         precondition(!outputEntries.contains { $0.lastPathComponent.hasPrefix(".weclaw-") })
         print("Conversion checks passed: media, images, documents, PDF pagination, output naming, collision preservation, size limits, cleanup and cancellation")

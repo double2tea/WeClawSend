@@ -133,6 +133,19 @@ struct ConversionPresetFields: View {
         VStack(alignment: .leading, spacing: 10) {
             engineFields
             if preset.settings.useFFmpeg {
+                ConversionFormRow("轨道") {
+                    Picker("轨道", selection: Binding(
+                        get: { preset.settings.audioVideoOnly == true },
+                        set: { preset.settings.audioVideoOnly = $0 }
+                    )) {
+                        Text("保留全部轨道").tag(false)
+                        Text("仅音视频").tag(true)
+                    }.labelsHidden()
+                }
+                if preset.settings.audioVideoOnly == true {
+                    Text("保留所有音视频轨道，移除字幕、封面及数据轨道。")
+                        .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 ConversionFormRow("视频编码") {
                     Picker("视频编码", selection: $preset.settings.videoCodec) {
                         ForEach(preset.action.videoCodecs, id: \.self) { Text(codecTitle($0)).tag($0) }
