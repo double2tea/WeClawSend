@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="WeClaw Send 是 macOS 菜单栏工具：用文件篮暂存、展开阅读或钉成提醒，再把文件、文件夹与 macOS 包发到自己的微信；支持 Premiere、Final Cut Pro 和 DaVinci Resolve。">
     <meta name="theme-color" content="#f6f5f2">
-    <meta property="og:title" content="WeClaw Send | 导出完成，微信就收到">
+    <meta property="og:title" content="WeClaw Send · 导出完成，微信就收到">
     <meta property="og:description" content="用多个文件篮暂存、展开阅读或钉成提醒，选择现在或稍后发送，再把 Mac 和剪辑软件里的内容发到自己的微信。">
     <meta property="og:image" content="/assets/brand-mark.png">
     <title>WeClaw Send | 导出完成，微信就收到</title>
@@ -38,7 +38,7 @@
     <main id="main">
       <section class="hero section-shell">
         <div class="hero-copy reveal">
-          <p class="eyebrow">2.6.1 · macOS 26+ · 已适配 27</p>
+          <p class="eyebrow">2.6.2 正式版 / 2.7.0 测试版 · macOS 26+ · 已适配 27</p>
           <h1>导出完成<br>微信就收到</h1>
           <p class="hero-lede">把 Mac 或剪辑软件导出的内容直接发到自己的微信，也可以先放进文件篮展开阅读、钉成提醒，再选择现在或稍后发送。</p>
           <div class="hero-actions">
@@ -68,13 +68,17 @@
 
       <section class="basket-feature section-shell" id="baskets">
         <div class="basket-copy reveal">
-          <p class="section-kicker">2.6.1</p>
+          <p class="section-kicker">2.7.0</p>
           <h2>先放进文件篮<br>发送也更安心</h2>
           <p>同时打开多个悬浮文件篮，收集文件、文件夹、macOS 包，也可粘贴文本便笺和图片。外部文件只保存路径引用；托管便笺由应用保存，删除篮且没有其它引用时会从本机移除。</p>
           <div class="basket-points">
             <article>
               <b>随手收集</b>
               <span>刘海屏 Mac 可在黑色刘海内直接左右选择并松手，也可固定为立即发送或放入文件篮；也可左右摇晃新建，或按 <code>⌥⌘S</code> 快速显示。</span>
+            </article>
+            <article>
+              <b>快捷转换</b>
+              <span>内置 28 套转换预设，按文件类型智能提供；支持音视频转码换封装、图片压缩缩放、文档转 PDF 与 PDF 压缩，并支持文件夹批量转换保留相对目录结构。</span>
             </article>
             <article>
               <b>展开阅读</b>
@@ -125,8 +129,8 @@
             </div>
           </div>
           <div class="basket-version-note">
-            <span>2.6.1</span>
-            <p>适配 macOS 27：主面板 Liquid Glass、分层图标、菜单栏左键响应修复；文件篮保持实心底；最低系统版本为 macOS 26</p>
+            <span>2.7.0</span>
+            <p>文件篮支持音视频/图片/文档快捷转换与预设管理，新增文件夹批量转换与进度队列；支持 FFmpeg 免配一键安装与音视频轨道控制；2.6.2 默认直连微信 CDN 并支持系统代理回退。</p>
           </div>
         </div>
       </section>
@@ -310,8 +314,8 @@
             <p>可以。先选文件，再点一个预设时间即可加入待发送；自定义分钟后点确定。计划在“等待发送”区显示倒计时，可立即发送、改时间或取消。图片、视频和 PDF 显示内容缩略图，点缩略图或按空格预览。创建计划不要求微信当下在线；到点离线、文件缺失或文件发生变化时会进入“需要注意”，应用退出期间错过时间也不会在重启后静默补发。本地接口同步提供 <code>/scheduled-sends</code> 计划管理；<code>/send</code> 默认直接发送，也可设置为先加入文件篮。</p>
           </details>
           <details class="reveal">
-            <summary>2.6.1 有哪些改进<span>+</span></summary>
-            <p>修复菜单栏左键打开与后台首次点击；主面板和设置使用 Liquid Glass，文件篮保持实心底，App 图标改为分层格式。最低系统版本为 macOS 26；Intel Mac 可在 26 上运行，27 仅支持 Apple 芯片。</p>
+            <summary>2.6.2 与 2.7.0 有哪些新特性与改进<span>+</span></summary>
+            <p><strong>文件篮快捷转换与批量处理</strong>：支持在文件篮内对视频（MP4/MOV/MKV/WebM）、音频（M4A/MP3/WAV/AIFF/FLAC/Opus）、图片（JPG/PNG）和文档（TXT/Markdown/RTF/DOCX → PDF/TXT/RTF）以及 PDF 压缩进行快速处理；支持文件夹批量转换并保持层级，结果文件夹自动加入文件篮，原文件不改变。<br><br><strong>转换预设与 FFmpeg 一键配置</strong>：独立“转换”设置页内置 28 套常用模板，可自由新建、编辑、复制与启停独立预设；FFmpeg 支持本机检测与免终端一键自动安装，视频预设支持“保留全部轨道”或“仅音视频”避免未知数据轨冲突。<br><br><strong>网络与上传优化</strong>：2.6.2 修复开启系统代理时大文件 CDN 上传 500 问题，默认直连上传，并提供“上传时使用系统代理”开关与自动重试智能回退。<br><br><strong>系统适配与体验</strong>：全面适配 macOS 27 分层图标与 Liquid Glass，优化菜单栏响应与拖拽导出，提供 <code>weclaw</code> 命令行管理入口。</p>
           </details>
           <details class="reveal">
             <summary>在哪里看版本更新或提反馈<span>+</span></summary>
