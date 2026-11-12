@@ -91,6 +91,11 @@ struct ShelfView: View {
     @State private var showsConversion = false
     @State private var isConversionDropTargeted = false
     @State private var conversionDraggedURLs: [URL] = []
+    @Namespace private var displayModeNamespace
+    @State private var readerItemDirection: CGFloat = 1
+    @State private var conversionBarHeight: CGFloat = 0
+    @State private var rootHeight: CGFloat = 0
+    @State private var conversionSession = 0
 
     private let cornerRadius: CGFloat = Brand.radiusWindow
     private let itemListCoordinateSpace = "ShelfItemList"
@@ -98,8 +103,8 @@ struct ShelfView: View {
     var body: some View {
         shelfChrome
             .frame(
-                width: fixedWindowSize?.width,
-                height: fixedWindowSize?.height,
+                width: fixedWindowWidth,
+                height: fixedWindowHeight,
                 alignment: .top
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -109,6 +114,18 @@ struct ShelfView: View {
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .dropDestination(for: URL.self, action: handleDrop, isTargeted: setDropTargeted)
             .onHover(perform: pointerPresenceChanged)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: ShelfRootHeightPreferenceKey.self,
+                        value: geometry.size.height
+                    )
+                }
+            }
+            .onPreferenceChange(ShelfRootHeightPreferenceKey.self) { height in
+                guard height > 0, abs(height - rootHeight) >= 0.5 else { return }
+                rootHeight = height
+            }
             .animation(
                 reduceMotion ? nil : .smooth(duration: 0.2, extraBounce: 0),
                 value: session.statusMessage
@@ -120,6 +137,9 @@ struct ShelfView: View {
                 session.setConversionPanelHeight(
                     shown ? ReaderWindowSizing.collectionConversionPanelHeight : 0
                 )
+                if shown {
+                    conversionSession &+= 1
+                }
             }
             .onDisappear {
                 isConversionDropTargeted = false
@@ -208,13 +228,17 @@ struct ShelfView: View {
             case .collection:
                 if session.isCollapsed {
                     collapsedChrome
+                        .transition(.opacity)
                 } else {
                     expandedChrome
+                        .transition(.opacity)
                 }
             case .reader:
                 readerChrome
+                    .transition(readerTransition)
             case .reminder:
                 reminderChrome
+                    .transition(readerTransition)
             }
 
             if session.presentationMode == .collection,
@@ -225,17 +249,28 @@ struct ShelfView: View {
                     .transition(toastTransition)
             }
         }
+        .animation(reduceMotion ? nil : Brand.Motion.panel, value: session.isCollapsed)
+        .animation(reduceMotion ? nil : Brand.Motion.panel, value: session.presentationMode)
     }
 
-    private var fixedWindowSize: CGSize? {
-        guard session.presentationMode == .collection else { return nil }
-        if session.isCollapsed {
-            return ReaderWindowSizing.collapsedSize
-        }
-        return CGSize(
-            width: ReaderWindowSizing.collectionSize.width,
-            height: ReaderWindowSizing.collectionSize.height + session.conversionPanelHeight
+    private var readerTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: 8)),
+            removal: .opacity
         )
+    }
+
+    private var fixedWindowWidth: CGFloat? {
+        guard session.presentationMode == .collection else { return nil }
+        return session.isCollapsed
+            ? ReaderWindowSizing.collapsedSize.width
+            : ReaderWindowSizing.collectionSize.width
+    }
+
+    private var fixedWindowHeight: CGFloat? {
+        guard session.presentationMode == .collection, session.isCollapsed else { return nil }
+        return ReaderWindowSizing.collapsedSize.height
     }
 
     private var shelfBackground: some View {
@@ -348,44 +383,66 @@ struct ShelfView: View {
             header
             Divider().opacity(0.22)
             bodyContent
-            if showsConversion && (conversionEnabled || conversion.isRunning) {
-                Divider().opacity(0.22)
-                BasketConversionBar(
-                    controller: conversion,
-                    selectedURLs: selectedConversionURLs,
-                    draggedURLs: isDropTargeted || isConversionDropTargeted ? conversionDraggedURLs : [],
-                    shelf: shelf,
-                    pointerPresenceChanged: pointerPresenceChanged,
-                    close: {
-                        withAnimation(reduceMotion ? nil : .smooth(duration: 0.24)) {
-                            showsConversion = false
-                        }
-                    },
-                    selectResults: { urls in
-                        let paths = Set(urls.map(\.path))
-                        session.setSelection(
-                            Set(shelf.items.filter { paths.contains($0.path) }.map(\.id)),
-                            in: shelf.items
-                        )
-                        conversion.dismissStatus()
-                        withAnimation(reduceMotion ? nil : .smooth(duration: 0.24)) {
-                            showsConversion = false
-                        }
-                    }
-                )
-                .background(Color.primary.opacity(0.018))
-                .fixedSize(horizontal: false, vertical: true)
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .bottom)),
-                        removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .bottom))
-                    )
-                )
-            }
+            conversionPanel
+                .zIndex(1)
             Divider().opacity(0.22)
             footer
         }
-        .animation(reduceMotion ? nil : .smooth(duration: 0.24), value: showsConversion)
+    }
+
+    private var conversionPanel: some View {
+        VStack(spacing: 0) {
+            Divider().opacity(0.22)
+            BasketConversionBar(
+                controller: conversion,
+                selectedURLs: selectedConversionURLs,
+                draggedURLs: isDropTargeted || isConversionDropTargeted ? conversionDraggedURLs : [],
+                shelf: shelf,
+                pointerPresenceChanged: pointerPresenceChanged,
+                resetToken: conversionSession,
+                close: {
+                    withAnimation(reduceMotion ? nil : Brand.Motion.panel) {
+                        showsConversion = false
+                    }
+                },
+                selectResults: { urls in
+                    let paths = Set(urls.map(\.path))
+                    session.setSelection(
+                        Set(shelf.items.filter { paths.contains($0.path) }.map(\.id)),
+                        in: shelf.items
+                    )
+                    conversion.dismissStatus()
+                    withAnimation(reduceMotion ? nil : Brand.Motion.panel) {
+                        showsConversion = false
+                    }
+                }
+            )
+            .background(Color.primary.opacity(0.018))
+            .fixedSize(horizontal: false, vertical: true)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: ConversionBarHeightPreferenceKey.self,
+                        value: geometry.size.height
+                    )
+                }
+            }
+        }
+        .frame(height: conversionPanelHeight, alignment: .top)
+        .clipped()
+        .opacity(conversionPanelHeight > 0 ? 1 : 0)
+        .allowsHitTesting(conversionPanelHeight > 0)
+        .accessibilityHidden(conversionPanelHeight == 0)
+        .onPreferenceChange(ConversionBarHeightPreferenceKey.self) { height in
+            guard height > 0, abs(height - conversionBarHeight) >= 0.5 else { return }
+            conversionBarHeight = height
+        }
+    }
+
+    private var conversionPanelHeight: CGFloat {
+        guard conversionEnabled || conversion.isRunning else { return 0 }
+        let grown = rootHeight - ReaderWindowSizing.collectionSize.height
+        return min(conversionBarHeight, max(0, grown))
     }
 
     @ViewBuilder
@@ -396,8 +453,14 @@ struct ShelfView: View {
             VStack(spacing: 0) {
                 readerNavigationHeader(item: item)
                 Divider().opacity(0.3)
-                readerContent(item: item)
+                ZStack {
+                    readerContent(item: item)
+                        .id(item.id)
+                        .transition(readerItemTransition)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .animation(reduceMotion ? nil : Brand.Motion.page, value: session.focusedItemID)
         } else {
             BasketReaderErrorView(
                 title: "阅读项目不可用",
@@ -406,6 +469,14 @@ struct ShelfView: View {
                 action: returnToCollection
             )
         }
+    }
+
+    private var readerItemTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: readerItemDirection * 12)),
+            removal: .opacity
+        )
     }
 
     @ViewBuilder
@@ -451,9 +522,11 @@ struct ShelfView: View {
             )
             if !isNewTextDraft {
                 readerHeaderButton("上一个", systemImage: "chevron.up") {
+                    readerItemDirection = -1
                     _ = session.moveFocus(by: -1, in: readerFocusItems)
                 }
                 readerHeaderButton("下一个", systemImage: "chevron.down") {
+                    readerItemDirection = 1
                     _ = session.moveFocus(by: 1, in: readerFocusItems)
                 }
             }
@@ -551,7 +624,6 @@ struct ShelfView: View {
         ) {
         case let .reader(kind):
             readerView(kind: kind, item: item)
-                .id(item.id)
         case let .failure(error):
             BasketReaderErrorView(
                 title: "无法展开阅读",
@@ -559,7 +631,6 @@ struct ShelfView: View {
                 actionTitle: "返回文件篮",
                 action: returnToCollection
             )
-            .id(item.id)
         }
     }
 
@@ -731,7 +802,10 @@ struct ShelfView: View {
         systemImage: String
     ) -> some View {
         Button {
-            session.displayMode = mode
+            guard session.displayMode != mode else { return }
+            withAnimation(reduceMotion ? nil : Brand.Motion.page) {
+                session.displayMode = mode
+            }
             itemFrames = [:]
             marqueeRect = nil
         } label: {
@@ -739,10 +813,13 @@ struct ShelfView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(session.displayMode == mode ? Color.primary : Color.secondary)
                 .frame(width: 25, height: 24)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(session.displayMode == mode ? Color.primary.opacity(0.09) : Color.clear)
-                )
+                .background {
+                    if session.displayMode == mode {
+                        Capsule(style: .continuous)
+                            .fill(Color.primary.opacity(0.09))
+                            .matchedGeometryEffect(id: "displayModePill", in: displayModeNamespace)
+                    }
+                }
                 .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(ShelfPressButtonStyle())
@@ -838,39 +915,31 @@ struct ShelfView: View {
 
     @ViewBuilder
     private var bodyContent: some View {
-        if shelf.items.isEmpty {
-            emptyState
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            itemList
+        ZStack {
+            if shelf.items.isEmpty {
+                emptyState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
+            } else {
+                itemList
+                    .transition(.opacity)
+            }
         }
+        .animation(reduceMotion ? nil : Brand.Motion.page, value: shelf.items.isEmpty)
     }
 
     private var itemList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                Group {
-                    if session.displayMode == .grid {
-                        LazyVGrid(
-                            columns: [
-                                GridItem(.adaptive(minimum: 92, maximum: 104), spacing: 8),
-                            ],
-                            spacing: 8
-                        ) {
-                            ForEach(shelf.items) { item in
-                                trackedCollectionItem(item)
-                            }
-                        }
-                    } else {
-                        LazyVStack(spacing: 3) {
-                            ForEach(shelf.items) { item in
-                                trackedCollectionItem(item)
-                            }
-                        }
+                LazyVGrid(columns: collectionColumns, spacing: collectionSpacing) {
+                    ForEach(shelf.items) { item in
+                        trackedCollectionItem(item)
                     }
                 }
                 .padding(.horizontal, 9)
                 .padding(.vertical, 8)
+                .animation(reduceMotion ? nil : Brand.Motion.page, value: session.displayMode)
+                .animation(reduceMotion ? nil : Brand.Motion.page, value: shelf.items.map(\.id))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .coordinateSpace(name: itemListCoordinateSpace)
@@ -900,6 +969,19 @@ struct ShelfView: View {
                 }
             }
         }
+    }
+
+    private var collectionColumns: [GridItem] {
+        switch session.displayMode {
+        case .grid:
+            [GridItem(.adaptive(minimum: 92, maximum: 104), spacing: 8)]
+        case .list:
+            [GridItem(.flexible())]
+        }
+    }
+
+    private var collectionSpacing: CGFloat {
+        session.displayMode == .grid ? 8 : 3
     }
 
     private func trackedCollectionItem(_ item: ShelfItem) -> some View {
@@ -943,6 +1025,7 @@ struct ShelfView: View {
                 onRemove: { remove(item) },
                 onReveal: { revealInFinder(item) }
             )
+            .transition(.opacity)
         } else {
             ShelfItemRow(
                 item: item,
@@ -962,6 +1045,7 @@ struct ShelfView: View {
                 onRemove: { remove(item) },
                 onReveal: { revealInFinder(item) }
             )
+            .transition(.opacity)
         }
     }
 
@@ -1154,19 +1238,26 @@ struct ShelfView: View {
     }
 
     private var footer: some View {
-        Group {
+        ZStack {
             if pendingUndo == nil, session.selectedItemIDs.count > 1 {
                 selectionFooter
+                    .transition(.opacity)
             } else {
                 standardFooter
+                    .transition(.opacity)
             }
         }
+        .animation(reduceMotion ? nil : Brand.Motion.quick, value: showsSelectionFooter)
         .padding(.horizontal, 10)
         .frame(height: 42)
         .background {
             WindowDragHandle()
                 .accessibilityHidden(true)
         }
+    }
+
+    private var showsSelectionFooter: Bool {
+        pendingUndo == nil && session.selectedItemIDs.count > 1
     }
 
     private var standardFooter: some View {
@@ -1335,7 +1426,7 @@ struct ShelfView: View {
     private var conversionButton: some View {
         if conversionEnabled || conversion.isRunning {
             Button {
-                withAnimation(reduceMotion ? nil : .smooth(duration: 0.24)) {
+                withAnimation(reduceMotion ? nil : Brand.Motion.panel) {
                     showsConversion.toggle()
                 }
             } label: {
@@ -1890,6 +1981,22 @@ private struct ShelfItemFramePreferenceKey: PreferenceKey {
     }
 }
 
+private struct ShelfRootHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct ConversionBarHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 private struct ShelfPressButtonStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var scale: CGFloat = 0.97
@@ -1908,6 +2015,7 @@ private struct ShelfPressButtonStyle: ButtonStyle {
 // MARK: - Grid Item
 
 private struct ShelfItemTile: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: ShelfItem
     let isSelected: Bool
     let selectedCount: Int
@@ -2001,6 +2109,7 @@ private struct ShelfItemTile: View {
                         .font(.system(size: 15, weight: .semibold))
                         .padding(4)
                         .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                        .transition(.opacity.combined(with: .scale(scale: 0.72)))
                 }
             }
 
@@ -2028,6 +2137,8 @@ private struct ShelfItemTile: View {
                     lineWidth: isSelected ? 1.2 : 0.8
                 )
         }
+        .animation(reduceMotion ? nil : Brand.Motion.hover, value: isHovered)
+        .animation(reduceMotion ? nil : Brand.Motion.quick, value: isSelected)
     }
 
     private var selectionGesture: some Gesture {
@@ -2082,6 +2193,7 @@ private struct ShelfItemTile: View {
 // MARK: - Row
 
 private struct ShelfItemRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: ShelfItem
     let isSelected: Bool
     let selectedCount: Int
@@ -2124,18 +2236,18 @@ private struct ShelfItemRow: View {
     private var rowContent: some View {
         HStack(spacing: 6) {
             draggableContent
-
+        }
+        .overlay(alignment: .trailing) {
             if isHovered {
-                rowAction("展开阅读", systemImage: "arrow.up.left.and.arrow.down.right", action: onOpenReader)
-                rowAction(
-                    previewMenuTitle,
-                    systemImage: BasketTextClipStore.isManaged(item.url) ? "pencil" : "eye",
-                    action: onPreview
-                )
-                rowAction("复制项目", systemImage: "doc.on.doc", action: onCopy)
-                rowAction("移除", systemImage: "xmark", action: onRemove)
+                rowActions
+                    .padding(.leading, 10)
+                    .padding(.vertical, 2)
+                    .background(.regularMaterial, in: Capsule(style: .continuous))
+                    .padding(.trailing, 4)
+                    .transition(.opacity)
             }
         }
+        .animation(reduceMotion ? nil : Brand.Motion.hover, value: isHovered)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -2199,12 +2311,12 @@ private struct ShelfItemRow: View {
 
             Spacer(minLength: 8)
 
-            if !isHovered {
-                Text(detailText)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Text(detailText)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .opacity(isHovered ? 0 : 1)
+                .animation(reduceMotion ? nil : Brand.Motion.hover, value: isHovered)
         }
         .contentShape(Rectangle())
         .background {
@@ -2264,6 +2376,19 @@ private struct ShelfItemRow: View {
         .buttonStyle(ShelfPressButtonStyle())
         .help(title)
         .accessibilityLabel(title)
+    }
+
+    private var rowActions: some View {
+        HStack(spacing: 2) {
+            rowAction("展开阅读", systemImage: "arrow.up.left.and.arrow.down.right", action: onOpenReader)
+            rowAction(
+                previewMenuTitle,
+                systemImage: BasketTextClipStore.isManaged(item.url) ? "pencil" : "eye",
+                action: onPreview
+            )
+            rowAction("复制项目", systemImage: "doc.on.doc", action: onCopy)
+            rowAction("移除", systemImage: "xmark", action: onRemove)
+        }
     }
 }
 

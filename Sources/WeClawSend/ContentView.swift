@@ -45,6 +45,7 @@ struct ContentView: View {
     @State private var pendingTransferDeletionID: UUID?
     @State private var transferFilter: TransferHistoryFilter = .all
     @State private var hoveredTransferFilter: TransferHistoryFilter?
+    @Namespace private var transferFilterNamespace
 
     init(
         model: AppModel,
@@ -63,15 +64,33 @@ struct ContentView: View {
         Group {
             if model.showsServices {
                 ServicesView(model: model)
+                    .transition(
+                        reduceMotion
+                            ? .opacity
+                            : .asymmetric(
+                                insertion: .opacity.combined(with: .offset(x: 14)),
+                                removal: .opacity
+                            )
+                    )
             } else {
                 sendView
+                    .transition(
+                        reduceMotion
+                            ? .opacity
+                            : .asymmetric(
+                                insertion: .opacity.combined(with: .offset(x: -10)),
+                                removal: .opacity
+                            )
+                    )
                     .overlay {
                         if let selection = model.pendingSendSelection {
                             timingOverlay(selection)
                         }
                     }
+                    .animation(reduceMotion ? nil : Brand.Motion.page, value: model.pendingSendSelection)
             }
         }
+        .animation(reduceMotion ? nil : Brand.Motion.page, value: model.showsServices)
         .frame(width: Brand.panelWidth, height: Brand.panelHeight)
         .background(Color.clear)
         .overlay(alignment: .top) {
@@ -153,6 +172,7 @@ struct ContentView: View {
                 .fill(Color.black.opacity(0.16))
                 .contentShape(Rectangle())
                 .onTapGesture(perform: model.cancelPendingSendSelection)
+                .transition(.opacity)
 
             ScheduledSendTimingPicker(
                 itemDescription: selection.itemDescription,
@@ -174,6 +194,11 @@ struct ContentView: View {
                     .stroke(Brand.hairline, lineWidth: 1)
             }
             .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
+            .transition(
+                reduceMotion
+                    ? .opacity
+                    : .opacity.combined(with: .scale(scale: 0.96, anchor: .center))
+            )
         }
     }
 
@@ -568,7 +593,10 @@ struct ContentView: View {
         let isHovered = hoveredTransferFilter == filter
         return Button {
             model.queueHoverSelection = nil
-            transferFilter = filter
+            guard transferFilter != filter else { return }
+            withAnimation(reduceMotion ? nil : Brand.Motion.page) {
+                transferFilter = filter
+            }
         } label: {
             Text(filter.title)
                 .font(.system(size: 10.5, weight: .semibold))
@@ -576,13 +604,18 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 22)
                 .background {
-                    RoundedRectangle(cornerRadius: 6.5, style: .continuous)
-                        .fill(historyFilterBackground(isSelected: isSelected, isHovered: isHovered))
-                        .shadow(
-                            color: isSelected ? Color.black.opacity(0.08) : .clear,
-                            radius: 2,
-                            y: 1
-                        )
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                            .fill(Color.primary.opacity(0.085))
+                            .shadow(color: Color.black.opacity(0.08), radius: 2, y: 1)
+                            .matchedGeometryEffect(
+                                id: "transferFilterPill",
+                                in: transferFilterNamespace
+                            )
+                    } else if isHovered {
+                        RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                            .fill(Color.primary.opacity(0.045))
+                    }
                 }
                 .overlay(alignment: .bottom) {
                     if isSelected {
@@ -590,17 +623,17 @@ struct ContentView: View {
                             .fill(Brand.accent)
                             .frame(width: 14, height: 1.5)
                             .offset(y: -1.5)
+                            .matchedGeometryEffect(
+                                id: "transferFilterUnderline",
+                                in: transferFilterNamespace
+                            )
                     }
                 }
-                .animation(
-                    reduceMotion ? nil : .smooth(duration: 0.16, extraBounce: 0),
-                    value: isSelected
-                )
                 .contentShape(RoundedRectangle(cornerRadius: 6.5, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+            withAnimation(reduceMotion ? nil : Brand.Motion.hover) {
                 hoveredTransferFilter = hovering
                     ? filter
                     : (hoveredTransferFilter == filter ? nil : hoveredTransferFilter)
@@ -608,12 +641,6 @@ struct ContentView: View {
         }
         .accessibilityLabel(filter.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private func historyFilterBackground(isSelected: Bool, isHovered: Bool) -> Color {
-        if isSelected { return Color.primary.opacity(0.085) }
-        if isHovered { return Color.primary.opacity(0.045) }
-        return .clear
     }
 
     @ViewBuilder
@@ -651,6 +678,7 @@ struct ContentView: View {
                                 updateQueueHoverSelection(.scheduled(plan.id), hovering: hovering)
                             }
                         )
+                        .transition(.opacity)
 
                         if index < plans.count - 1 {
                             Divider()
@@ -669,6 +697,7 @@ struct ContentView: View {
 
                     ForEach(Array(transfers.enumerated()), id: \.element.id) { index, transfer in
                         transferItem(transfer)
+                            .transition(.opacity)
 
                         if index < transfers.count - 1 {
                             Divider()
@@ -680,6 +709,9 @@ struct ContentView: View {
                 .padding(.leading, 18)
                 .padding(.trailing, 8)
                 .padding(.bottom, 8)
+                .animation(reduceMotion ? nil : Brand.Motion.quick, value: transferFilter)
+                .animation(reduceMotion ? nil : Brand.Motion.quick, value: filteredTransfers.map(\.id))
+                .animation(reduceMotion ? nil : Brand.Motion.quick, value: filteredScheduledSends.map(\.id))
             }
             .background(CompactScrollViewConfigurator())
         }

@@ -39,6 +39,8 @@ struct ServicesView: View {
     @State private var showsDefaultDelayPicker = false
     @State private var page: ServicesPage = .general
     @State private var hoveredPage: ServicesPage?
+    @State private var contentDirection: CGFloat = 1
+    @Namespace private var tabIndicatorNamespace
 
     init(model: AppModel) {
         self.model = model
@@ -92,7 +94,11 @@ struct ServicesView: View {
         let isSelected = page == option
         let isHovered = hoveredPage == option
         return Button {
-            page = option
+            guard page != option else { return }
+            contentDirection = optionIndex(option) > optionIndex(page) ? 1 : -1
+            withAnimation(reduceMotion ? nil : Brand.Motion.page) {
+                page = option
+            }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: option.systemImage)
@@ -113,17 +119,14 @@ struct ServicesView: View {
                         .fill(Brand.accent)
                         .frame(width: 18, height: 2)
                         .offset(y: -2)
+                        .matchedGeometryEffect(id: "settingsTabUnderline", in: tabIndicatorNamespace)
                 }
             }
-            .animation(
-                reduceMotion ? nil : .smooth(duration: 0.2, extraBounce: 0),
-                value: isSelected
-            )
             .contentShape(RoundedRectangle(cornerRadius: 9.5, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+            withAnimation(reduceMotion ? nil : Brand.Motion.hover) {
                 hoveredPage = hovering ? option : (hoveredPage == option ? nil : hoveredPage)
             }
         }
@@ -131,12 +134,18 @@ struct ServicesView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    private func optionIndex(_ option: ServicesPage) -> Int {
+        ServicesPage.allCases.firstIndex(of: option) ?? 0
+    }
+
     @ViewBuilder
     private func tabPillBackground(isSelected: Bool, isHovered: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: 9.5, style: .continuous)
         if isSelected {
-            shape.fill(.clear)
+            shape
+                .fill(.clear)
                 .glassChrome(in: shape, interactive: true)
+                .transition(.opacity)
         } else {
             shape.fill(isHovered ? Color.primary.opacity(0.055) : .clear)
         }
@@ -144,34 +153,48 @@ struct ServicesView: View {
 
     @ViewBuilder
     private var settingsContent: some View {
-        if page == .conversion {
-            BasketConversionSettingsView()
-        } else {
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 8) {
-                    switch page {
-                    case .general:
-                        weChatSection
-                        settingsSection
-                    case .baskets:
-                        shelfSettingsSection
-                    case .conversion:
-                        EmptyView()
-                    case .monitoring:
-                        folderWatchSettingsSection
-                    case .integrations:
-                        localAPISection
-                        updatesAndIntegrationsSection
-                        feedbackSection
+        ZStack {
+            if page == .conversion {
+                BasketConversionSettingsView()
+                    .transition(
+                        reduceMotion
+                            ? .opacity
+                            : .opacity.combined(with: .offset(x: contentDirection * 10))
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        switch page {
+                        case .general:
+                            weChatSection
+                            settingsSection
+                        case .baskets:
+                            shelfSettingsSection
+                        case .conversion:
+                            EmptyView()
+                        case .monitoring:
+                            folderWatchSettingsSection
+                        case .integrations:
+                            localAPISection
+                            updatesAndIntegrationsSection
+                            feedbackSection
+                        }
                     }
+                    .padding(.leading, 12)
+                    .padding(.trailing, 7)
+                    .padding(.vertical, 10)
                 }
-                .padding(.leading, 12)
-                .padding(.trailing, 7)
-                .padding(.vertical, 10)
+                .background(CompactScrollViewConfigurator())
+                .id(page)
+                .transition(
+                    reduceMotion
+                        ? .opacity
+                        : .opacity.combined(with: .offset(x: contentDirection * 10))
+                )
             }
-            .id(page)
-            .background(CompactScrollViewConfigurator())
         }
+        .animation(reduceMotion ? nil : Brand.Motion.quick, value: page)
     }
 
     private var header: some View {
@@ -351,6 +374,7 @@ struct ServicesView: View {
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
                             .fill(Color.primary.opacity(0.035))
                     )
+                    .transition(.opacity.combined(with: .offset(y: -4)))
                 }
 
                 if model.weChatCredentialSource == .weClawSend,
@@ -364,6 +388,11 @@ struct ServicesView: View {
                             .padding(8)
                             .background(Color.white)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .transition(
+                                reduceMotion
+                                    ? .opacity
+                                    : .opacity.combined(with: .scale(scale: 0.92))
+                            )
 
                         Text(model.loginMessage)
                             .font(.system(size: 10.5))
@@ -395,6 +424,7 @@ struct ServicesView: View {
                         }
                     }
                     .frame(maxWidth: .infinity)
+                    .transition(.opacity.combined(with: .offset(y: 4)))
                 } else if model.weChatCredentialSource == .weClawSend, model.isLoggingIn {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.mini)
@@ -402,10 +432,12 @@ struct ServicesView: View {
                             .font(.system(size: 10.5))
                             .foregroundStyle(.secondary)
                     }
+                    .transition(.opacity)
                 } else if model.weChatCredentialSource == .weClawSend, !model.weChatStatus.isOnline {
                     Text("登录后可从菜单栏拖放文件发送到微信。")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
+                        .transition(.opacity)
                 }
 
                 if model.weChatStatus.isOnline {
@@ -419,8 +451,13 @@ struct ServicesView: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    .transition(.opacity)
                 }
             }
+            .animation(reduceMotion ? nil : Brand.Motion.quick, value: model.loginStep)
+            .animation(reduceMotion ? nil : Brand.Motion.quick, value: model.loginQRCodeContent)
+            .animation(reduceMotion ? nil : Brand.Motion.quick, value: model.isLoggingIn)
+            .animation(reduceMotion ? nil : Brand.Motion.quick, value: model.weChatStatus.isOnline)
         }
     }
 

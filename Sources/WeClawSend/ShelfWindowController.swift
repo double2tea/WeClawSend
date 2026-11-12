@@ -724,7 +724,7 @@ final class ShelfWindowController: NSObject, NSWindowDelegate {
         isResizing = true
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Layout.animationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.timingFunction = Brand.Motion.windowTiming
             panel.animator().setFrame(newFrame, display: true)
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in

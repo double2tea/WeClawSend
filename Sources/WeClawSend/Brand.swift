@@ -48,6 +48,16 @@ enum Brand {
     static let radiusControl: CGFloat = 10
     static let radiusChip: CGFloat = 100
 
+    enum Motion {
+        static let hover = Animation.easeOut(duration: 0.12)
+        static let quick = Animation.smooth(duration: 0.16, extraBounce: 0)
+        static let page = Animation.timingCurve(0.32, 0.72, 0, 1, duration: 0.22)
+        static let panel = Animation.timingCurve(0.32, 0.72, 0, 1, duration: 0.24)
+        static var windowTiming: CAMediaTimingFunction {
+            CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0, 1)
+        }
+    }
+
     private static func adaptiveColor(light: NSColor, dark: NSColor) -> Color {
         Color(
             nsColor: NSColor(name: nil) { appearance in

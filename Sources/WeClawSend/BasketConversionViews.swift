@@ -62,6 +62,7 @@ private enum ConversionSettingsPage: String, CaseIterable, Identifiable {
 }
 
 struct BasketConversionSettingsView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var page: ConversionSettingsPage = .presets
     @ObservedObject private var store = BasketConversionPresetStore.shared
     @AppStorage(BasketConversionSettings.enabledKey) private var enabled = true
@@ -74,13 +75,17 @@ struct BasketConversionSettingsView: View {
     @State private var draft = BasketConversionPreset(name: "视频分享", action: .mp4, settings: BasketConversionSettings())
     @State private var savedMessage: String?
     @State private var drafts: [BasketConversionCategory: BasketConversionPreset] = [:]
+    @Namespace private var pageIndicatorNamespace
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 2) {
                 ForEach(ConversionSettingsPage.allCases) { option in
                     Button {
-                        page = option
+                        guard page != option else { return }
+                        withAnimation(reduceMotion ? nil : Brand.Motion.page) {
+                            page = option
+                        }
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: option.systemImage)
@@ -91,10 +96,16 @@ struct BasketConversionSettingsView: View {
                             .foregroundStyle(page == option ? Color.primary : Color.secondary)
                             .frame(maxWidth: .infinity)
                             .frame(height: 28)
-                            .background(
-                                page == option ? Color.primary.opacity(0.085) : .clear,
-                                in: RoundedRectangle(cornerRadius: 7)
-                            )
+                            .background {
+                                if page == option {
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                        .fill(Color.primary.opacity(0.085))
+                                        .matchedGeometryEffect(
+                                            id: "conversionPagePill",
+                                            in: pageIndicatorNamespace
+                                        )
+                                }
+                            }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(option.rawValue)
@@ -126,8 +137,10 @@ struct BasketConversionSettingsView: View {
                 .padding(.bottom, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(CompactScrollViewConfigurator())
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 5)))
             }
             .id(page)
+            .animation(reduceMotion ? nil : Brand.Motion.quick, value: page)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if page.category != nil {
@@ -351,12 +364,14 @@ struct FFmpegSetupView: View {
 }
 
 struct BasketConversionBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var controller: BasketConversionController
     @ObservedObject private var store = BasketConversionPresetStore.shared
     let selectedURLs: [URL]
     let draggedURLs: [URL]
     let shelf: ShelfModel
     let pointerPresenceChanged: (Bool) -> Void
+    let resetToken: Int
     var close: () -> Void = {}
     var selectResults: ([URL]) -> Void = { _ in }
     @State private var targetedPreset: UUID?
@@ -392,7 +407,7 @@ struct BasketConversionBar: View {
                 Spacer()
                 if !controller.isRunning && !showsQueue && !controller.queue.isEmpty {
                     Button {
-                        withAnimation(.easeOut(duration: 0.16)) {
+                        withAnimation(reduceMotion ? nil : Brand.Motion.quick) {
                             showsQueue = true
                         }
                     } label: {
@@ -466,7 +481,7 @@ struct BasketConversionBar: View {
                     Spacer(minLength: 4)
                     HStack(spacing: 6) {
                         Button {
-                            withAnimation(.easeOut(duration: 0.16)) {
+                            withAnimation(reduceMotion ? nil : Brand.Motion.quick) {
                                 showsQueue = false
                             }
                         } label: {
@@ -494,6 +509,7 @@ struct BasketConversionBar: View {
             } else if presets.isEmpty {
                 Text("没有适用预设，请在设置 → 转换中新建或启用。")
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
             } else {
                 if inputURLs.contains(where: { ShelfItem.kind(for: $0) == .folder }) {
                     Toggle("包含子文件夹", isOn: $includeSubfolders)
@@ -531,9 +547,12 @@ struct BasketConversionBar: View {
                     }
                 }
                 .frame(height: min(132, CGFloat((presets.count + 1) / 2) * 66))
+                .transition(.opacity)
             }
         }
         .font(.system(size: 11)).buttonStyle(.plain).padding(10)
+        .animation(reduceMotion ? nil : Brand.Motion.quick, value: showsQueue)
+        .animation(reduceMotion ? nil : Brand.Motion.quick, value: controller.isRunning)
         .onChange(of: controller.isRunning) { _, running in
             if running {
                 showsQueue = true
@@ -544,6 +563,12 @@ struct BasketConversionBar: View {
             if !controller.isRunning && previous != current {
                 showsQueue = false
             }
+        }
+        .onChange(of: resetToken) { _, _ in
+            showsQueue = controller.isRunning
+            showsDetails = false
+            targetedPreset = nil
+            includeSubfolders = false
         }
         .alert("转换未完成", isPresented: Binding(
             get: { controller.errorMessage != nil },
